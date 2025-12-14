@@ -1,0 +1,19 @@
+[project]
+name = "cleancloud"
+version = "0.1.0"
+description = "Cloud hygiene scanner for orphaned and unowned resources"
+requires-python = ">=3.10"
+dependencies = [
+    "boto3",
+    "click",
+]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+cleancloud = "cleancloud.cli:main"

@@ -1,0 +1,82 @@
+############################
+# Python
+############################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python build / packaging
+build/
+dist/
+.eggs/
+*.egg-info/
+pip-wheel-metadata/
+
+# Unit test / coverage reports
+htmlcov/
+.coverage
+.coverage.*
+.pytest_cache/
+.tox/
+.nox/
+.cache/
+
+# MyPy / Pyright
+.mypy_cache/
+.pyright/
+
+# Jupyter
+.ipynb_checkpoints/
+
+############################
+# IntelliJ IDEA / PyCharm
+############################
+.idea/
+*.iml
+*.ipr
+*.iws
+out/
+
+# IntelliJ caches
+.idea/**/workspace.xml
+.idea/**/tasks.xml
+.idea/**/usage.statistics.xml
+.idea/**/dictionaries
+.idea/**/shelf
+
+############################
+# Logs & runtime files
+############################
+*.log
+logs/
+*.pid
+
+############################
+# OS-specific
+############################
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+############################
+# Environment / secrets
+############################
+.env
+.env.*
+*.pem
+*.key
