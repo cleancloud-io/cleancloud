@@ -126,21 +126,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,aws,azure]"
 
-      - name: Test Azure (strict, with retry)
-        uses: nick-fields/retry-action@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: |
-            set -e
-            cleancloud doctor --provider azure
-            cleancloud scan --provider azure
+      - name: Test Azure (strict)
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -e
+          cleancloud doctor --provider azure
+          cleancloud scan --provider azure
 
   # =========================
   # BUILD & PUBLISH

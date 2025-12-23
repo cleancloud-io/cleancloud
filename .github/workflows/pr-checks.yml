@@ -170,31 +170,23 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,aws,azure]"
 
-      - name: Test Azure doctor command (with retry)
-        uses: nick-fields/retry-action@v3
-        with:
-          timeout_minutes: 3
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: cleancloud doctor --provider azure
+      - name: Test Azure doctor command
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          #AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          cleancloud doctor --provider azure
 
-      - name: Test Azure scan (with retry)
-        uses: nick-fields/retry-action@v3
-        with:
-          timeout_minutes: 5
-          max_attempts: 3
-          retry_wait_seconds: 30
-          command: cleancloud scan --provider azure --output json --output-file test-results.json
+      - name: Test Azure scan
         env:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          #AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          cleancloud scan --provider azure --output json --output-file test-results.json
 
       - name: Upload test results
         if: always()

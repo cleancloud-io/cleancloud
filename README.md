@@ -6,6 +6,8 @@ CleanCloud helps SRE and DevOps teams identify orphaned, untagged, and potential
 
 ## Why CleanCloud?
 
+Modern cloud environments constantly create and destroy storage and logs. Over time, orphaned resources accumulate — no owner, no signal, and too risky to delete blindly.
+
 Most cloud hygiene tools fall into two categories:
 
 1. **Auto-delete everything** - Too dangerous for production
