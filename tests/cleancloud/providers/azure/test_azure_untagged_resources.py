@@ -16,7 +16,7 @@ def mock_compute_client(mocker):
         managed_by=None,
         time_created=datetime.now(timezone.utc),
         sku=SimpleNamespace(name="Standard_LRS"),
-        tags=None
+        tags=None,
     )
     disk_attached = SimpleNamespace(
         id="disk-2",
@@ -25,7 +25,7 @@ def mock_compute_client(mocker):
         managed_by="/subscriptions/xxx/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1",
         time_created=datetime.now(timezone.utc),
         sku=None,
-        tags={"env": "prod"}
+        tags={"env": "prod"},
     )
 
     disks_client = mocker.MagicMock()
@@ -37,7 +37,12 @@ def mock_compute_client(mocker):
 
 
 def test_find_untagged_resources(mock_compute_client):
-    findings = find_untagged_resources(subscription_id="sub-123", credential=None, region_filter="eastus", client=mock_compute_client)
+    findings = find_untagged_resources(
+        subscription_id="sub-123",
+        credential=None,
+        region_filter="eastus",
+        client=mock_compute_client,
+    )
     resource_ids = [f.resource_id for f in findings]
     assert "disk-1" in resource_ids
     assert "disk-2" not in resource_ids

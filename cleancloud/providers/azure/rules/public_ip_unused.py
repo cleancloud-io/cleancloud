@@ -4,6 +4,7 @@ from typing import List, Optional
 from azure.mgmt.network import NetworkManagementClient
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 
@@ -16,7 +17,10 @@ def find_unused_public_ips(
 ) -> List[Finding]:
     """
     Find unattached or unused Azure Public IPs.
-    Read-only, safe.
+
+    Conservative rule (review-only):
+    - IP configuration checked
+    - Does NOT infer future use or planned attachment
 
     IAM permissions:
     - Microsoft.Network/publicIPAddresses/read
@@ -36,6 +40,17 @@ def find_unused_public_ips(
         if pip.ip_configuration is not None:
             continue
 
+        evidence = Evidence(
+            signals_used=["IP configuration is None (not attached to any resource)"],
+            signals_not_checked=[
+                "Planned future association",
+                "IaC-managed intent",
+                "Application-level usage",
+                "Disaster recovery or backup planning",
+            ],
+            time_window=None,
+        )
+
         findings.append(
             Finding(
                 provider="azure",
@@ -47,8 +62,9 @@ def find_unused_public_ips(
                 summary="Public IP is not attached to any resource",
                 reason="IP configuration is None (not attached)",
                 risk=Risk.LOW.value,
-                confidence=Confidence.HIGH.value,
+                confidence=Confidence.MEDIUM.value,  # conservative
                 detected_at=datetime.now(timezone.utc),
+                evidence=evidence,
                 details={
                     "resource_name": pip.name,
                     "subscription_id": subscription_id,

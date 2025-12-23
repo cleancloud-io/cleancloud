@@ -31,10 +31,18 @@ def test_azure_rules_run_without_error():
 
     # ---- Execute each rule ----
     all_rules = [
-        find_unattached_managed_disks(subscription_id=sub_id, credential=credential, region_filter=region_filter),
-        find_old_snapshots(subscription_id=sub_id, credential=credential, region_filter=region_filter),
-        find_untagged_resources(subscription_id=sub_id, credential=credential, region_filter=region_filter),
-        find_unused_public_ips(subscription_id=sub_id, credential=credential, region_filter=region_filter),
+        find_unattached_managed_disks(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
+        find_old_snapshots(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
+        find_untagged_resources(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
+        find_unused_public_ips(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
     ]
 
     # ---- Assert each rule returned a list ----

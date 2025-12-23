@@ -22,6 +22,7 @@ def test_exit_policy_medium_only():
     results = [FakeResult(confidence="Medium")]
     assert determine_exit_code(results) == 0
 
+
 def test_exit_policy_high_only():
     results = [FakeResult(confidence="High")]
     assert determine_exit_code(results) == 2

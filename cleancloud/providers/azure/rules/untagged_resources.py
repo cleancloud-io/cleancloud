@@ -4,6 +4,7 @@ from typing import List, Optional
 from azure.mgmt.compute import ComputeManagementClient
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 MIN_SNAPSHOT_AGE_DAYS = 7
@@ -21,13 +22,11 @@ def find_untagged_resources(
     client: Optional[ComputeManagementClient] = None,
 ) -> List[Finding]:
     """
-    Find untagged Azure resources.
+    Find untagged Azure resources (disks, snapshots).
 
-    Covered resources:
-    - Managed disks
-    - Snapshots
-
-    This rule is read-only and conservative.
+    Conservative rule (review-only):
+    - Only checks presence of tags
+    - Does NOT infer intended usage or IaC ownership
 
     IAM permissions:
     - Microsoft.Compute/disks/read
@@ -51,9 +50,20 @@ def find_untagged_resources(
         if disk.tags:
             continue
 
-        confidence = Confidence.LOW.value
-        if disk.managed_by is None:
-            confidence = Confidence.MEDIUM.value
+        confidence_value = (
+            Confidence.MEDIUM.value if disk.managed_by is None else Confidence.LOW.value
+        )
+
+        evidence = Evidence(
+            signals_used=["No tags found on disk"],
+            signals_not_checked=[
+                "Planned VM attachment",
+                "IaC-managed intent",
+                "Application-level usage",
+                "Disaster recovery or backup planning",
+            ],
+            time_window=None,
+        )
 
         findings.append(
             Finding(
@@ -66,8 +76,9 @@ def find_untagged_resources(
                 summary="Disk has no tags",
                 reason="No tags found on resource",
                 risk=Risk.LOW.value,
-                confidence=confidence,
+                confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
+                evidence=evidence,
                 details={
                     "resource_name": disk.name,
                     "subscription_id": subscription_id,
@@ -94,6 +105,17 @@ def find_untagged_resources(
         if age_days < MIN_SNAPSHOT_AGE_DAYS:
             continue
 
+        evidence = Evidence(
+            signals_used=[f"No tags found on snapshot, age {age_days} days"],
+            signals_not_checked=[
+                "Disk usage by applications",
+                "IaC-managed ownership",
+                "Disaster recovery or backup planning",
+                "Future planned usage",
+            ],
+            time_window=f">={MIN_SNAPSHOT_AGE_DAYS} days",
+        )
+
         findings.append(
             Finding(
                 provider="azure",
@@ -107,6 +129,7 @@ def find_untagged_resources(
                 risk=Risk.LOW.value,
                 confidence=Confidence.LOW.value,
                 detected_at=datetime.now(timezone.utc),
+                evidence=evidence,
                 details={
                     "resource_name": snap.name,
                     "subscription_id": subscription_id,

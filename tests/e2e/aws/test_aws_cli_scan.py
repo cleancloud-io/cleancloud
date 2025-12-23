@@ -10,7 +10,15 @@ def test_cli_scan_runs():
     """
     Ensure `cleancloud scan --provider aws` CLI command runs without crashing.
     """
-    cmd = [sys.executable, "-m", "cleancloud.cli", "scan", "--provider", "aws", "--fail-on-findings"]
+    cmd = [
+        sys.executable,
+        "-m",
+        "cleancloud.cli",
+        "scan",
+        "--provider",
+        "aws",
+        "--fail-on-findings",
+    ]
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     # CLI should exit with code 0 or 2 (depending on findings)

@@ -15,15 +15,22 @@ def mock_boto3_session(monkeypatch, mocker):
     mock_session.client.side_effect = lambda service_name, region_name=None: {
         "ec2": ec2,
         "s3": s3,
-        "logs": logs
+        "logs": logs,
     }[service_name]
 
     # Mock EBS volumes
     ec2.get_paginator.return_value.paginate.return_value = [
-        {"Volumes": [
-            {"VolumeId": "vol-1", "Tags": None, "AvailabilityZone": "us-east-1a", "Size": 10},
-            {"VolumeId": "vol-2", "Tags": [{"Key": "Name", "Value": "prod"}], "AvailabilityZone": "us-east-1b", "Size": 20},
-        ]}
+        {
+            "Volumes": [
+                {"VolumeId": "vol-1", "Tags": None, "AvailabilityZone": "us-east-1a", "Size": 10},
+                {
+                    "VolumeId": "vol-2",
+                    "Tags": [{"Key": "Name", "Value": "prod"}],
+                    "AvailabilityZone": "us-east-1b",
+                    "Size": 20,
+                },
+            ]
+        }
     ]
 
     # --- Mock S3 ---
@@ -37,10 +44,12 @@ def mock_boto3_session(monkeypatch, mocker):
     # --- Mock CloudWatch Logs ---
     logs = mocker.MagicMock()
     logs.get_paginator.return_value.paginate.return_value = [
-        {"logGroups": [
-            {"logGroupName": "/aws/lambda/untagged", "tags": None},
-            {"logGroupName": "/aws/lambda/tagged", "tags": {"env": "prod"}},
-        ]}
+        {
+            "logGroups": [
+                {"logGroupName": "/aws/lambda/untagged", "tags": None},
+                {"logGroupName": "/aws/lambda/tagged", "tags": {"env": "prod"}},
+            ]
+        }
     ]
 
     return mock_session

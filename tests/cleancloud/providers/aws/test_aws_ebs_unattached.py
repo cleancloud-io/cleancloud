@@ -18,7 +18,7 @@ def test_find_unattached_ebs_volumes(mock_boto3_session):
             "Volumes": [
                 {
                     "VolumeId": "vol-1",
-                    "State": "available",   # unattached
+                    "State": "available",  # unattached
                     "CreateTime": old_date,
                     "Size": 10,
                     "AvailabilityZone": "us-east-1a",
@@ -26,7 +26,7 @@ def test_find_unattached_ebs_volumes(mock_boto3_session):
                 },
                 {
                     "VolumeId": "vol-2",
-                    "State": "in-use",      # attached
+                    "State": "in-use",  # attached
                     "CreateTime": old_date,
                     "Size": 20,
                     "AvailabilityZone": "us-east-1a",

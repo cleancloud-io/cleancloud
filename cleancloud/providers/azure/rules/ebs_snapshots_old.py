@@ -4,6 +4,7 @@ from typing import List, Optional
 from azure.mgmt.compute import ComputeManagementClient
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 MIN_AGE_DAYS_MEDIUM = 30
@@ -25,10 +26,9 @@ def find_old_snapshots(
     """
     Find old Azure managed snapshots that may be orphaned.
 
-    Signals used:
-    - Snapshot age exceeds conservative thresholds
-
-    This rule is read-only and safe.
+    Conservative rule (review-only):
+    - Snapshot age checked
+    - Other usage/ownership not inferred
 
     IAM permissions:
     - Microsoft.Compute/snapshots/read
@@ -42,7 +42,6 @@ def find_old_snapshots(
     )
 
     for snapshot in compute_client.snapshots.list():
-        # Azure uses 'location' instead of region
         if region_filter and snapshot.location != region_filter:
             continue
 
@@ -52,11 +51,22 @@ def find_old_snapshots(
         age_days = _age_in_days(snapshot.time_created)
 
         if age_days >= MIN_AGE_DAYS_HIGH:
-            confidence = Confidence.HIGH.value
+            confidence_value = Confidence.MEDIUM.value  # conservative
         elif age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence = Confidence.MEDIUM.value
+            confidence_value = Confidence.MEDIUM.value
         else:
             continue  # too new, ignore
+
+        evidence = Evidence(
+            signals_used=[f"Snapshot age is {age_days} days"],
+            signals_not_checked=[
+                "Disk usage by applications",
+                "IaC-managed ownership",
+                "Disaster recovery or backup intent",
+                "Future planned usage",
+            ],
+            time_window=f"{MIN_AGE_DAYS_MEDIUM}-{MIN_AGE_DAYS_HIGH} days",
+        )
 
         findings.append(
             Finding(
@@ -69,8 +79,9 @@ def find_old_snapshots(
                 summary=f"Snapshot has existed for {age_days} days",
                 reason="Snapshot age exceeds configured threshold",
                 risk=Risk.LOW.value,
-                confidence=confidence,
+                confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
+                evidence=evidence,
                 details={
                     "resource_name": snapshot.name,
                     "subscription_id": subscription_id,

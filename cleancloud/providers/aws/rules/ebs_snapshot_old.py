@@ -4,6 +4,7 @@ from typing import List
 import boto3
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 
@@ -17,6 +18,7 @@ def find_old_ebs_snapshots(
 
     Conservative rule:
     - No AMI linkage detection yet (future enhancement)
+    - Review-only, read-only outputs
 
     IAM permissions:
     - ec2:DescribeSnapshots
@@ -33,19 +35,33 @@ def find_old_ebs_snapshots(
             age_days = (now - start_time).days
 
             if age_days >= days_old:
+                evidence = Evidence(
+                    signals_used=[
+                        f"Snapshot age is {age_days} days, exceeding threshold of {days_old} days"
+                    ],
+                    signals_not_checked=[
+                        "AMI linkage / usage",
+                        "Application-level usage",
+                        "Disaster recovery intent",
+                        "Manual operational workflows",
+                    ],
+                    time_window=f"{days_old} days",
+                )
+
                 findings.append(
                     Finding(
                         provider="aws",
                         rule_id="aws.ebs.snapshot.old",
-                        resource_type="ebs_snapshot",
+                        resource_type="aws.ebs.snapshot",
                         resource_id=snap["SnapshotId"],
                         region=region,
                         title="Old EBS snapshot",
                         summary=f"EBS snapshot older than {days_old} days",
-                        reason="Snapshot age exceeds configured threshold",
+                        reason="Snapshot exceeds configured age threshold",
                         risk=Risk.LOW.value,
-                        confidence=Confidence.HIGH.value,
+                        confidence=Confidence.MEDIUM.value,  # conservative
                         detected_at=now,
+                        evidence=evidence,
                         details={
                             "start_time": start_time.isoformat(),
                             "age_days": age_days,

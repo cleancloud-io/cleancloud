@@ -13,7 +13,7 @@ def mock_network_client(mocker):
         ip_address="1.2.3.4",
         ip_configuration=None,
         location="eastus",
-        tags=None
+        tags=None,
     )
     pip_in_use = SimpleNamespace(
         id="pip-2",
@@ -21,7 +21,7 @@ def mock_network_client(mocker):
         ip_address="5.6.7.8",
         ip_configuration={"id": "some-config"},
         location="eastus",
-        tags={"env": "prod"}
+        tags={"env": "prod"},
     )
 
     client = mocker.MagicMock()
@@ -30,7 +30,12 @@ def mock_network_client(mocker):
 
 
 def test_find_unused_public_ips(mock_network_client):
-    findings = find_unused_public_ips(subscription_id="sub-123", credential=None, region_filter="eastus", client=mock_network_client)
+    findings = find_unused_public_ips(
+        subscription_id="sub-123",
+        credential=None,
+        region_filter="eastus",
+        client=mock_network_client,
+    )
     resource_ids = [f.resource_id for f in findings]
     assert "pip-1" in resource_ids
     assert "pip-2" not in resource_ids

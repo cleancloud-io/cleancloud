@@ -2,6 +2,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from cleancloud.models.evidence import Evidence
+
 
 @dataclass
 class Finding:
@@ -20,6 +22,7 @@ class Finding:
 
     detected_at: datetime
     details: Dict[str, Any]
+    evidence: Evidence
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -35,4 +38,5 @@ class Finding:
             "confidence": self.confidence,
             "detected_at": self.detected_at.isoformat(),
             "details": self.details,
+            "evidence": self.evidence,
         }

@@ -4,6 +4,7 @@ from typing import List
 from azure.mgmt.compute import ComputeManagementClient
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 MIN_AGE_DAYS_HIGH = 14
@@ -24,11 +25,10 @@ def find_unattached_managed_disks(
     """
     Find unattached Azure managed disks that are likely orphaned.
 
-    Signals used:
-    - Disk is not attached to any VM (managed_by is None)
-    - Disk age exceeds conservative thresholds
-
-    This function is read-only and safe.
+    Conservative rule (review-only):
+    - Disk is not attached to any VM
+    - Age exceeds threshold
+    - Does NOT infer intended usage
 
     IAM permissions:
     - Microsoft.Compute/disks/read
@@ -42,27 +42,37 @@ def find_unattached_managed_disks(
     )
 
     for disk in compute_client.disks.list():
-        # Optional region filter (Azure uses 'location')
         if region_filter and disk.location != region_filter:
             continue
 
-        # ---- Primary signal: attachment state
+        # Primary signal: attachment state
         if disk.managed_by is not None:
             continue
 
-        # ---- Secondary signal: age
+        # Secondary signal: age
         if not disk.time_created:
             continue
 
         disk_age_days = _age_in_days(disk.time_created)
 
-        if disk_age_days >= MIN_AGE_DAYS_HIGH:
-            confidence = Confidence.HIGH.value
-        elif disk_age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence = Confidence.MEDIUM.value
+        if disk_age_days >= MIN_AGE_DAYS_MEDIUM:
+            confidence_value = Confidence.MEDIUM.value  # conservative for all ages
         else:
-            # Too new – ignore completely
-            continue
+            continue  # too new
+
+        evidence = Evidence(
+            signals_used=[
+                "Disk.managed_by is None (not attached to any VM)",
+                f"Disk age = {disk_age_days} days",
+            ],
+            signals_not_checked=[
+                "Planned future VM attachment",
+                "IaC-managed intent",
+                "Application-level usage",
+                "Disaster recovery or backup planning",
+            ],
+            time_window=f"{MIN_AGE_DAYS_MEDIUM}-{MIN_AGE_DAYS_HIGH}+ days",
+        )
 
         findings.append(
             Finding(
@@ -75,8 +85,9 @@ def find_unattached_managed_disks(
                 summary=f"Disk not attached to any VM for {disk_age_days} days",
                 reason="Disk has no VM attachment and exceeds age threshold",
                 risk=Risk.LOW.value,
-                confidence=confidence,
+                confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
+                evidence=evidence,
                 details={
                     "resource_name": disk.name,
                     "subscription_id": subscription_id,

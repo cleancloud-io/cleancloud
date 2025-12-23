@@ -4,6 +4,7 @@ from typing import List
 import boto3
 
 from cleancloud.models.confidence import Confidence, Risk
+from cleancloud.models.evidence import Evidence
 from cleancloud.models.finding import Finding
 
 
@@ -15,9 +16,9 @@ def find_inactive_cloudwatch_logs(
     Find CloudWatch log groups with:
     - Infinite retention (never expire)
 
-    NOTE:
-    Ingestion activity is intentionally NOT inferred in MVP
-    to avoid false positives.
+    Conservative rule:
+    - Ingestion activity is NOT inferred in MVP
+    - Review-only, read-only outputs
 
     IAM permissions:
     - logs:DescribeLogGroups
@@ -33,19 +34,31 @@ def find_inactive_cloudwatch_logs(
             retention_days = lg.get("retentionInDays")  # None = never expire
 
             if retention_days is None:
+                evidence = Evidence(
+                    signals_used=["Log group has no retention policy configured (never expires)"],
+                    signals_not_checked=[
+                        "Recent ingestion activity",
+                        "Application-level usage",
+                        "Compliance retention requirements",
+                        "Future expected logs",
+                    ],
+                    time_window=None,
+                )
+
                 findings.append(
                     Finding(
                         provider="aws",
                         rule_id="aws.cloudwatch.logs.infinite_retention",
-                        resource_type="cloudwatch_log_group",
+                        resource_type="aws.cloudwatch.log_group",
                         resource_id=lg["logGroupName"],
                         region=region,
                         title="CloudWatch log group with infinite retention",
                         summary="Log group has no retention policy configured",
                         reason="Retention is not set (logs never expire)",
                         risk=Risk.LOW.value,
-                        confidence=Confidence.HIGH.value,
+                        confidence=Confidence.MEDIUM.value,  # conservative
                         detected_at=now,
+                        evidence=evidence,
                         details={
                             "stored_bytes": lg.get("storedBytes"),
                             "retention_days": retention_days,

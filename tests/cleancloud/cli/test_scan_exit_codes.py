@@ -11,10 +11,12 @@ pytest.skip(
     allow_module_level=True,
 )
 
+
 class FakeResult:
     """
     Minimal fake result object for CLI integration tests.
     """
+
     def __init__(self, confidence: str):
         self.confidence = confidence
 
