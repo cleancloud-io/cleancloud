@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from cleancloud.models.finding import Finding
 from cleancloud.config.schema import IgnoreTagRuleConfig
+from cleancloud.models.finding import Finding
 
 
 @dataclass(frozen=True)
@@ -25,15 +25,12 @@ class TagFilterResult:
 
 
 def compile_rules(config_rules: List[IgnoreTagRuleConfig]) -> List[IgnoreTagRule]:
-    return [
-        IgnoreTagRule(key=r.key, value=r.value)
-        for r in config_rules
-    ]
+    return [IgnoreTagRule(key=r.key, value=r.value) for r in config_rules]
 
 
 def filter_findings_by_tags(
-        findings: List[Finding],
-        ignore_rules: List[IgnoreTagRule],
+    findings: List[Finding],
+    ignore_rules: List[IgnoreTagRule],
 ) -> TagFilterResult:
     if not ignore_rules:
         return TagFilterResult(kept=findings, ignored=[])

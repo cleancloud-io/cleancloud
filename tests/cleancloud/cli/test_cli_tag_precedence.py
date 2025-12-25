@@ -1,11 +1,10 @@
 from datetime import datetime, timezone
-from pathlib import Path
 
 import yaml
 from click.testing import CliRunner
 
 from cleancloud.cli import cli
-from cleancloud.models.finding import Finding, Evidence
+from cleancloud.models.finding import Evidence, Finding
 
 
 def _fake_finding(resource_id, tags):

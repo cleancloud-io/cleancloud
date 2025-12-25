@@ -1,15 +1,17 @@
 # cleancloud/output/json.py
 import json
-from pathlib import Path
 from dataclasses import asdict, is_dataclass
-from typing import Any, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
 
 def write_json(data: Any, output_path: Optional[Path] = None):
     """
     Write data to JSON file or return as string if output_path is None.
     Automatically converts dataclasses and datetime to serializable formats.
     """
+
     class DataclassEncoder(json.JSONEncoder):
         def default(self, o):
             if is_dataclass(o):

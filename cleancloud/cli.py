@@ -7,19 +7,6 @@ import botocore.exceptions
 import click
 import yaml
 
-from cleancloud.exit_policy import (
-    EXIT_ERROR,
-    EXIT_OK,
-    EXIT_PERMISSION_ERROR,
-    EXIT_POLICY_VIOLATION,
-    determine_exit_code,
-)
-from cleancloud.models.finding import Finding
-from cleancloud.output.csv import write_csv
-from cleancloud.output.human import print_human
-from cleancloud.output.json import write_json
-from cleancloud.output.summary import build_summary
-
 # ------------------------
 # Config + filtering
 # ------------------------
@@ -28,10 +15,22 @@ from cleancloud.config.schema import (
     IgnoreTagRuleConfig,
     load_config,
 )
+from cleancloud.exit_policy import (
+    EXIT_ERROR,
+    EXIT_OK,
+    EXIT_PERMISSION_ERROR,
+    EXIT_POLICY_VIOLATION,
+    determine_exit_code,
+)
 from cleancloud.filtering.tags import (
     compile_rules,
     filter_findings_by_tags,
 )
+from cleancloud.models.finding import Finding
+from cleancloud.output.csv import write_csv
+from cleancloud.output.human import print_human
+from cleancloud.output.json import write_json
+from cleancloud.output.summary import build_summary
 
 # ------------------------
 # AWS rules
@@ -46,6 +45,12 @@ from cleancloud.providers.aws.rules.untagged_resources import (
 )
 
 # ------------------------
+# Sessions / doctor
+# ------------------------
+from cleancloud.providers.aws.session import create_aws_session
+from cleancloud.providers.azure.doctor import run_azure_doctor
+
+# ------------------------
 # Azure rules
 # ------------------------
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
@@ -56,13 +61,7 @@ from cleancloud.providers.azure.rules.unattached_managed_disks import (
 from cleancloud.providers.azure.rules.untagged_resources import (
     find_untagged_resources as find_azure_untagged_resources,
 )
-
-# ------------------------
-# Sessions / doctor
-# ------------------------
-from cleancloud.providers.aws.session import create_aws_session
 from cleancloud.providers.azure.session import create_azure_session
-from cleancloud.providers.azure.doctor import run_azure_doctor
 
 CONFIDENCE_ORDER = {
     "LOW": 1,
@@ -117,16 +116,16 @@ def cli():
     help="Ignore findings by tag (key or key:value). Overrides config.",
 )
 def scan(
-        provider: str,
-        region: Optional[str],
-        all_regions: bool,
-        profile: Optional[str],
-        output: str,
-        output_file: Optional[str],
-        fail_on_findings: bool,
-        fail_on_confidence: Optional[str],
-        config: Optional[str],
-        ignore_tag: List[str],
+    provider: str,
+    region: Optional[str],
+    all_regions: bool,
+    profile: Optional[str],
+    output: str,
+    output_file: Optional[str],
+    fail_on_findings: bool,
+    fail_on_confidence: Optional[str],
+    config: Optional[str],
+    ignore_tag: List[str],
 ):
     click.echo("🔍 Starting CleanCloud scan")
     click.echo(f"Provider: {provider}")
@@ -227,9 +226,7 @@ def scan(
             default=None,
             key=lambda c: CONFIDENCE_ORDER.get(c, 0),
         )
-        summary["high_conf_findings"] = len(
-            [f for f in findings if f.confidence == "HIGH"]
-        )
+        summary["high_conf_findings"] = len([f for f in findings if f.confidence == "HIGH"])
 
         if ignored_count > 0:
             summary["ignored_by_tag_policy"] = ignored_count
@@ -310,9 +307,7 @@ def doctor(provider: str, region: Optional[str], profile: Optional[str], config:
                 cfg = load_config(raw)
 
         if cfg.tag_filtering and cfg.tag_filtering.enabled:
-            click.echo(
-                "⚠️  Tag filtering is enabled — some findings may be intentionally ignored"
-            )
+            click.echo("⚠️  Tag filtering is enabled — some findings may be intentionally ignored")
 
         if provider == "aws":
             _doctor_aws(profile=profile, region=region)
@@ -356,7 +351,7 @@ def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
 
 
 def _scan_azure_subscription(
-        subscription_id: str, credential, region_filter: Optional[str]
+    subscription_id: str, credential, region_filter: Optional[str]
 ) -> List[Finding]:
     findings: List[Finding] = []
 
