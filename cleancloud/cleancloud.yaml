@@ -1,0 +1,11 @@
+# cleancloud.yaml
+version: 1
+
+tag_filtering:
+  enabled: true
+  ignore:
+    - key: env
+      value: production
+    - key: team
+      value: platform
+    - key: team   # without value

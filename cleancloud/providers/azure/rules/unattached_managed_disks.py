@@ -95,7 +95,7 @@ def find_unattached_managed_disks(
                     "age_days": disk_age_days,
                     "sku": disk.sku.name if disk.sku else None,
                     "size_gb": disk.disk_size_gb,
-                    "tags_present": bool(disk.tags),
+                    "tags": disk.tags,
                 },
             )
         )

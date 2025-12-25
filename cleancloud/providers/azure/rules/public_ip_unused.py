@@ -70,7 +70,7 @@ def find_unused_public_ips(
                     "subscription_id": subscription_id,
                     "attached": False,
                     "ip_address": pip.ip_address,
-                    "tags_present": bool(pip.tags),
+                    "tags": pip.tags,
                 },
             )
         )

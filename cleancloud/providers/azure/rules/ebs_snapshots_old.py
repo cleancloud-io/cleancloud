@@ -88,7 +88,7 @@ def find_old_snapshots(
                     "age_days": age_days,
                     "disk_size_gb": snapshot.disk_size_gb,
                     "sku": snapshot.sku.name if snapshot.sku else None,
-                    "tags_present": bool(snapshot.tags),
+                    "tags": snapshot.tags,
                 },
             )
         )
