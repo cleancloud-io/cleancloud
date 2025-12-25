@@ -5,6 +5,7 @@ from typing import List, Optional
 
 import botocore.exceptions
 import click
+import yaml
 
 from cleancloud.exit_policy import (
     EXIT_ERROR,
@@ -16,13 +17,28 @@ from cleancloud.exit_policy import (
 from cleancloud.models.finding import Finding
 from cleancloud.output.csv import write_csv
 from cleancloud.output.human import print_human
-
-# ------------------------
-# Output
-# ------------------------
 from cleancloud.output.json import write_json
 from cleancloud.output.summary import build_summary
-from cleancloud.providers.aws.rules.cloudwatch_inactive import find_inactive_cloudwatch_logs
+
+# ------------------------
+# Config + filtering
+# ------------------------
+from cleancloud.config.schema import (
+    CleanCloudConfig,
+    IgnoreTagRuleConfig,
+    load_config,
+)
+from cleancloud.filtering.tags import (
+    compile_rules,
+    filter_findings_by_tags,
+)
+
+# ------------------------
+# AWS rules
+# ------------------------
+from cleancloud.providers.aws.rules.cloudwatch_inactive import (
+    find_inactive_cloudwatch_logs,
+)
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
 from cleancloud.providers.aws.rules.untagged_resources import (
@@ -30,10 +46,8 @@ from cleancloud.providers.aws.rules.untagged_resources import (
 )
 
 # ------------------------
-# AWS imports
+# Azure rules
 # ------------------------
-from cleancloud.providers.aws.session import create_aws_session
-from cleancloud.providers.azure.doctor import run_azure_doctor
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.unattached_managed_disks import (
@@ -44,9 +58,11 @@ from cleancloud.providers.azure.rules.untagged_resources import (
 )
 
 # ------------------------
-# Azure imports
+# Sessions / doctor
 # ------------------------
+from cleancloud.providers.aws.session import create_aws_session
 from cleancloud.providers.azure.session import create_azure_session
+from cleancloud.providers.azure.doctor import run_azure_doctor
 
 CONFIDENCE_ORDER = {
     "LOW": 1,
@@ -90,20 +106,41 @@ def cli():
     default=None,
     help="Fail scan if findings at or above this confidence exist",
 )
+@click.option(
+    "--config",
+    type=click.Path(exists=True),
+    help="Path to cleancloud.yaml",
+)
+@click.option(
+    "--ignore-tag",
+    multiple=True,
+    help="Ignore findings by tag (key or key:value). Overrides config.",
+)
 def scan(
-    provider: str,
-    region: Optional[str],
-    all_regions: bool,
-    profile: Optional[str],
-    output: str,
-    output_file: Optional[str],
-    fail_on_findings: bool,
-    fail_on_confidence: Optional[str],
+        provider: str,
+        region: Optional[str],
+        all_regions: bool,
+        profile: Optional[str],
+        output: str,
+        output_file: Optional[str],
+        fail_on_findings: bool,
+        fail_on_confidence: Optional[str],
+        config: Optional[str],
+        ignore_tag: List[str],
 ):
     click.echo("🔍 Starting CleanCloud scan")
     click.echo(f"Provider: {provider}")
 
     try:
+        # ------------------------
+        # Load config (safe)
+        # ------------------------
+        cfg = CleanCloudConfig.empty()
+        if config:
+            with open(config) as f:
+                raw = yaml.safe_load(f) or {}
+                cfg = load_config(raw)
+
         findings: List[Finding] = []
 
         # ========================
@@ -141,7 +178,9 @@ def scan(
                 click.echo(f"\n📦 Subscription {sub_id}")
                 findings.extend(
                     _scan_azure_subscription(
-                        subscription_id=sub_id, credential=session.credential, region_filter=region
+                        subscription_id=sub_id,
+                        credential=session.credential,
+                        region_filter=region,
                     )
                 )
 
@@ -150,6 +189,32 @@ def scan(
         else:
             click.echo(f"Unknown provider: {provider}")
             sys.exit(EXIT_ERROR)
+
+        # ========================
+        # Tag filtering (POST-SCAN)
+        # ========================
+        ignored_count = 0
+        rules = []
+
+        # CLI overrides config
+        if ignore_tag:
+            rules = compile_rules(
+                [
+                    IgnoreTagRuleConfig(
+                        key=item.split(":", 1)[0],
+                        value=item.split(":", 1)[1] if ":" in item else None,
+                    )
+                    for item in ignore_tag
+                ]
+            )
+
+        elif cfg.tag_filtering and cfg.tag_filtering.enabled:
+            rules = compile_rules(cfg.tag_filtering.ignore)
+
+        if rules:
+            result = filter_findings_by_tags(findings, rules)
+            ignored_count = len(result.ignored)
+            findings = result.kept
 
         # ========================
         # Summary + Output
@@ -162,7 +227,12 @@ def scan(
             default=None,
             key=lambda c: CONFIDENCE_ORDER.get(c, 0),
         )
-        summary["high_conf_findings"] = len([f for f in findings if f.confidence == "HIGH"])
+        summary["high_conf_findings"] = len(
+            [f for f in findings if f.confidence == "HIGH"]
+        )
+
+        if ignored_count > 0:
+            summary["ignored_by_tag_policy"] = ignored_count
 
         output_path = Path(output_file) if output_file else None
 
@@ -188,7 +258,7 @@ def scan(
             _print_summary(summary)
 
         # ========================
-        # Exit policy (centralized)
+        # Exit policy
         # ========================
         exit_code = determine_exit_code(
             findings,
@@ -224,35 +294,32 @@ def scan(
 @click.option("--provider", default="aws", type=click.Choice(["aws", "azure"]))
 @click.option("--region", default="us-east-1")
 @click.option("--profile", default=None)
-def doctor(provider: str, region: Optional[str], profile: Optional[str]):
+@click.option(
+    "--config",
+    type=click.Path(exists=True),
+    help="Path to cleancloud.yaml",
+)
+def doctor(provider: str, region: Optional[str], profile: Optional[str], config: Optional[str]):
     click.echo("🩺 Running CleanCloud doctor")
 
     try:
+        cfg = CleanCloudConfig.empty()
+        if config:
+            with open(config) as f:
+                raw = yaml.safe_load(f) or {}
+                cfg = load_config(raw)
+
+        if cfg.tag_filtering and cfg.tag_filtering.enabled:
+            click.echo(
+                "⚠️  Tag filtering is enabled — some findings may be intentionally ignored"
+            )
+
         if provider == "aws":
             _doctor_aws(profile=profile, region=region)
             sys.exit(EXIT_OK)
 
         elif provider == "azure":
-            try:
-                run_azure_doctor()
-            except EnvironmentError as e:
-                click.echo(f"❌ Azure environment error: {e}")
-                click.echo(
-                    "💡 Hint: Set the following environment variables for non-interactive auth:\n"
-                    "- AZURE_CLIENT_ID\n"
-                    "- AZURE_TENANT_ID\n"
-                    "- AZURE_CLIENT_SECRET\n"
-                    "- (Optional) AZURE_SUBSCRIPTION_ID"
-                )
-                sys.exit(EXIT_PERMISSION_ERROR)
-
-            except PermissionError as e:
-                click.echo(f"❌ Azure permission error: {e}")
-                click.echo(
-                    "💡 Hint: Ensure the service principal has at least Reader role on a subscription."
-                )
-                sys.exit(EXIT_PERMISSION_ERROR)
-
+            run_azure_doctor()
             sys.exit(EXIT_OK)
 
         else:
@@ -265,7 +332,7 @@ def doctor(provider: str, region: Optional[str], profile: Optional[str]):
 
 
 # ========================
-# AWS Helpers
+# Helpers (UNCHANGED)
 # ========================
 def _get_all_aws_regions(session) -> List[str]:
     ec2 = session.client("ec2", region_name="us-east-1")
@@ -289,14 +356,10 @@ def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
 
 
 def _scan_azure_subscription(
-    subscription_id: str, credential, region_filter: Optional[str]
+        subscription_id: str, credential, region_filter: Optional[str]
 ) -> List[Finding]:
-    """
-    Scan a single Azure subscription and return findings from all rules.
-    """
     findings: List[Finding] = []
 
-    # Unattached managed disks
     findings.extend(
         find_unattached_managed_disks(
             subscription_id=subscription_id,
@@ -304,8 +367,6 @@ def _scan_azure_subscription(
             region_filter=region_filter,
         )
     )
-
-    # Old snapshots
     findings.extend(
         find_old_snapshots(
             subscription_id=subscription_id,
@@ -313,8 +374,6 @@ def _scan_azure_subscription(
             region_filter=region_filter,
         )
     )
-
-    # Untagged resources
     findings.extend(
         find_azure_untagged_resources(
             subscription_id=subscription_id,
@@ -322,8 +381,6 @@ def _scan_azure_subscription(
             region_filter=region_filter,
         )
     )
-
-    # Unused Public IPs
     findings.extend(
         find_unused_public_ips(
             subscription_id=subscription_id,
@@ -332,15 +389,9 @@ def _scan_azure_subscription(
         )
     )
 
-    # subscription_id is now in details dict of each Finding
-    # No need to modify findings here
-
     return findings
 
 
-# ========================
-# AWS Doctor Helper
-# ========================
 def _doctor_aws(profile: Optional[str], region: str):
     session = create_aws_session(profile=profile, region=region)
 
@@ -365,14 +416,13 @@ def _doctor_aws(profile: Optional[str], region: str):
     click.echo("🎉 AWS environment is ready for CleanCloud")
 
 
-# ========================
-# Summary Printer
-# ========================
 def _print_summary(summary: dict):
     click.echo("\n--- Scan Summary ---")
     click.echo(f"Total findings: {summary['total_findings']}")
     click.echo(f"By risk: {summary.get('by_risk', {})}")
     click.echo(f"By confidence: {summary.get('by_confidence', {})}")
+    if "ignored_by_tag_policy" in summary:
+        click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
     click.echo(f"Regions scanned: {', '.join(summary.get('regions_scanned', []))}")
     click.echo(f"Scanned at: {summary['scanned_at']}")
 

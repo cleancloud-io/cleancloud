@@ -10,23 +10,23 @@ Modern cloud environments constantly create and destroy storage and logs. Over t
 
 Most cloud hygiene tools fall into two categories:
 
-1. **Auto-delete everything** - Too dangerous for production
-2. **Flag everything** - Too noisy to be useful
+1. **Auto-delete everything** — Too dangerous for production
+2. **Flag everything** — Too noisy to be useful
 
 **CleanCloud is different:**
 
-- ✅ **Read-only by design** - Never modifies, deletes, or tags resources
-- ✅ **Conservative signals** - Multiple indicators, age-based confidence thresholds
-- ✅ **IaC-aware** - Designed for elastic, automated infrastructure
-- ✅ **Trust-first** - Review-only recommendations, never destructive actions
-- ✅ **CI/CD friendly** - Exit codes, JSON/CSV output, confidence-based policies
+- ✅ **Read-only by design** — Never modifies, deletes, or tags resources
+- ✅ **Conservative signals** — Multiple indicators, age-based confidence thresholds
+- ✅ **IaC-aware** — Designed for elastic, automated infrastructure
+- ✅ **Trust-first** — Review-only recommendations, never destructive actions
+- ✅ **CI/CD friendly** — Exit codes, JSON/CSV output, confidence-based policies
 
 **CleanCloud is not:**
 - ❌ A cost optimization tool
 - ❌ An automated cleanup service
 - ❌ A FinOps dashboard
 
-It's a **hygiene layer** built for teams who value safety over automation.
+It’s a **hygiene layer** built for teams who value safety over automation.
 
 ---
 
@@ -182,6 +182,82 @@ cleancloud scan --provider azure
 See [`docs/azure.md`](docs/azure.md) for detailed setup and RBAC configuration.
 
 ---
+
+### Tag-Based Filtering (Ignore Only)
+
+CleanCloud supports tag-based filtering to reduce noise by ignoring findings for resources you explicitly mark.
+
+This is useful when certain environments, teams, or services should be out of scope for hygiene review (for example: production or shared platform resources).
+
+>⚠️ Tag filtering is **ignore-only**
+> 
+> It does **not** disable rules, modify resources, or protect them from deletion.
+CleanCloud remains **read-only and review-only**.
+
+### Configuration File (cleancloud.yaml)
+
+Create a cleancloud.yaml file in your project root:
+
+```
+version: 1
+
+tag_filtering:
+  enabled: true
+  ignore:
+    - key: env
+      value: production
+    - key: team
+      value: platform
+    - key: keep   # key-only match (any value)
+
+```
+
+**Behavior:**
+* If a resource has any matching tag, its finding is ignored
+* Matching is exact (no regex, no partial matches)
+* Multiple ignore rules are OR’ed (any match ignores)
+
+
+### Command Line Overrides (Highest Priority)
+You can pass ignore tags directly via CLI:
+```
+cleancloud scan \
+  --provider aws \
+  --ignore-tag env:production \
+  --ignore-tag team:platform
+
+```
+
+**Important:**
+* CLI --ignore-tag replaces YAML configuration
+* YAML and CLI tags are not merged
+* This ensures CI/CD runs are explicit and predictable
+
+
+#### Scan Output & Transparency
+
+Ignored findings are:
+
+❌ Not included in scan results
+
+✅ Counted and reported in the summary
+
+✅ Preserved internally for auditability
+
+Example summary output:
+```aiignore
+Ignored by tag policy: 7 findings
+```
+
+#### Recommended Usage
+
+Tag filtering works best with **broad ownership or scope tags**, such as:
+
+* env: production
+* team: platform
+* service: core-infra
+
+It is **not intended** for per-resource exceptions or lifecycle management.
 
 ## Design Philosophy
 
