@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   # =========================
   # QUICK VALIDATION
@@ -60,20 +64,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev,aws,azure]"
 
-      - name: Test AWS doctor (strict)
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
+      # AWS via OIDC (no static secrets)
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+
+      - name: Test AWS doctor
         run: |
           set -e  # Exit on any error
           cleancloud doctor --provider aws --region us-east-1
 
-      - name: Test AWS scan (strict)
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: us-east-1
+      - name: Test AWS scan
         run: |
           set -e  # Exit on any error
           cleancloud scan --provider aws --region us-east-1 --output json --output-file test-results.json
