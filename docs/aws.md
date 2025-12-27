@@ -63,17 +63,43 @@ Create an IAM policy named `CleanCloudReadOnly`:
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "CleanCloudReadOnly",
+      "Sid": "EC2ReadOnly",
       "Effect": "Allow",
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
+        "ec2:DescribeInstances",
         "ec2:DescribeRegions",
-        "logs:DescribeLogGroups",
-        "s3:ListAllMyBuckets",
-        "s3:GetBucketTagging",
-        "sts:GetCallerIdentity"
+        "ec2:DescribeAvailabilityZones",
+        "ec2:DescribeTags"
       ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchLogsReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3ReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "s3:GetBucketTagging",
+        "s3:ListBucket"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "STSIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     }
   ]
