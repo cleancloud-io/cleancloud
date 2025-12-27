@@ -31,6 +31,7 @@ from cleancloud.output.csv import write_csv
 from cleancloud.output.human import print_human
 from cleancloud.output.json import write_json
 from cleancloud.output.summary import build_summary
+from cleancloud.providers.aws.doctor import run_aws_doctor
 
 # ------------------------
 # AWS rules
@@ -310,7 +311,7 @@ def doctor(provider: str, region: Optional[str], profile: Optional[str], config:
             click.echo("⚠️  Tag filtering is enabled — some findings may be intentionally ignored")
 
         if provider == "aws":
-            _doctor_aws(profile=profile, region=region)
+            run_aws_doctor(profile=profile, region=region)
             sys.exit(EXIT_OK)
 
         elif provider == "azure":
@@ -385,30 +386,6 @@ def _scan_azure_subscription(
     )
 
     return findings
-
-
-def _doctor_aws(profile: Optional[str], region: str):
-    session = create_aws_session(profile=profile, region=region)
-
-    sts = session.client("sts")
-    identity = sts.get_caller_identity()
-
-    click.echo("✅ AWS credentials valid")
-    click.echo(f"Account: {identity['Account']}")
-    click.echo(f"ARN: {identity['Arn']}")
-
-    ec2 = session.client("ec2")
-    ec2.describe_volumes(MaxResults=6)
-    ec2.describe_snapshots(OwnerIds=["self"], MaxResults=5)
-    ec2.describe_regions()
-
-    logs = session.client("logs")
-    logs.describe_log_groups(limit=1)
-
-    s3 = session.client("s3")
-    s3.list_buckets()
-
-    click.echo("🎉 AWS environment is ready for CleanCloud")
 
 
 def _print_summary(summary: dict):

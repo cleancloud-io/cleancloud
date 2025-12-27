@@ -1,7 +1,7 @@
 import os
 from typing import List, Optional
 
-from azure.identity import ClientSecretCredential
+from azure.identity import DefaultAzureCredential
 from azure.mgmt.resource import SubscriptionClient
 
 
@@ -15,7 +15,9 @@ class AzureSession:
     """
 
     def __init__(
-        self, credential: ClientSecretCredential, default_subscription_id: Optional[str] = None
+            self,
+            credential,
+            default_subscription_id: Optional[str] = None,
     ):
         self.credential = credential
         self.default_subscription_id = default_subscription_id
@@ -30,43 +32,46 @@ class AzureSession:
 
         sub_client = SubscriptionClient(self.credential)
         subscriptions = sub_client.subscriptions.list()
-        subscription_ids = [sub.subscription_id for sub in subscriptions]
 
-        return subscription_ids
+        return [sub.subscription_id for sub in subscriptions]
 
 
 def create_azure_session(
-    subscription_id: Optional[str] = None,
+        subscription_id: Optional[str] = None,
 ) -> AzureSession:
     """
-    Authenticate to Azure using environment variables (non-interactive, CI/CD friendly).
+    Authenticate to Azure using DefaultAzureCredential.
 
-    Required environment variables:
-        - AZURE_CLIENT_ID
-        - AZURE_TENANT_ID
-        - AZURE_CLIENT_SECRET
+    Supported authentication methods (in order):
+      1. GitHub Actions OIDC (Workload Identity Federation)
+      2. Azure CLI login (az login)
+      3. Managed Identity
+      4. Service principal with client secret (legacy fallback)
 
-    Optional:
-        - AZURE_SUBSCRIPTION_ID (overrides subscription discovery)
+    Optional environment variables:
+      - AZURE_SUBSCRIPTION_ID (overrides subscription discovery)
     """
-    client_id = os.environ.get("AZURE_CLIENT_ID")
-    tenant_id = os.environ.get("AZURE_TENANT_ID")
-    client_secret = os.environ.get("AZURE_CLIENT_SECRET")
+    try:
+        credential = DefaultAzureCredential()
 
-    if not all([client_id, tenant_id, client_secret]):
+        # Validate credentials early so doctor fails fast with a clear error
+        sub_client = SubscriptionClient(credential)
+        _ = list(sub_client.subscriptions.list())
+
+    except Exception as e:
         raise EnvironmentError(
-            "Missing Azure environment variables for authentication. "
-            "Set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET."
-        )
+            "Unable to authenticate with Azure using DefaultAzureCredential.\n"
+            "Tried GitHub OIDC, Azure CLI, Managed Identity, and service principal credentials.\n\n"
+            "If running locally, run:\n"
+            "  az login\n\n"
+            "If running in CI, ensure Azure OIDC (workload identity federation) is configured."
+        ) from e
 
-    # Allow subscription_id override via env var
+    # Allow subscription override via env var or CLI arg
     subscription_env = os.environ.get("AZURE_SUBSCRIPTION_ID")
     default_sub = subscription_id or subscription_env
 
-    credential = ClientSecretCredential(
-        client_id=client_id,
-        client_secret=client_secret,
-        tenant_id=tenant_id,
+    return AzureSession(
+        credential=credential,
+        default_subscription_id=default_sub,
     )
-
-    return AzureSession(credential=credential, default_subscription_id=default_sub)
