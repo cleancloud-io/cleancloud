@@ -4,6 +4,7 @@ import click
 
 from cleancloud.providers.aws.session import create_aws_session
 
+
 def run_aws_doctor(profile: Optional[str], region: str):
     session = create_aws_session(profile=profile, region=region)
 

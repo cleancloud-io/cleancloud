@@ -15,9 +15,9 @@ class AzureSession:
     """
 
     def __init__(
-            self,
-            credential,
-            default_subscription_id: Optional[str] = None,
+        self,
+        credential,
+        default_subscription_id: Optional[str] = None,
     ):
         self.credential = credential
         self.default_subscription_id = default_subscription_id
@@ -37,7 +37,7 @@ class AzureSession:
 
 
 def create_azure_session(
-        subscription_id: Optional[str] = None,
+    subscription_id: Optional[str] = None,
 ) -> AzureSession:
     """
     Authenticate to Azure using DefaultAzureCredential.
