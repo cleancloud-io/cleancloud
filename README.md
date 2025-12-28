@@ -30,6 +30,19 @@ It’s a **hygiene layer** built for teams who value safety over automation.
 
 ---
 
+### Built For Production Use
+
+**CleanCloud is designed for:**
+- ✅ SOC2/ISO27001 compliant environments (read-only, no credentials stored)
+- ✅ Multi-region AWS accounts (scans 20+ regions in parallel)
+- ✅ Enterprise Azure subscriptions (supports Workload Identity Federation)
+- ✅ CI/CD pipelines (exit codes, JSON output, GitHub Actions ready)
+
+**Security-first:**
+- 🔒 No `Delete*` or `Modify*` permissions required
+- 🔐 OIDC support (no long-lived credentials)
+- 📝 Audit-friendly logging
+
 ## Quick Start
 
 ### Installation
