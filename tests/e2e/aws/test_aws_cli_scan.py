@@ -17,6 +17,8 @@ def test_cli_scan_runs():
         "scan",
         "--provider",
         "aws",
+        "--region",
+        "us-east-1",
         "--fail-on-findings",
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
