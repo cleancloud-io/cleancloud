@@ -5,15 +5,13 @@ Enterprise-grade doctor runner with proper error handling and summary reporting.
 import sys
 from typing import Optional
 
-from cleancloud.doctor.common import DoctorError, success, fail, info
 from cleancloud.doctor.aws import run_aws_doctor
 from cleancloud.doctor.azure import run_azure_doctor
+from cleancloud.doctor.common import DoctorError, info, success
 
 
 def run_doctor(
-        provider: Optional[str] = None,
-        profile: Optional[str] = None,
-        region: Optional[str] = None
+    provider: Optional[str] = None, profile: Optional[str] = None, region: Optional[str] = None
 ) -> None:
     """
     Run health checks for cloud provider credentials and permissions.

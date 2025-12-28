@@ -5,8 +5,8 @@ Enterprise-grade AWS doctor with robust auth detection and acquirer-friendly log
 import os
 from typing import Optional
 
+from cleancloud.doctor.common import fail, info, success, warn
 from cleancloud.providers.aws.session import create_aws_session
-from cleancloud.doctor.common import info, success, warn, fail
 
 
 def detect_aws_auth_method(session) -> tuple[str, str, dict]:
@@ -29,123 +29,139 @@ def detect_aws_auth_method(session) -> tuple[str, str, dict]:
         provider_name = credentials.method
 
         # Determine if credentials are temporary
-        is_temporary = hasattr(credentials, 'token') and credentials.token is not None
+        is_temporary = hasattr(credentials, "token") and credentials.token is not None
 
         metadata = {
             "provider_name": provider_name,
             "is_temporary": is_temporary,
             "recommended": False,
             "ci_cd_ready": False,
-            "security_grade": "unknown"
+            "security_grade": "unknown",
         }
 
         # OIDC / Web Identity (GitHub Actions, GitLab CI, EKS)
         if provider_name == "assume-role-with-web-identity":
-            metadata.update({
-                "recommended": True,
-                "ci_cd_ready": True,
-                "security_grade": "excellent",
-                "credential_lifetime": "1 hour (temporary)",
-                "rotation_required": False
-            })
+            metadata.update(
+                {
+                    "recommended": True,
+                    "ci_cd_ready": True,
+                    "security_grade": "excellent",
+                    "credential_lifetime": "1 hour (temporary)",
+                    "rotation_required": False,
+                }
+            )
             return "oidc", "OIDC (AssumeRoleWithWebIdentity)", metadata
 
         # EC2 Instance Profile
         elif provider_name == "iam-role":
-            metadata.update({
-                "recommended": True,
-                "ci_cd_ready": False,
-                "security_grade": "excellent",
-                "credential_lifetime": "temporary (auto-rotated)",
-                "rotation_required": False
-            })
+            metadata.update(
+                {
+                    "recommended": True,
+                    "ci_cd_ready": False,
+                    "security_grade": "excellent",
+                    "credential_lifetime": "temporary (auto-rotated)",
+                    "rotation_required": False,
+                }
+            )
             return "instance_profile", "EC2 Instance Profile", metadata
 
         # ECS Task Role
         elif provider_name == "container-role":
-            metadata.update({
-                "recommended": True,
-                "ci_cd_ready": False,
-                "security_grade": "excellent",
-                "credential_lifetime": "temporary (auto-rotated)",
-                "rotation_required": False
-            })
+            metadata.update(
+                {
+                    "recommended": True,
+                    "ci_cd_ready": False,
+                    "security_grade": "excellent",
+                    "credential_lifetime": "temporary (auto-rotated)",
+                    "rotation_required": False,
+                }
+            )
             return "ecs_task_role", "ECS Task Role", metadata
 
         # AssumeRole (cross-account or role switching)
         elif provider_name == "assume-role":
-            metadata.update({
-                "recommended": True,
-                "ci_cd_ready": True,
-                "security_grade": "good",
-                "credential_lifetime": "1-12 hours (temporary)",
-                "rotation_required": False
-            })
+            metadata.update(
+                {
+                    "recommended": True,
+                    "ci_cd_ready": True,
+                    "security_grade": "good",
+                    "credential_lifetime": "1-12 hours (temporary)",
+                    "rotation_required": False,
+                }
+            )
             return "assume_role", "AssumeRole (IAM Role)", metadata
 
         # AWS CLI Profile (~/.aws/credentials)
         elif provider_name == "shared-credentials-file":
-            profile = os.getenv('AWS_PROFILE', 'default')
-            metadata.update({
-                "recommended": False,
-                "ci_cd_ready": False,
-                "security_grade": "acceptable",
-                "credential_lifetime": "long-lived (access keys)",
-                "rotation_required": True,
-                "profile_name": profile
-            })
+            profile = os.getenv("AWS_PROFILE", "default")
+            metadata.update(
+                {
+                    "recommended": False,
+                    "ci_cd_ready": False,
+                    "security_grade": "acceptable",
+                    "credential_lifetime": "long-lived (access keys)",
+                    "rotation_required": True,
+                    "profile_name": profile,
+                }
+            )
             return "profile", f"AWS CLI Profile ({profile})", metadata
 
         # Environment variables (AWS_ACCESS_KEY_ID/SECRET)
         elif provider_name == "env":
             if is_temporary:
-                metadata.update({
-                    "recommended": True,
-                    "ci_cd_ready": True,
-                    "security_grade": "good",
-                    "credential_lifetime": "temporary (with session token)",
-                    "rotation_required": False
-                })
+                metadata.update(
+                    {
+                        "recommended": True,
+                        "ci_cd_ready": True,
+                        "security_grade": "good",
+                        "credential_lifetime": "temporary (with session token)",
+                        "rotation_required": False,
+                    }
+                )
                 return "temporary_keys", "Temporary Credentials (Environment)", metadata
             else:
-                metadata.update({
-                    "recommended": False,
-                    "ci_cd_ready": False,
-                    "security_grade": "poor",
-                    "credential_lifetime": "long-lived (access keys)",
-                    "rotation_required": True,
-                    "rotation_interval": "90 days"
-                })
+                metadata.update(
+                    {
+                        "recommended": False,
+                        "ci_cd_ready": False,
+                        "security_grade": "poor",
+                        "credential_lifetime": "long-lived (access keys)",
+                        "rotation_required": True,
+                        "rotation_interval": "90 days",
+                    }
+                )
                 return "static_keys", "Static Access Keys (Environment)", metadata
 
         # Explicitly configured credentials
         elif provider_name in ("explicit", "static"):
             if is_temporary:
-                metadata.update({
-                    "recommended": True,
-                    "ci_cd_ready": True,
-                    "security_grade": "good",
-                    "credential_lifetime": "temporary",
-                    "rotation_required": False
-                })
+                metadata.update(
+                    {
+                        "recommended": True,
+                        "ci_cd_ready": True,
+                        "security_grade": "good",
+                        "credential_lifetime": "temporary",
+                        "rotation_required": False,
+                    }
+                )
                 return "temporary_keys", "Temporary Credentials", metadata
             else:
-                metadata.update({
-                    "recommended": False,
-                    "ci_cd_ready": False,
-                    "security_grade": "poor",
-                    "credential_lifetime": "long-lived",
-                    "rotation_required": True
-                })
+                metadata.update(
+                    {
+                        "recommended": False,
+                        "ci_cd_ready": False,
+                        "security_grade": "poor",
+                        "credential_lifetime": "long-lived",
+                        "rotation_required": True,
+                    }
+                )
                 return "static_keys", "Static Access Keys", metadata
 
         # Unknown/other
         else:
-            metadata.update({
-                "recommended": False,
-                "ci_cd_ready": False,
-                "security_grade": "unknown"
-            })
+            metadata.update(
+                {"recommended": False, "ci_cd_ready": False, "security_grade": "unknown"}
+            )
             return "unknown", f"Other ({provider_name})", metadata
 
     except Exception as e:
@@ -200,26 +216,26 @@ def run_aws_doctor(profile: Optional[str], region: str) -> None:
     if metadata.get("rotation_required"):
         info(f"  Rotation Required: Yes (every {metadata.get('rotation_interval', '90 days')})")
     else:
-        info(f"  Rotation Required: No (auto-rotated)")
+        info("  Rotation Required: No (auto-rotated)")
 
     # Security assessment
     info("")
     security_grade = metadata.get("security_grade", "unknown")
 
     if security_grade == "excellent":
-        success(f"Security Grade: EXCELLENT ✅")
+        success("Security Grade: EXCELLENT ✅")
         success("  ✓ Temporary credentials")
         success("  ✓ Auto-rotated")
         success("  ✓ No secret storage required")
 
     elif security_grade == "good":
-        success(f"Security Grade: GOOD ✅")
+        success("Security Grade: GOOD ✅")
         info("  ✓ Temporary credentials")
         if not metadata.get("rotation_required"):
             info("  ✓ Auto-rotated")
 
     elif security_grade == "acceptable":
-        warn(f"Security Grade: ACCEPTABLE ⚠️")
+        warn("Security Grade: ACCEPTABLE ⚠️")
         warn("  ⚠ Long-lived credentials")
         warn("  ⚠ Manual rotation required")
         info("")
@@ -227,7 +243,7 @@ def run_aws_doctor(profile: Optional[str], region: str) -> None:
         info("    Current setup is acceptable")
 
     elif security_grade == "poor":
-        warn(f"Security Grade: POOR ⚠️")
+        warn("Security Grade: POOR ⚠️")
         warn("  ⚠ Long-lived access keys")
         warn("  ⚠ Requires 90-day rotation")
         warn("  ⚠ High blast radius if compromised")
@@ -365,7 +381,6 @@ def run_aws_doctor(profile: Optional[str], region: str) -> None:
 
     total_permissions = len(permissions_tested) + len(permissions_failed)
     success_count = len(permissions_tested)
-    fail_count = len(permissions_failed)
 
     info(f"Authentication: {description}")
     info(f"Security Grade: {security_grade.upper()}")
