@@ -1,78 +1,102 @@
-# AWS Setup & Rules
+# AWS Setup
 
-AWS-specific authentication, IAM policies, region handling, and detailed rule specifications.
+AWS authentication, IAM policies, and configuration guide.
 
-> **For general usage:** See [README.md](../README.md)  
-> **For CI/CD integration:** See [ci.md](ci.md)
+> **Quick Start:** See [README.md](../README.md)  
+> **Rules Reference:** See [rules.md](rules.md)  
+> **CI/CD Integration:** See [ci.md](ci.md)
 
 ---
 
-## Authentication
+## Authentication Methods
 
-### 1. OIDC with IAM Roles (Recommended for CI/CD)
+CleanCloud supports three AWS authentication methods:
 
-No credentials stored, temporary tokens only, SOC2 compliant.
+### 1. GitHub Actions OIDC (Recommended for CI/CD)
 
-**Trust Policy:**
+**No long-lived credentials, temporary tokens only, SOC2 compliant.**
+
+#### IAM Role Trust Policy
+
 ```json
 {
   "Version": "2012-10-17",
   "Statement": [{
     "Effect": "Allow",
     "Principal": {
-      "Federated": "arn:aws:iam::YOUR_ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com"
+      "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
     },
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": {
         "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main"
+        "token.actions.githubusercontent.com:sub": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main"
       }
     }
   }]
 }
 ```
 
-Replace `YOUR_ACCOUNT_ID`, `YOUR_ORG`, and `YOUR_REPO` with your values.
+Replace:
+- `<ACCOUNT_ID>` - Your AWS account ID
+- `<YOUR_ORG>/<YOUR_REPO>` - Your GitHub organization and repository
 
-**Example:**
-```json
-"token.actions.githubusercontent.com:sub": "repo:acme-corp/infrastructure:ref:refs/heads/main"
-```
+#### GitHub Actions Workflow
 
-This restricts the role to only be assumable from your team's specific repository.
-
-**GitHub Actions:**
 ```yaml
-- uses: aws-actions/configure-aws-credentials@v4
-  with:
-    role-to-assume: arn:aws:iam::YOUR_ACCOUNT_ID:role/CleanCloudScanner
-    aws-region: us-east-1
+permissions:
+  id-token: write
+  contents: read
 
-- name: Run CleanCloud
-  run: |
-    pip install cleancloud
-    cleancloud scan --provider aws
-```
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-### 2. AWS CLI Profiles (Local Development)
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
 
-```bash
-aws configure --profile cleancloud
-cleancloud scan --provider aws --profile cleancloud
-```
-
-### 3. Environment Variables
-
-```bash
-export AWS_ACCESS_KEY_ID=...
-export AWS_SECRET_ACCESS_KEY=...
-cleancloud scan --provider aws
+      - name: Run CleanCloud
+        run: |
+          pip install cleancloud
+          cleancloud scan --provider aws --region us-east-1
 ```
 
 ---
 
-## IAM Policy
+### 2. AWS CLI Profiles (Local Development)
+
+```bash
+# Configure profile
+aws configure --profile cleancloud
+
+# Use with CleanCloud
+cleancloud scan --provider aws --profile cleancloud
+```
+
+---
+
+### 3. Environment Variables
+
+```bash
+export AWS_ACCESS_KEY_ID=<your-key>
+export AWS_SECRET_ACCESS_KEY=<your-secret>
+export AWS_DEFAULT_REGION=us-east-1
+
+cleancloud scan --provider aws
+```
+
+⚠️ **Not recommended for CI/CD** - Use OIDC instead
+
+---
+
+## IAM Policy (Minimum Required Permissions)
+
+Attach this policy to your IAM role or user:
 
 ```json
 {
@@ -86,6 +110,7 @@ cleancloud scan --provider aws
         "ec2:DescribeSnapshots",
         "ec2:DescribeInstances",
         "ec2:DescribeRegions",
+        "ec2:DescribeAvailabilityZones",
         "ec2:DescribeTags"
       ],
       "Resource": "*"
@@ -95,7 +120,8 @@ cleancloud scan --provider aws
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
-        "logs:ListTagsLogGroup"
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents"
       ],
       "Resource": "*"
     },
@@ -104,8 +130,9 @@ cleancloud scan --provider aws
       "Effect": "Allow",
       "Action": [
         "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
         "s3:GetBucketTagging",
-        "s3:GetBucketLocation"
+        "s3:ListBucket"
       ],
       "Resource": "*"
     },
@@ -119,152 +146,154 @@ cleancloud scan --provider aws
 }
 ```
 
-**Does NOT allow:** Delete*, Modify*, Tag*, Attach*, billing access.
+**Key characteristics:**
+- ✅ Read-only operations only
+- ✅ No `Delete*`, `Create*`, or `Tag*` permissions
+- ✅ Safe for production accounts
+- ✅ Compatible with security-reviewed pipelines
 
 ---
 
-## Region Behavior
+## Region Scanning
 
-CleanCloud automatically detects which regions to scan.
+### Default Behavior
 
-**Auto-detect (default):**
 ```bash
+# AWS requires explicit region choice
 cleancloud scan --provider aws
-# Scans only regions with resources (3-5 typically)
+
+# ERROR: Must specify --region or --all-regions
 ```
 
-**All regions:**
+### Scan Specific Region
+
+```bash
+cleancloud scan --provider aws --region us-east-1
+```
+
+### Scan All Active Regions
+
 ```bash
 cleancloud scan --provider aws --all-regions
-# Scans all enabled regions (25+)
+
+# Auto-detects regions with resources (typically 3-5 regions)
+# Scans volumes, snapshots, and logs to determine active regions
 ```
 
-**Specific regions:**
+**Performance:**
+- Single region: 15-30 seconds
+- All active regions (3-5): 2-3 minutes
+- All enabled regions (25+): 8-10 minutes
+
+---
+
+## Validate Setup
+
+Use the `doctor` command to verify credentials and permissions:
+
 ```bash
-cleancloud scan --provider aws --regions us-east-1,us-west-2
+cleancloud doctor --provider aws
 ```
 
-### Service-Specific Behavior
+**What it checks:**
+- ✅ AWS credentials are valid
+- ✅ Authentication method (OIDC, profiles, keys)
+- ✅ Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
+- ✅ Required permissions are present
+- ✅ Account ID and ARN
 
-**Regional services** (query each region):
-- EC2, EBS, RDS, Lambda, DynamoDB, CloudWatch Logs
+**Example output:**
+```
+🔐 AWS Credential Resolution
+✅ AWS session created successfully
 
-**Global services** (query once from us-east-1):
-- S3 buckets (list is global, each bucket has a region)
-- IAM (truly global)
+🔍 Authentication Method Detection
+Authentication Method: OIDC (AssumeRoleWithWebIdentity)
+✅ Security Grade: EXCELLENT ✅
+✅ CI/CD Ready: YES ✅
 
-CleanCloud handles this automatically - no duplicate findings, 60% faster scans.
+👤 Identity Verification
+✅ Account ID: 123456789012
+✅ ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudScanner/GitHubActions
 
----
+🔒 Read-Only Permission Validation
+✅ ✓ ec2:DescribeVolumes
+✅ ✓ ec2:DescribeSnapshots
+✅ ✓ logs:DescribeLogGroups
+✅ ✓ s3:ListAllMyBuckets
 
-## Rules (4 Total)
-
-### 1. Unattached EBS Volumes
-
-**Rule ID:** `aws.ebs.volume.unattached`
-
-**Detects:** Volumes not attached to any instance
-
-**Confidence:**
-- HIGH: Unattached ≥ 14 days
-- MEDIUM: Unattached 7-13 days
-- Not flagged: < 7 days
-
-**Required permission:** `ec2:DescribeVolumes`
-
----
-
-### 2. Old EBS Snapshots
-
-**Rule ID:** `aws.ebs.snapshot.old`
-
-**Detects:** Snapshots ≥ 365 days old
-
-**Confidence:**
-- HIGH: Age ≥ 365 days
-
-**Limitations:** Does NOT check AMI linkage (by design, to avoid false positives)
-
-**Required permission:** `ec2:DescribeSnapshots`
-
----
-
-### 3. CloudWatch Log Groups (Infinite Retention)
-
-**Rule ID:** `aws.cloudwatch.logs.infinite_retention`
-
-**Detects:** Log groups with no retention policy
-
-**Confidence:**
-- HIGH: No retention policy, ≥ 30 days old
-
-**Required permission:** `logs:DescribeLogGroups`
-
----
-
-### 4. Untagged Resources
-
-**Rule ID:** `aws.resource.untagged`
-
-**Detects:** Resources with zero tags
-
-**Resources:** EBS volumes, S3 buckets, CloudWatch log groups
-
-**Confidence:**
-- MEDIUM: Zero tags (always MEDIUM)
-
-**Required permissions:** `ec2:DescribeVolumes`, `s3:GetBucketTagging`, `logs:ListTagsLogGroup`
+✅ 🎉 AWS ENVIRONMENT READY FOR CLEANCLOUD
+```
 
 ---
 
 ## Troubleshooting
 
-**Credentials not found:**
+### "No credentials found"
+
 ```bash
-aws sts get-caller-identity  # Verify credentials work
+# Verify credentials work
+aws sts get-caller-identity
 ```
 
-**Access denied:**
+**Fix:**
+- Set up AWS CLI: `aws configure`
+- Or export environment variables
+- Or configure OIDC in GitHub Actions
+
+### "Access Denied"
+
 ```bash
-cleancloud doctor --provider aws  # Check permissions
+# Check permissions
+cleancloud doctor --provider aws
 ```
 
-**Missing findings:**
-- Check you're scanning the right regions
-- Resources may be excluded by age thresholds (volumes < 7 days, snapshots < 365 days)
+**Fix:**
+- Attach the CleanCloud IAM policy
+- Wait 5-10 minutes for IAM propagation
+- Verify trust policy for OIDC roles
 
-**Rate limiting:**
-- CleanCloud auto-handles with exponential backoff
-- If persistent: scan fewer regions, wait 5-10 minutes
+### "No active regions detected"
+
+**This means:** CleanCloud found no resources in any enabled region
+
+**Options:**
+1. Scan specific region: `--region us-east-1`
+2. Check if you're scanning the right account
+3. Verify permissions are working: `cleancloud doctor --provider aws`
 
 ---
 
-## Performance
+## Security Best Practices
 
-| Regions | Scan Time |
-|---------|-----------|
-| 1 region | 15-30 sec |
-| 3 regions (auto-detect) | 2-3 min |
-| All regions (25+) | 8-10 min |
+### ✅ DO
 
-**API calls:** All free (read-only operations have no cost)
+- Use OIDC for CI/CD (no long-lived credentials)
+- Use least-privilege IAM policy
+- Enable CloudTrail logging for audit trails
+- Restrict OIDC trust to specific repos and branches
+- Rotate access keys regularly (if using keys)
 
----
+### ❌ DON'T
 
-## Security
-
-✅ Use OIDC for CI/CD (no stored credentials)  
-✅ Use least-privilege IAM policy (CleanCloudReadOnly)  
-✅ Enable CloudTrail logging  
-✅ Restrict OIDC trust to specific repos
-
-❌ Don't use long-lived access keys in CI/CD  
-❌ Don't use overly broad policies (e.g., ReadOnlyAccess)
+- Use long-lived access keys in CI/CD
+- Use overly broad policies (e.g., `ReadOnlyAccess`)
+- Share credentials across teams
+- Commit credentials to repositories
 
 ---
 
 ## Supported Regions
 
-All AWS commercial regions. Auto-detects opt-in status.
+All AWS commercial regions are supported.
 
-**Not tested:** GovCloud, China regions.
+CleanCloud auto-detects opt-in status:
+- ✅ Default regions (us-east-1, us-west-2, etc.)
+- ✅ Opt-in regions you've enabled (ap-east-1, me-south-1, etc.)
+- ❌ Disabled regions (skipped automatically)
+
+**Not tested:** AWS GovCloud, AWS China regions
+
+---
+
+**Next:** [Azure Setup →](azure.md) | [Rules Reference →](rules.md) | [CI/CD Guide →](ci.md)

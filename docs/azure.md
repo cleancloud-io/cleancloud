@@ -1,66 +1,65 @@
-# Azure Setup & Rules
+# Azure Setup
 
-Azure-specific authentication, RBAC permissions, and detailed rule specifications.
+Azure authentication, RBAC permissions, and configuration guide.
 
-> **For general usage:** See [README.md](../README.md)  
-> **For CI/CD integration:** See [ci.md](ci.md)
+> **Quick Start:** See [README.md](../README.md)  
+> **Rules Reference:** See [rules.md](rules.md)  
+> **CI/CD Integration:** See [ci.md](ci.md)
 
 ---
 
-## Authentication
+## Authentication Methods
+
+CleanCloud supports two Azure authentication methods:
 
 ### 1. Azure OIDC with Workload Identity (Recommended for CI/CD)
 
-**Microsoft Entra ID Workload Identity Federation** - No client secrets, temporary tokens only.
+**Microsoft Entra ID Workload Identity Federation - No client secrets, temporary tokens only.**
 
-**Benefits:**
-- No `AZURE_CLIENT_SECRET` stored
-- Short-lived tokens (1 hour)
-- Enterprise security compliant
-- Consistent with AWS OIDC approach
+#### Setup Steps
 
-**Setup Steps:**
-
-**Step 1:** Create App Registration
+**Step 1: Create App Registration**
 ```bash
 az ad app create --display-name "CleanCloudScanner"
+# Note the Application (client) ID
 ```
 
-**Step 2:** Create Service Principal
+**Step 2: Create Service Principal**
 ```bash
 az ad sp create --id <APP_ID>
 ```
 
-**Step 3:** Configure Federated Identity Credential
+**Step 3: Configure Federated Identity Credential**
 ```bash
 az ad app federated-credential create \
   --id <APP_ID> \
   --parameters '{
     "name": "CleanCloudGitHub",
     "issuer": "https://token.actions.githubusercontent.com",
-    "subject": "repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
     "audiences": ["api://AzureADTokenExchange"]
   }'
 ```
 
-Replace `YOUR_ORG/YOUR_REPO` with your repository.
+Replace `<YOUR_ORG>/<YOUR_REPO>` with your GitHub organization and repository.
 
-**Step 4:** Assign Reader Role
+**Step 4: Assign Reader Role**
 ```bash
 az role assignment create \
   --assignee <APP_ID> \
   --role "Reader" \
-  --scope /subscriptions/YOUR_SUBSCRIPTION_ID
+  --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
-**Step 5:** GitHub Actions Usage
+#### GitHub Actions Workflow
+
 ```yaml
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  scan:
+  cleancloud:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -94,7 +93,7 @@ jobs:
 az login
 
 # Set subscription
-az account set --subscription YOUR_SUBSCRIPTION_ID
+az account set --subscription <SUBSCRIPTION_ID>
 
 # Run scan
 cleancloud scan --provider azure
@@ -114,7 +113,7 @@ Built-in **Reader** role provides all required permissions:
 az role assignment create \
   --assignee <APP_ID> \
   --role "Reader" \
-  --scope /subscriptions/YOUR_SUBSCRIPTION_ID
+  --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
 **What Reader allows:**
@@ -143,7 +142,7 @@ az role assignment create \
   ],
   "NotActions": [],
   "AssignableScopes": [
-    "/subscriptions/YOUR_SUBSCRIPTION_ID"
+    "/subscriptions/<SUBSCRIPTION_ID>"
   ]
 }
 ```
@@ -155,7 +154,7 @@ az role definition create --role-definition cleancloud-role.json
 az role assignment create \
   --assignee <APP_ID> \
   --role "CleanCloud Scanner" \
-  --scope /subscriptions/YOUR_SUBSCRIPTION_ID
+  --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
 ---
@@ -168,21 +167,17 @@ az role assignment create \
 # Specify via environment
 export AZURE_SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789abc"
 cleancloud scan --provider azure
-
-# Or via CLI login
-az account set --subscription YOUR_SUBSCRIPTION_ID
-cleancloud scan --provider azure
 ```
 
 ### All Accessible Subscriptions
 
 ```bash
-# Remove AZURE_SUBSCRIPTION_ID
+# Remove AZURE_SUBSCRIPTION_ID environment variable
 unset AZURE_SUBSCRIPTION_ID
 cleancloud scan --provider azure
-```
 
-CleanCloud scans all subscriptions the service principal can access.
+# Scans all subscriptions the service principal can access
+```
 
 ### Region Filtering
 
@@ -194,97 +189,24 @@ cleancloud scan --provider azure --region eastus
 cleancloud scan --provider azure --region westeurope
 ```
 
+**Note:** Unlike AWS, Azure scans all subscriptions by default. Region is an optional filter on results.
+
 ---
 
-## Azure Rules (4 Total)
+## Validate Setup
 
-### 1. Unattached Managed Disks
+Use the `doctor` command to verify credentials and permissions:
 
-**Rule ID:** `azure.unattached_managed_disk`
-
-**Detects:** Disks not attached to any VM
-
-**Confidence:**
-- HIGH: Unattached ≥ 14 days
-- MEDIUM: Unattached 7-13 days
-- Not flagged: < 7 days
-
-**Detection logic:**
-```python
-if disk.managed_by is None:  # Not attached
-    age_days = calculate_age(disk.time_created)
-    if age_days >= 14:
-        confidence = "HIGH"
-    elif age_days >= 7:
-        confidence = "MEDIUM"
+```bash
+cleancloud doctor --provider azure
 ```
 
-**Required permission:** `Microsoft.Compute/disks/read`
-
-**Common causes:**
-- Disks from deleted VMs
-- Failed deployments
-- Autoscaling cleanup gaps
-
----
-
-### 2. Old Managed Disk Snapshots
-
-**Rule ID:** `azure.old_snapshot`
-
-**Detects:** Snapshots older than configured thresholds
-
-**Confidence:**
-- HIGH: Age ≥ 90 days
-- MEDIUM: Age ≥ 30 days
-
-**Limitations:** Does NOT check if snapshot is referenced by images (by design, avoids false positives)
-
-**Required permission:** `Microsoft.Compute/snapshots/read`
-
-**Common causes:**
-- Snapshots from backup jobs
-- Over-retention without lifecycle policies
-- Snapshots from deleted disks
-
----
-
-### 3. Untagged Resources
-
-**Rule ID:** `azure.untagged_resource`
-
-**Detects:** Resources with zero tags
-
-**Resources:** Managed disks, snapshots (7+ days old)
-
-**Confidence:**
-- MEDIUM: Untagged disk that's also unattached
-- LOW: Untagged snapshot or attached disk
-
-**Required permissions:**
-- `Microsoft.Compute/disks/read`
-- `Microsoft.Compute/snapshots/read`
-
----
-
-### 4. Unused Public IP Addresses
-
-**Rule ID:** `azure.public_ip_unused`
-
-**Detects:** Public IPs not attached to any network interface
-
-**Confidence:**
-- HIGH: Not attached (deterministic state)
-
-**Detection logic:**
-```python
-if public_ip.ip_configuration is None:
-    confidence = "HIGH"
-```
-
-**Required permission:** `Microsoft.Network/publicIPAddresses/read`
-
-**Note:** Unused public IPs incur charges even when unattached.
+**What it checks:**
+- ✅ Azure credentials are valid
+- ✅ Authentication method (OIDC, CLI)
+- ✅ Security grade
+- ✅ Required permissions are present
+- ✅ Accessible subscriptions
 
 ---
 
@@ -294,7 +216,7 @@ if public_ip.ip_configuration is None:
 
 **For OIDC (GitHub Actions):**
 ```yaml
-# Ensure these secrets are set
+# Ensure these secrets are set:
 secrets:
   AZURE_CLIENT_ID
   AZURE_TENANT_ID
@@ -314,13 +236,13 @@ az account show
    ```bash
    az ad app federated-credential list --id <APP_ID>
    ```
-2. Ensure `subject` is: `repo:YOUR_ORG/YOUR_REPO:ref:refs/heads/main`
+2. Ensure `subject` is: `repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main`
 
 **For CLI:**
 ```bash
 # Re-login
 az login
-az account set --subscription YOUR_SUBSCRIPTION_ID
+az account set --subscription <SUBSCRIPTION_ID>
 ```
 
 ### "No accessible subscriptions"
@@ -333,7 +255,9 @@ az role assignment list --assignee <APP_ID>
 az role assignment create \
   --assignee <APP_ID> \
   --role "Reader" \
-  --scope /subscriptions/YOUR_SUBSCRIPTION_ID
+  --scope /subscriptions/<SUBSCRIPTION_ID>
+
+# Wait 5-10 minutes for RBAC propagation
 ```
 
 ### "Missing permission: Microsoft.Compute/disks/read"
@@ -342,7 +266,7 @@ az role assignment create \
 # Verify Reader role is assigned
 az role assignment list \
   --assignee <APP_ID> \
-  --scope /subscriptions/YOUR_SUBSCRIPTION_ID
+  --scope /subscriptions/<SUBSCRIPTION_ID>
 
 # Wait 5-10 minutes for RBAC propagation
 ```
@@ -355,8 +279,8 @@ az role assignment list \
 |--------|-----|-------|
 | **OIDC Setup** | IAM role trust policy | Federated identity credential |
 | **Permissions** | IAM policies | RBAC roles |
-| **Regions** | Must specify or auto-detect | All locations by default |
-| **Resource IDs** | Short (e.g., `vol-abc123`) | Full ARM paths |
+| **Regions** | Must specify explicitly | All locations scanned by default |
+| **Resource Scope** | Per-region | Per-subscription |
 | **Authentication** | OIDC or access keys | OIDC or client secrets |
 
 ---
@@ -375,15 +299,20 @@ az role assignment list \
 
 ## Security Best Practices
 
-✅ Use OIDC for CI/CD (no stored secrets)  
-✅ Use Reader role (least privilege)  
-✅ Restrict federated credential to specific repo/branch  
-✅ Monitor Azure Activity Log for CleanCloud actions  
-✅ Use separate service principals per environment
+### ✅ DO
 
-❌ Don't use client secrets in CI/CD  
-❌ Don't grant Contributor role  
-❌ Don't share credentials across teams
+- Use OIDC for CI/CD (no stored secrets)
+- Use Reader role (least privilege)
+- Restrict federated credential to specific repo/branch
+- Monitor Azure Activity Log for CleanCloud actions
+- Use separate service principals per environment
+
+### ❌ DON'T
+
+- Use client secrets in CI/CD
+- Grant Contributor role
+- Share credentials across teams
+- Commit credentials to repositories
 
 ---
 
@@ -395,8 +324,4 @@ az role assignment list \
 
 ---
 
-## Next Steps
-
-- **CI/CD Integration:** [ci.md](ci.md)
-- **Rule Details:** [rules.md](rules.md)
-- **AWS Setup:** [aws.md](aws.md)
+**Next:** [AWS Setup →](aws.md) | [Rules Reference →](rules.md) | [CI/CD Guide →](ci.md)

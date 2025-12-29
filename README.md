@@ -369,7 +369,7 @@ CleanCloud supports tag-based filtering to reduce noise by ignoring findings for
 This is useful when certain environments, teams, or services should be out of scope for hygiene review (for example: production or shared platform resources).
 
 >⚠️ Tag filtering is **ignore-only**
-> 
+>
 > It does **not** disable rules, modify resources, or protect them from deletion.
 CleanCloud remains **read-only and review-only**.
 
@@ -437,6 +437,33 @@ Tag filtering works best with **broad ownership or scope tags**, such as:
 * service: core-infra
 
 It is **not intended** for per-resource exceptions or lifecycle management.
+
+---
+
+## Privacy & Telemetry
+
+**CleanCloud collects zero telemetry.**
+
+No analytics. No tracking. No phone-home.
+
+**Why?**
+
+1. **Trust** - Security tools shouldn't send data anywhere
+2. **Compliance** - Works in air-gapped environments
+3. **Simplicity** - No opt-out flags, no privacy policies
+4. **Safety** - Zero risk of leaking account information
+
+**How we improve:**
+- GitHub issues and discussions
+- Direct user feedback
+- Community contributions
+
+If CleanCloud helped you:
+- ⭐ [Star the repo](https://github.com/sureshcsdp/cleancloud)
+- 💬 Share feedback in [discussions](https://github.com/sureshcsdp/cleancloud/discussions)
+- 🐛 [Report issues](https://github.com/sureshcsdp/cleancloud/issues)
+
+---
 
 ## Design Philosophy
 
