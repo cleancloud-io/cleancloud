@@ -494,6 +494,17 @@ CleanCloud will remain focused on **safe hygiene detection**, not automation or 
 
 ---
 
+## 💬 Questions or Feedback?
+
+We'd love to hear from you:
+
+- 🐛 **Found a bug?** [Open an issue](https://github.com/sureshcsdp/cleancloud/issues)
+- 💡 **Have a feature request?** [Start a discussion](https://github.com/sureshcsdp/cleancloud/discussions)
+- 📧 **Want to chat?** Email us at suresh@sure360.io
+- 🌟 **Like CleanCloud?** [Star us on GitHub](https://github.com/sureshcsdp/cleancloud)
+
+**Using CleanCloud in production?** We'd love to feature your story!
+
 ## Contributing
 
 Contributions are welcome! Please ensure all PRs:
