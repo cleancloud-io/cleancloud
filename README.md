@@ -440,6 +440,20 @@ It is **not intended** for per-resource exceptions or lifecycle management.
 
 ---
 
+## Safety & Read-Only Guarantees
+
+CleanCloud implements **multi-layer safety regression tests** to ensure no cloud resources are ever modified during scans:
+
+- **Static AST checks**: Detect forbidden SDK calls in AWS/Azure provider code.
+- **Runtime SDK guards**: Intercept forbidden SDK calls during tests.
+- **IAM/Role definition checks**: Ensure AWS IAM policies and Azure RBAC roles are read-only.
+
+These tests run automatically in CI and are required for all PRs.
+
+For full details, see [docs/safety.md](docs/safety.md).
+
+---
+
 ## Privacy & Telemetry
 
 **CleanCloud collects zero telemetry.**
