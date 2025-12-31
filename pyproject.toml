@@ -59,10 +59,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/sureshcsdp/cleancloud"  # Update this
-Documentation = "https://github.com/sureshcsdp/cleancloud#readme"  # Update this
-Repository = "https://github.com/sureshcsdp/cleancloud"  # Update this
-Issues = "https://github.com/sureshcsdp/cleancloud/issues"  # Update this
+Homepage = "https://github.com/cleancloud-io/cleancloud"
+Documentation = "https://github.com/cleancloud-io/cleancloud#readme
+Repository = "https://github.com/cleancloud-io/cleancloud"
+Issues = "https://github.com/cleancloud-io/cleancloud/issues"
 
 [project.scripts]
 cleancloud = "cleancloud.cli:main"

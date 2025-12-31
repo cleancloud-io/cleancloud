@@ -459,9 +459,9 @@ No analytics. No tracking. No phone-home.
 - Community contributions
 
 If CleanCloud helped you:
-- ⭐ [Star the repo](https://github.com/sureshcsdp/cleancloud)
-- 💬 Share feedback in [discussions](https://github.com/sureshcsdp/cleancloud/discussions)
-- 🐛 [Report issues](https://github.com/sureshcsdp/cleancloud/issues)
+- ⭐ [Star the repo](https://github.com/cleancloud-io/cleancloud)
+- 💬 Share feedback in [discussions](https://github.com/cleancloud-io/cleancloud/discussions)
+- 🐛 [Report issues](https://github.com/cleancloud-io/cleancloud/issues)
 
 ---
 
@@ -525,10 +525,10 @@ CleanCloud will remain focused on **safe hygiene detection**, not automation or 
 
 We'd love to hear from you:
 
-- 🐛 **Found a bug?** [Open an issue](https://github.com/sureshcsdp/cleancloud/issues)
-- 💡 **Have a feature request?** [Start a discussion](https://github.com/sureshcsdp/cleancloud/discussions)
+- 🐛 **Found a bug?** [Open an issue](https://github.com/cleancloud-io/cleancloud/issues)
+- 💡 **Have a feature request?** [Start a discussion](https://github.com/cleancloud-io/cleancloud/discussions)
 - 📧 **Want to chat?** Email us at suresh@sure360.io
-- 🌟 **Like CleanCloud?** [Star us on GitHub](https://github.com/sureshcsdp/cleancloud)
+- 🌟 **Like CleanCloud?** [Star us on GitHub](https://github.com/cleancloud-io/cleancloud)
 
 **Using CleanCloud in production?** We'd love to feature your story!
 
