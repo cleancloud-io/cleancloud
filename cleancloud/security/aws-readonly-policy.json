@@ -1,0 +1,31 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVolumes",
+        "ec2:DescribeSnapshots",
+        "ec2:DescribeTags",
+        "ec2:DescribeInstances",
+        "ec2:DescribeRegions",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation",
+        "s3:GetBucketTagging",
+        "s3:ListBucket",
+        "s3:GetObject",
+        "cloudwatch:DescribeAlarms",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "iam:ListUsers",
+        "iam:ListAccessKeys",
+        "iam:GetUser",
+        "iam:GetAccessKeyLastUsed",
+        "tag:GetResources",
+        "organizations:ListAccounts"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

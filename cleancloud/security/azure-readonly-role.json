@@ -1,0 +1,22 @@
+{
+  "Name": "CleanCloudReadOnly",
+  "IsCustom": true,
+  "Description": "Read-only role for CleanCloud scanning",
+  "AssignableScopes": ["/subscriptions/<SUBSCRIPTION_ID>"],
+  "Permissions": [
+    {
+      "Actions": [
+        "Microsoft.Compute/virtualMachines/read",
+        "Microsoft.Compute/disks/read",
+        "Microsoft.Storage/storageAccounts/read",
+        "Microsoft.Storage/storageAccounts/blobServices/containers/read",
+        "Microsoft.Insights/diagnosticSettings/read",
+        "Microsoft.Resources/tags/read",
+        "Microsoft.Authorization/roleAssignments/read"
+      ],
+      "NotActions": [],
+      "DataActions": [],
+      "NotDataActions": []
+    }
+  ]
+}
