@@ -168,7 +168,7 @@ def scan(
                 click.echo("  cleancloud scan --provider aws --all-regions")
                 click.echo()
                 click.echo("💡 Tip: Use --all-regions to automatically detect and scan")
-                click.echo("   regions with resources (volumes, snapshots, logs)")
+                click.echo("   regions with resources (volumes, snapshots or CloudWatch logs)")
                 sys.exit(EXIT_ERROR)
 
             if region and all_regions:
