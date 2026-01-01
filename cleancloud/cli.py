@@ -724,7 +724,7 @@ def show_feedback_prompt():
     click.echo("If this scan surfaced useful (or confusing) findings, we'd love to hear about it.")
     click.echo()
     click.echo(
-        "Share feedback or feature requests: https://github.com/sureshcsdp/cleancloud/discussions"
+        "Share feedback or feature requests: https://github.com/cleancloud-io/cleancloud/discussions"
     )
     click.echo()
     click.echo("Or email: suresh@sure360.io")
