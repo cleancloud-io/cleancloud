@@ -1,11 +1,12 @@
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import botocore.exceptions
 import click
 import yaml
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ------------------------
 # Config + filtering
@@ -150,7 +151,9 @@ def scan(
         # Azure - filter by location
         cleancloud scan --provider azure --region eastus
     """
+    click.echo()
     click.echo("🔍 Starting CleanCloud scan")
+    click.echo()
     click.echo(f"Provider: {provider}")
     click.echo()
 
@@ -226,6 +229,7 @@ def scan(
             # Scan each region
             for r in regions_to_scan:
                 click.echo(f"🔍 Scanning region {r}")
+                click.echo()
                 findings.extend(_scan_aws_region(profile=profile, region=r))
 
             regions_scanned = regions_to_scan
@@ -235,6 +239,7 @@ def scan(
         # ========================
         elif provider == "azure":
             click.echo("🔍 Authenticating to Azure")
+            click.echo()
 
             session = create_azure_session()
             subscription_ids = session.list_subscription_ids()
@@ -502,8 +507,9 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
         click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
 
     if summary["total_findings"] == 0:
+        click.echo()
         click.echo("🎉 No hygiene issues detected")
-
+        click.echo()
 
 # ========================
 # Doctor Command
@@ -562,58 +568,68 @@ def _get_all_aws_regions(session) -> List[str]:
     response = ec2.describe_regions(AllRegions=False)
     return [r["RegionName"] for r in response["Regions"]]
 
+AWS_RULES: List[Callable] = [
+    find_unattached_ebs_volumes,
+    find_old_ebs_snapshots,
+    find_inactive_cloudwatch_logs,
+    find_aws_untagged_resources,
+]
 
 def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
     session = create_aws_session(profile=profile, region=region)
     findings: List[Finding] = []
 
-    findings.extend(find_unattached_ebs_volumes(session, region))
-    findings.extend(find_old_ebs_snapshots(session, region))
-    findings.extend(find_inactive_cloudwatch_logs(session, region))
-    findings.extend(find_aws_untagged_resources(session, region))
+    with ThreadPoolExecutor(max_workers=len(AWS_RULES)) as executor:
+        future_to_rule = {
+            executor.submit(rule, session, region): rule.__name__
+            for rule in AWS_RULES
+        }
+
+        for future in as_completed(future_to_rule):
+            rule_name = future_to_rule[future]
+            try:
+                rule_findings = future.result()
+                findings.extend(rule_findings)
+            except Exception as e:
+                # Important: fail soft, not hard
+                raise RuntimeError(
+                    f"AWS rule {rule_name} failed in region {region}: {e}"
+                ) from e
 
     for f in findings:
         f.region = region
 
     return findings
 
+AZURE_RULES: List[Callable] = [
+    find_unattached_managed_disks,
+    find_old_snapshots,
+    find_azure_untagged_resources,
+    find_unused_public_ips,
+]
 
 def _scan_azure_subscription(
-    subscription_id: str, credential, region_filter: Optional[str]
+        subscription_id: str,
+        credential,
+        region_filter: Optional[str],
 ) -> List[Finding]:
     findings: List[Finding] = []
 
-    findings.extend(
-        find_unattached_managed_disks(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_old_snapshots(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_azure_untagged_resources(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_unused_public_ips(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
+    with ThreadPoolExecutor(max_workers=len(AZURE_RULES)) as executor:
+        futures = [
+            executor.submit(
+                rule,
+                subscription_id=subscription_id,
+                credential=credential,
+                region_filter=region_filter,
+            )
+            for rule in AZURE_RULES
+        ]
+
+        for future in as_completed(futures):
+            findings.extend(future.result())
 
     return findings
-
 
 def main():
     cli()
