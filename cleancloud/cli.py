@@ -1,7 +1,8 @@
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional, Tuple
 
 import botocore.exceptions
 import click
@@ -150,7 +151,9 @@ def scan(
         # Azure - filter by location
         cleancloud scan --provider azure --region eastus
     """
-    click.echo("🔍 Starting CleanCloud scan")
+    click.echo()
+    click.echo("🔍 Starting CleanCloud scan...")
+    click.echo()
     click.echo(f"Provider: {provider}")
     click.echo()
 
@@ -223,11 +226,7 @@ def scan(
 
             click.echo()
 
-            # Scan each region
-            for r in regions_to_scan:
-                click.echo(f"🔍 Scanning region {r}")
-                findings.extend(_scan_aws_region(profile=profile, region=r))
-
+            findings = scan_aws_regions(profile, regions_to_scan)
             regions_scanned = regions_to_scan
 
         # ========================
@@ -235,6 +234,7 @@ def scan(
         # ========================
         elif provider == "azure":
             click.echo("🔍 Authenticating to Azure")
+            click.echo()
 
             session = create_azure_session()
             subscription_ids = session.list_subscription_ids()
@@ -245,15 +245,8 @@ def scan(
             click.echo(f"✓ Found {len(subscription_ids)} subscription(s)")
             click.echo()
 
-            for sub_id in subscription_ids:
-                click.echo(f"📦 Subscription {sub_id}")
-                findings.extend(
-                    _scan_azure_subscription(
-                        subscription_id=sub_id,
-                        credential=session.credential,
-                        region_filter=region,
-                    )
-                )
+            findings = scan_azure_subscriptions(subscription_ids, session.credential, region)
+            click.echo()
 
             regions_scanned = ["all"] if not region else [region]
             region_selection_mode = "explicit" if region else "all"
@@ -315,10 +308,12 @@ def scan(
                 output_path,
             )
             click.echo(f"✓ JSON output written to {output_path}")
+            click.echo()
 
         elif output == "csv":
             write_csv(findings, output_path)
             click.echo(f"✓ CSV output written to {output_path}")
+            click.echo()
 
         else:
             print_human(findings)
@@ -354,25 +349,70 @@ def scan(
         sys.exit(EXIT_ERROR)
 
 
-# ========================
-# Helper: Get active AWS regions (comprehensive check)
-# ========================
+def scan_aws_regions(
+    profile: Optional[str],
+    regions_to_scan: List[str],
+) -> List[Finding]:
+    findings: List[Finding] = []
+
+    with ThreadPoolExecutor(max_workers=min(5, len(regions_to_scan))) as executor:
+        futures = {
+            executor.submit(_scan_aws_region, profile, region): region for region in regions_to_scan
+        }
+
+        for future in as_completed(futures):
+            region = futures[future]
+            click.echo(f"✅ Completed region {region}")
+            click.echo()
+            findings.extend(future.result())
+
+    return findings
+
+
+def scan_azure_subscriptions(
+    subscription_ids: List[str],
+    credential,
+    region_filter: Optional[str],
+) -> List[Finding]:
+    all_findings: List[Finding] = []
+
+    with click.progressbar(
+        length=len(subscription_ids),
+        label="Scanning Azure subscriptions",
+        show_eta=True,
+        show_percent=True,
+    ) as bar:
+        with ThreadPoolExecutor(max_workers=min(4, len(subscription_ids))) as executor:
+            futures = {
+                executor.submit(
+                    _scan_azure_subscription,
+                    subscription_id=sub_id,
+                    credential=credential,
+                    region_filter=region_filter,
+                ): sub_id
+                for sub_id in subscription_ids
+            }
+
+            for future in as_completed(futures):
+                sub_id = futures[future]
+                click.echo(f"✅ Completed subscription {sub_id}")
+                click.echo()
+                try:
+                    all_findings.extend(future.result())
+                except Exception as e:
+                    click.echo(f"⚠️ Subscription {sub_id} failed: {e}")
+                finally:
+                    bar.update(1)
+
+    return all_findings
+
+
 def _get_active_aws_regions(session) -> List[str]:
     """
     Auto-detect AWS regions that have resources CleanCloud scans.
-
-    Only called when user specifies --all-regions flag.
-
-    Checks multiple resource types:
-    - EBS volumes (unattached volumes rule)
-    - EBS snapshots (old snapshots rule)
-    - CloudWatch Logs (infinite retention rule)
-
-    Returns:
-        List of region names with resources
+    Parallelised for performance.
     """
     try:
-        # Get all enabled regions
         ec2 = session.client("ec2", region_name="us-east-1")
         response = ec2.describe_regions(
             AllRegions=False,
@@ -380,35 +420,44 @@ def _get_active_aws_regions(session) -> List[str]:
         )
 
         enabled_regions = [r["RegionName"] for r in response["Regions"]]
-        active_regions = []
-        errors = []
+        active_regions: List[str] = []
+        errors: List[Tuple[str, str]] = []
 
-        # Check each region for CleanCloud-scanned resources
-        for region in enabled_regions:
-            has_resources, error = _region_has_cleancloud_resources(session, region)
+        # Bound concurrency to avoid throttling
+        max_workers = min(8, len(enabled_regions))
 
-            if has_resources:
-                active_regions.append(region)
-            elif error:
-                # Track errors for reporting
-                errors.append((region, error))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_region_has_cleancloud_resources, session, region): region
+                for region in enabled_regions
+            }
 
-        # Report any errors found
+            for future in as_completed(futures):
+                region = futures[future]
+                try:
+                    has_resources, error = future.result()
+                    if has_resources:
+                        active_regions.append(region)
+                    elif error:
+                        errors.append((region, error))
+                except Exception as e:
+                    errors.append((region, str(e)))
+
+        # Optional: user-facing error summary (unchanged behaviour)
         if errors:
             import click
 
             click.echo()
             click.echo(f"⚠️  Could not check {len(errors)} region(s):")
-            for region, error in errors[:5]:  # Show first 5
+            for region, error in errors[:5]:
                 click.echo(f"   • {region}: {error[:80]}")
             if len(errors) > 5:
                 click.echo(f"   ... and {len(errors) - 5} more")
             click.echo()
 
-        return active_regions
+        return sorted(active_regions)
 
     except Exception:
-        # If auto-detection fails, return empty list
         return []
 
 
@@ -502,7 +551,9 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
         click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
 
     if summary["total_findings"] == 0:
+        click.echo()
         click.echo("🎉 No hygiene issues detected")
+        click.echo()
 
 
 # ========================
@@ -563,54 +614,85 @@ def _get_all_aws_regions(session) -> List[str]:
     return [r["RegionName"] for r in response["Regions"]]
 
 
+AWS_RULES: List[Callable] = [
+    find_unattached_ebs_volumes,
+    find_old_ebs_snapshots,
+    find_inactive_cloudwatch_logs,
+    find_aws_untagged_resources,
+]
+
+
 def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
     session = create_aws_session(profile=profile, region=region)
     findings: List[Finding] = []
 
-    findings.extend(find_unattached_ebs_volumes(session, region))
-    findings.extend(find_old_ebs_snapshots(session, region))
-    findings.extend(find_inactive_cloudwatch_logs(session, region))
-    findings.extend(find_aws_untagged_resources(session, region))
+    with click.progressbar(
+        length=len(AWS_RULES),
+        label=f"Scanning AWS rules in {region}",
+        show_eta=True,
+        show_percent=True,
+    ) as bar:
+        with ThreadPoolExecutor(max_workers=min(4, len(AWS_RULES))) as executor:
+            futures = [executor.submit(rule, session, region) for rule in AWS_RULES]
 
+            for future in as_completed(futures):
+                try:
+                    rule_findings = future.result()
+                    findings.extend(rule_findings)
+                except Exception as e:
+                    # Trust-first: never fail whole scan
+                    click.echo(f"⚠️ Rule failed in {region}: {e}")
+                finally:
+                    bar.update(1)
+
+    # Ensure region is always set
     for f in findings:
         f.region = region
 
     return findings
 
 
+AZURE_RULES: List[Callable] = [
+    find_unattached_managed_disks,
+    find_old_snapshots,
+    find_azure_untagged_resources,
+    find_unused_public_ips,
+]
+
+
 def _scan_azure_subscription(
-    subscription_id: str, credential, region_filter: Optional[str]
+    subscription_id: str,
+    credential,
+    region_filter: Optional[str],
 ) -> List[Finding]:
     findings: List[Finding] = []
 
-    findings.extend(
-        find_unattached_managed_disks(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_old_snapshots(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_azure_untagged_resources(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
-    findings.extend(
-        find_unused_public_ips(
-            subscription_id=subscription_id,
-            credential=credential,
-            region_filter=region_filter,
-        )
-    )
+    with click.progressbar(
+        length=len(AZURE_RULES),
+        label=f"Scanning Azure rules in subscription {subscription_id}",
+        show_eta=True,
+        show_percent=True,
+    ) as bar:
+        with ThreadPoolExecutor(max_workers=min(4, len(AZURE_RULES))) as executor:
+            futures = [
+                executor.submit(
+                    rule,
+                    subscription_id=subscription_id,
+                    credential=credential,
+                    region_filter=region_filter,
+                )
+                for rule in AZURE_RULES
+            ]
+
+            for future in as_completed(futures):
+                try:
+                    rule_findings = future.result()
+                    findings.extend(rule_findings)
+                except Exception as e:
+                    # Trust-first: never fail whole scan
+                    click.echo(f"⚠️ Azure rule failed in subscription {subscription_id}: {e}")
+                finally:
+                    bar.update(1)
 
     return findings
 
