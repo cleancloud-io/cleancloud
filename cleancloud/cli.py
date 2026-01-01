@@ -1,3 +1,4 @@
+import os
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
@@ -120,6 +121,12 @@ def cli():
     multiple=True,
     help="Ignore findings by tag (key or key:value). Overrides config.",
 )
+@click.option(
+    "--no-feedback",
+    is_flag=True,
+    default=False,
+    help="Disable post-scan feedback prompt (recommended for CI/CD runs)",
+)
 def scan(
     provider: str,
     region: Optional[str],
@@ -131,6 +138,7 @@ def scan(
     fail_on_confidence: Optional[str],
     config: Optional[str],
     ignore_tag: List[str],
+    no_feedback: bool,
 ):
     """
     Scan cloud infrastructure for orphaned and untagged resources.
@@ -318,6 +326,8 @@ def scan(
         else:
             print_human(findings)
             _print_summary(summary, region_selection_mode)
+            if should_show_feedback(no_feedback):
+                show_feedback_prompt()
 
         # ========================
         # Exit policy
@@ -695,6 +705,30 @@ def _scan_azure_subscription(
                     bar.update(1)
 
     return findings
+
+
+def should_show_feedback(no_feedback: bool) -> bool:
+    if no_feedback:
+        return False
+    if os.getenv("CI", "").lower() == "true":
+        return False
+    return True
+
+
+def show_feedback_prompt():
+    click.echo()
+    click.echo("-" * 70)
+    click.echo("CleanCloud feedback")
+    click.echo("-" * 70)
+    click.echo()
+    click.echo("If this scan surfaced useful (or confusing) findings, we'd love to hear about it.")
+    click.echo()
+    click.echo(
+        "Share feedback or feature requests: https://github.com/sureshcsdp/cleancloud/discussions"
+    )
+    click.echo()
+    click.echo("Or email: suresh@sure360.io")
+    click.echo()
 
 
 def main():
