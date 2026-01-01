@@ -152,7 +152,7 @@ def scan(
         cleancloud scan --provider azure --region eastus
     """
     click.echo()
-    click.echo("🔍 Starting CleanCloud scan")
+    click.echo("🔍 Starting CleanCloud scan...")
     click.echo()
     click.echo(f"Provider: {provider}")
     click.echo()
@@ -315,10 +315,12 @@ def scan(
                 output_path,
             )
             click.echo(f"✓ JSON output written to {output_path}")
+            click.echo()
 
         elif output == "csv":
             write_csv(findings, output_path)
             click.echo(f"✓ CSV output written to {output_path}")
+            click.echo()
 
         else:
             print_human(findings)
@@ -368,6 +370,7 @@ def scan_aws_regions(
         for future in as_completed(futures):
             region = futures[future]
             click.echo(f"✅ Completed region {region}")
+            click.echo()
             findings.extend(future.result())
 
     return findings
