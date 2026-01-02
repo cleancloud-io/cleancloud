@@ -1,6 +1,10 @@
 # CleanCloud
 
-**Safe, conservative cloud hygiene scanning for modern infrastructure teams.**
+![PyPI](https://img.shields.io/pypi/v/cleancloud) &nbsp;&nbsp;
+![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud) &nbsp;&nbsp;
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+## Safe, conservative cloud hygiene scanning for modern infrastructure teams.
 
 CleanCloud helps SRE and DevOps teams identify orphaned, untagged, and potentially inactive cloud resources—without the risk of automated cleanup or aggressive cost optimization heuristics.
 
