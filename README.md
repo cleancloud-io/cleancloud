@@ -1,51 +1,89 @@
 # CleanCloud
 
-![PyPI](https://img.shields.io/pypi/v/cleancloud) &nbsp;&nbsp;
-![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud) &nbsp;&nbsp;
+**Read-only, conservative cloud hygiene scanning for production environments.**
+
+CleanCloud helps SRE and platform teams safely identify **review-only candidates**
+for orphaned, untagged, or inactive cloud resources — **without deleting anything,
+changing tags, or optimizing costs.**
+
+> ⚠️ CleanCloud never modifies cloud resources.  
+> ⚠️ No auto-cleanup. No cost optimization. No telemetry.
+
+![PyPI](https://img.shields.io/pypi/v/cleancloud)
+![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-## Safe, conservative cloud hygiene scanning for modern infrastructure teams.
+## Who CleanCloud Is (and Is Not) For
 
-CleanCloud helps SRE and DevOps teams identify orphaned, untagged, and potentially inactive cloud resources—without the risk of automated cleanup or aggressive cost optimization heuristics.
+**CleanCloud is for:**
+- SRE / Platform teams reviewing cloud hygiene safely
+- Security-reviewed and regulated environments
+- CI/CD pipelines that must never mutate infrastructure
+- Teams using IaC and ephemeral resources
+
+**CleanCloud is NOT:**
+- ❌ A cost optimization or FinOps tool
+- ❌ An automated cleanup or deletion service
+- ❌ A replacement for Trusted Advisor or Config
+- ❌ A dashboard that flags everything
+
+CleanCloud exists to answer one question safely:
+
+> *“What resources look abandoned enough to review — without breaking production?”*
 
 ## Why CleanCloud?
 
-Modern cloud environments constantly create and destroy storage and logs. Over time, orphaned resources accumulate — no owner, no signal, and too risky to delete blindly.
+Modern cloud environments continuously create and destroy resources.
+Over time, **storage and logs lose ownership**, and deleting them becomes risky.
 
-Most cloud hygiene tools fall into two categories:
+Most tools do one of two things:
+1. **Auto-delete** → unsafe
+2. **Flag everything** → noisy
 
-1. **Auto-delete everything** — Too dangerous for production
-2. **Flag everything** — Too noisy to be useful
+**CleanCloud takes a third approach:**
 
-**CleanCloud is different:**
+- Multiple conservative signals
+- Explicit confidence levels (LOW / MEDIUM / HIGH)
+- Review-only findings
+- Zero mutations
 
-- ✅ **Read-only by design** — Never modifies, deletes, or tags resources
-- ✅ **Conservative signals** — Multiple indicators, age-based confidence thresholds
-- ✅ **IaC-aware** — Designed for elastic, automated infrastructure
-- ✅ **Trust-first** — Review-only recommendations, never destructive actions
-- ✅ **CI/CD friendly** — Exit codes, JSON/CSV output, confidence-based policies
+This makes it safe to run in **production accounts and CI pipelines**.
 
-**CleanCloud is not:**
-- ❌ A cost optimization tool
-- ❌ An automated cleanup service
-- ❌ A FinOps dashboard
+## Built for Production & Enterprise Use
+CleanCloud is designed to be approved by security teams, not bypassed.
 
-It’s a **hygiene layer** built for teams who value safety over automation.
+- ✅ **Read-only by design** (no Delete*, Modify*, or Tag* permissions)
+- ✅ **OIDC-first authentication** (AWS & Azure)
+- ✅ **Parallel, multi-region scanning**
+- ✅ **CI/CD friendly** (exit codes, JSON/CSV output)
+- ✅ **Audit-friendly** (deterministic output, no side effects)
 
----
+**Security model:**
+- 🔒 No credentials stored
+- 🔐 Short-lived tokens only
+- 🧪 Safety regression tests prevent write APIs
 
-### Built For Production Use
+## CI/CD at a Glance
 
-**CleanCloud is designed for:**
-- ✅ SOC2/ISO27001 compliant environments (read-only, no credentials stored)
-- ✅ Multi-region AWS accounts (scans 20+ regions in parallel)
-- ✅ Enterprise Azure subscriptions (supports Workload Identity Federation)
-- ✅ CI/CD pipelines (exit codes, JSON output, GitHub Actions ready)
+CleanCloud is designed for policy enforcement without side effects.
 
-**Security-first:**
-- 🔒 No `Delete*` or `Modify*` permissions required
-- 🔐 OIDC support (no long-lived credentials)
-- 📝 Audit-friendly logging
+```bash
+# Fail only on high-confidence hygiene risks
+cleancloud scan --fail-on-confidence HIGH
+```
+Exit codes are stable and intentional:
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Scan completed successfully, no blocking findings |
+| `1` | Configuration or unexpected error |
+| `2` | Policy violation (findings detected with `--fail-on-findings` or `--fail-on-confidence`) |
+| `3` | Missing permissions or invalid credentials |
+
+CleanCloud never fails a build by accident.
 
 ## Quick Start
 
@@ -95,15 +133,19 @@ cleancloud scan --provider aws --output csv --output-file results.csv
 
 ## What CleanCloud Detects
 
-### AWS Rules (4 currently)
-See [`docs/rules.md`](docs/rules.md) for detailed rule behavior and confidence thresholds.
+CleanCloud intentionally starts with **a small number of high-signal rules**.
 
-### Azure Rules (4 currently)
-See [`docs/rules.md`](docs/rules.md) for detailed rule behavior and confidence thresholds.
+Each rule:
+- Is read-only
+- Uses multiple conservative signals
+- Avoids false positives in IaC environments
+- Includes explicit confidence levels
+
+**See [`docs/rules.md`](docs/rules.md) for full details.**
 
 ---
 
-## CI/CD Integration
+## CI/CD Examples
 
 CleanCloud is designed for CI/CD pipelines with predictable exit codes and policy enforcement.
 
@@ -154,15 +196,6 @@ jobs:
           path: scan.json
 
 ```
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | Scan completed successfully, no blocking findings |
-| `1` | Configuration or unexpected error |
-| `2` | Policy violation (findings detected with `--fail-on-findings` or `--fail-on-confidence`) |
-| `3` | Missing permissions or invalid credentials |
 
 ### Policy Enforcement
 
@@ -372,10 +405,10 @@ CleanCloud supports tag-based filtering to reduce noise by ignoring findings for
 
 This is useful when certain environments, teams, or services should be out of scope for hygiene review (for example: production or shared platform resources).
 
->⚠️ Tag filtering is **ignore-only**
+> ⚠️ Tag filtering is **ignore-only**
 >
-> It does **not** disable rules, modify resources, or protect them from deletion.
-CleanCloud remains **read-only and review-only**.
+> It does **not** disable rules, modify resources, or protect them from deletion.  
+> CleanCloud remains **read-only and review-only**.
 
 ### Configuration File (cleancloud.yaml)
 
@@ -428,7 +461,7 @@ Ignored findings are:
 ✅ Preserved internally for auditability
 
 Example summary output:
-```aiignore
+```
 Ignored by tag policy: 7 findings
 ```
 
@@ -462,16 +495,16 @@ For full details, see [docs/safety.md](docs/safety.md).
 
 **CleanCloud collects zero telemetry.**
 
-No analytics. No tracking. No phone-home.
+- No analytics
+- No usage tracking
+- No phone-home
+- No opt-out flags
 
-**Why?**
+This is intentional.
 
-1. **Trust** - Security tools shouldn't send data anywhere
-2. **Compliance** - Works in air-gapped environments
-3. **Simplicity** - No opt-out flags, no privacy policies
-4. **Safety** - Zero risk of leaking account information
+Security tools should not transmit metadata from production environments.
 
-**How we improve:**
+## How we improve:
 - GitHub issues and discussions
 - Direct user feedback
 - Community contributions
@@ -488,6 +521,7 @@ If CleanCloud helped you:
 CleanCloud is built on three core principles:
 
 ### 1. Conservative by Default
+- Explicit, documented confidence logic ([docs/confidence.md](docs/confidence.md))
 - Age-based confidence thresholds (e.g., disks > 14 days = HIGH confidence)
 - Multiple signals required before flagging resources
 - Explicit confidence levels: LOW, MEDIUM, HIGH
@@ -513,14 +547,17 @@ This makes CleanCloud safe for:
 
 ## Roadmap
 
+> Roadmap items are added only after conservative signal design and safety review.
+
 ### Coming Soon
 - GCP support
 - Additional AWS rules (unused Elastic IPs, old AMIs, empty security groups)
 - Additional Azure rules (unused NICs, old images)
 - Rule filtering (`--rules` flag)
-- Configuration file support (`cleancloud.yaml`)
 
 ### Not Planned
+These are intentional non-goals to preserve safety and trust.
+
 - Automated cleanup or deletion
 - Cost optimization recommendations
 - Rightsizing suggestions
@@ -577,11 +614,3 @@ All scans run using standard AWS/Azure SDK credential resolution
 [MIT License](LICENSE)
 
 ---
-
-## Why "CleanCloud"?
-
-Because clean code matters, clean infrastructure matters, and cleaning up cloud resources should be **safe, deliberate, and human-reviewed**—not automated and risky.
-
----
-
-**Built for SRE teams who value trust over automation.**
