@@ -4,8 +4,6 @@ from cleancloud.safety.azure.allowlist import FORBIDDEN_AZURE_METHOD_PREFIXES
 
 
 class ForbiddenAzureCallError(Exception):
-    """Raised if a forbidden Azure SDK call is attempted."""
-
     pass
 
 
@@ -58,6 +56,4 @@ def test_dummy_readonly_call():
     """
     Sanity check that a read-only method can be accessed.
     """
-    # This is a placeholder; actual Azure clients may vary
-    # Ensures pytest runs even if SDK not installed
     assert True

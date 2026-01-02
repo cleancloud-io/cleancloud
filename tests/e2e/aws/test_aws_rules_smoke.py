@@ -1,4 +1,3 @@
-# tests/e2e/aws/test_aws_rules_smoke.py
 from datetime import datetime
 
 import boto3
@@ -13,14 +12,9 @@ from cleancloud.providers.aws.rules.untagged_resources import find_untagged_reso
 @pytest.mark.e2e
 @pytest.mark.aws
 def test_aws_rules_run_without_error():
-    """
-    End-to-end smoke test for all AWS rules.
-    Ensures each rule executes and returns a list of findings without crashing.
-    """
     session = boto3.Session()
     region = "us-east-1"  # default test region
 
-    # ---- Run all rules ----
     all_rules = [
         find_untagged_resources(session, region),
         find_old_ebs_snapshots(session, region),

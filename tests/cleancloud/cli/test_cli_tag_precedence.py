@@ -29,12 +29,6 @@ def _fake_finding(resource_id, tags):
 
 
 def test_cli_ignore_tag_overrides_yaml(monkeypatch, tmp_path):
-    """
-    YAML ignores env=production
-    CLI ignores team=platform
-    CLI MUST win
-    """
-
     config_path = tmp_path / "cleancloud.yaml"
     config_path.write_text(
         yaml.safe_dump(

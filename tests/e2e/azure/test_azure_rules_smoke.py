@@ -1,4 +1,3 @@
-# tests/e2e/azure/test_azure_rules_smoke.py
 from datetime import datetime
 
 import pytest
@@ -14,12 +13,6 @@ from cleancloud.providers.azure.session import create_azure_session
 @pytest.mark.e2e
 @pytest.mark.azure
 def test_azure_rules_run_without_error():
-    """
-    End-to-end smoke test for all Azure rules.
-    Ensures each rule executes and returns a list of findings without crashing.
-    """
-
-    # ---- Get first available subscription ----
     session = create_azure_session()
     subscription_ids = session.list_subscription_ids()
     assert subscription_ids, "No Azure subscriptions available for E2E test"
@@ -29,7 +22,6 @@ def test_azure_rules_run_without_error():
 
     region_filter = "eastus"  # optional, restrict scan region
 
-    # ---- Execute each rule ----
     all_rules = [
         find_unattached_managed_disks(
             subscription_id=sub_id, credential=credential, region_filter=region_filter
@@ -45,11 +37,9 @@ def test_azure_rules_run_without_error():
         ),
     ]
 
-    # ---- Assert each rule returned a list ----
     for rule_results in all_rules:
         assert isinstance(rule_results, list), f"Rule returned {type(rule_results)} instead of list"
 
-        # ---- Optional: check structure if there are any findings ----
         for f in rule_results:
             assert isinstance(f, Finding), f"Unexpected type {type(f)} in findings"
             assert f.provider == "azure"

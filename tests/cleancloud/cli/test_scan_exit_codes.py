@@ -13,10 +13,6 @@ pytest.skip(
 
 
 class FakeResult:
-    """
-    Minimal fake result object for CLI integration tests.
-    """
-
     def __init__(self, confidence: str):
         self.confidence = confidence
 
@@ -28,7 +24,6 @@ def test_cli_exits_2_on_high_confidence():
     runner = CliRunner()
     fake_results = [FakeResult("High")]
 
-    # ⬇️ CHANGE run_scan IF NEEDED (see section below)
     with patch.object(cli_module, "run_scan", return_value=fake_results):
         result = runner.invoke(cli, ["scan"])
 

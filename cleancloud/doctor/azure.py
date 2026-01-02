@@ -1,7 +1,3 @@
-"""
-Enterprise-grade Azure doctor with robust auth detection and acquirer-friendly logging.
-"""
-
 import os
 
 from azure.identity import DefaultAzureCredential
@@ -11,13 +7,6 @@ from cleancloud.doctor.common import fail, info, success, warn
 
 
 def detect_azure_auth_method() -> tuple[str, str, dict]:
-    """
-    Detect how Azure credentials are being sourced.
-
-    Returns:
-        tuple: (method_id, human_readable_description, metadata_dict)
-    """
-
     # Check environment variables to determine method
     has_federated_token = os.getenv("AZURE_FEDERATED_TOKEN_FILE") is not None
     has_client_secret = os.getenv("AZURE_CLIENT_SECRET") is not None
@@ -90,14 +79,6 @@ def detect_azure_auth_method() -> tuple[str, str, dict]:
 
 
 def run_azure_doctor() -> None:
-    """
-    Validate Azure credentials and permissions with enterprise-grade logging.
-
-    Provides detailed authentication diagnostics suitable for security audits
-    and acquirer due diligence.
-    """
-
-    # Header
     info("")
     info("=" * 70)
     info("AZURE ENVIRONMENT VALIDATION")

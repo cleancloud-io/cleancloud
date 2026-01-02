@@ -1,14 +1,10 @@
 from typing import List, Optional
 
-# ------------------------
-# Exit codes (CI contract)
-# ------------------------
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_POLICY_VIOLATION = 2
 EXIT_PERMISSION_ERROR = 3
 
-# Confidence ordering (lowest → highest)
 CONFIDENCE_ORDER = {
     "LOW": 1,
     "MEDIUM": 2,
