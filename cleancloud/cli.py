@@ -140,25 +140,6 @@ def scan(
     ignore_tag: List[str],
     no_feedback: bool,
 ):
-    """
-    Scan cloud infrastructure for orphaned and untagged resources.
-
-    AWS: Must specify EITHER --region OR --all-regions
-    Azure: No region required (scans all subscriptions, optionally filter by location)
-
-    Examples:
-        # AWS - specific region
-        cleancloud scan --provider aws --region us-east-1
-
-        # AWS - all active regions
-        cleancloud scan --provider aws --all-regions
-
-        # Azure - all subscriptions
-        cleancloud scan --provider azure
-
-        # Azure - filter by location
-        cleancloud scan --provider azure --region eastus
-    """
     click.echo()
     click.echo("🔍 Starting CleanCloud scan...")
     click.echo()
@@ -166,9 +147,6 @@ def scan(
     click.echo()
 
     try:
-        # ========================
-        # Validate region arguments (AWS only)
-        # ========================
         if provider == "aws":
             # AWS requires explicit region choice
             if not region and not all_regions:
@@ -190,12 +168,6 @@ def scan(
                 click.echo("  --all-regions             # Scan all active regions")
                 sys.exit(EXIT_ERROR)
 
-        # Note: Azure doesn't require region validation
-        # Azure scans all subscriptions by default, region is optional filter
-
-        # ------------------------
-        # Load config (safe)
-        # ------------------------
         cfg = CleanCloudConfig.empty()
         if config:
             with open(config) as f:
@@ -204,9 +176,6 @@ def scan(
 
         findings: List[Finding] = []
 
-        # ========================
-        # AWS scanning
-        # ========================
         if provider == "aws":
             base_session = create_aws_session(profile=profile, region="us-east-1")
 
@@ -237,9 +206,6 @@ def scan(
             findings = scan_aws_regions(profile, regions_to_scan)
             regions_scanned = regions_to_scan
 
-        # ========================
-        # Azure scanning
-        # ========================
         elif provider == "azure":
             click.echo("🔍 Authenticating to Azure")
             click.echo()
@@ -259,9 +225,6 @@ def scan(
             regions_scanned = ["all"] if not region else [region]
             region_selection_mode = "explicit" if region else "all"
 
-        # ========================
-        # Tag filtering (POST-SCAN)
-        # ========================
         ignored_count = 0
         rules = []
 
@@ -285,9 +248,6 @@ def scan(
             ignored_count = len(result.ignored)
             findings = result.kept
 
-        # ========================
-        # Summary + Output
-        # ========================
         summary = build_summary(findings)
         summary["scanned_at"] = datetime.now(timezone.utc).isoformat()
         summary["regions_scanned"] = regions_scanned
@@ -418,10 +378,6 @@ def scan_azure_subscriptions(
 
 
 def _get_active_aws_regions(session) -> List[str]:
-    """
-    Auto-detect AWS regions that have resources CleanCloud scans.
-    Parallelised for performance.
-    """
     try:
         ec2 = session.client("ec2", region_name="us-east-1")
         response = ec2.describe_regions(
@@ -472,20 +428,6 @@ def _get_active_aws_regions(session) -> List[str]:
 
 
 def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Optional[str]]:
-    """
-    Check if region has any resources that CleanCloud scans.
-
-    Checks all CleanCloud rules:
-    1. EBS volumes (unattached volumes rule)
-    2. EBS snapshots (old snapshots rule)
-    3. CloudWatch Logs (infinite retention rule)
-
-    Returns:
-        Tuple of (has_resources, error_message)
-        - (True, None) = Has resources
-        - (False, None) = No resources found (empty region)
-        - (False, "error message") = Error checking region
-    """
     try:
         ec2 = session.client("ec2", region_name=region)
 
@@ -566,9 +508,6 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
         click.echo()
 
 
-# ========================
-# Doctor Command
-# ========================
 @cli.command()
 @click.option(
     "--provider",
@@ -584,14 +523,6 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
     help="Path to cleancloud.yaml",
 )
 def doctor(provider: Optional[str], region: str, profile: Optional[str], config: Optional[str]):
-    """
-    Validate cloud credentials and permissions.
-
-    Examples:
-        cleancloud doctor                    # Check both AWS and Azure
-        cleancloud doctor --provider aws     # Check AWS only
-        cleancloud doctor --provider azure   # Check Azure only
-    """
     click.echo("🩺 Running CleanCloud doctor")
     click.echo()
 
@@ -615,9 +546,6 @@ def doctor(provider: Optional[str], region: str, profile: Optional[str], config:
         click.echo()
 
 
-# ========================
-# Helpers (UNCHANGED)
-# ========================
 def _get_all_aws_regions(session) -> List[str]:
     ec2 = session.client("ec2", region_name="us-east-1")
     response = ec2.describe_regions(AllRegions=False)

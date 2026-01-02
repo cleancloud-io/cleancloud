@@ -30,7 +30,7 @@ changing tags, or optimizing costs.**
 
 CleanCloud exists to answer one question safely:
 
-> *“What resources look abandoned enough to review — without breaking production?”*
+> CleanCloud exists to help SRE and platform teams reduce unknown state in cloud environments — safely and without mutations.
 
 ## Why CleanCloud?
 

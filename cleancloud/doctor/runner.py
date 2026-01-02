@@ -1,7 +1,3 @@
-"""
-Enterprise-grade doctor runner with proper error handling and summary reporting.
-"""
-
 import sys
 from typing import Optional
 
@@ -13,23 +9,6 @@ from cleancloud.doctor.common import DoctorError, info, success
 def run_doctor(
     provider: Optional[str] = None, profile: Optional[str] = None, region: Optional[str] = None
 ) -> None:
-    """
-    Run health checks for cloud provider credentials and permissions.
-
-    Provides enterprise-grade diagnostics suitable for security audits
-    and acquirer due diligence.
-
-    Args:
-        provider: Cloud provider to check ("aws", "azure", or None for both)
-        profile: AWS profile name (optional)
-        region: AWS region (optional, defaults to us-east-1)
-
-    Exit codes:
-        0: All checks passed
-        1: Unexpected error
-        3: Doctor check failed (credentials or permissions)
-    """
-
     # Validate provider
     valid_providers = ["aws", "azure"]
     if provider is not None and provider not in valid_providers:

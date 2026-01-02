@@ -15,7 +15,6 @@ def _age_in_days(created_at: datetime) -> int:
 
 
 def find_untagged_resources(
-    *,
     subscription_id: str,
     credential,
     region_filter: str = None,

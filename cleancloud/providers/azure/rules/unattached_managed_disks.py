@@ -17,7 +17,6 @@ def _age_in_days(created_at: datetime) -> int:
 
 
 def find_unattached_managed_disks(
-    *,
     subscription_id: str,
     credential,
     region_filter: str = None,

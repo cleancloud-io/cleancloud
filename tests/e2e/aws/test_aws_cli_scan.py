@@ -7,9 +7,6 @@ import pytest
 @pytest.mark.e2e
 @pytest.mark.aws
 def test_cli_scan_runs():
-    """
-    Ensure `cleancloud scan --provider aws` CLI command runs without crashing.
-    """
     cmd = [
         sys.executable,
         "-m",

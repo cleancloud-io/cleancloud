@@ -1,4 +1,3 @@
-# tests/cleancloud/providers/azure/test_azure_unattached_managed_disks.py
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 

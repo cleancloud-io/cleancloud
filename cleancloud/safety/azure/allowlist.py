@@ -1,7 +1,3 @@
-"""
-Central definition of allowed vs forbidden Azure SDK calls.
-"""
-
 ALLOWED_AZURE_METHOD_PREFIXES = (
     "list",
     "get",

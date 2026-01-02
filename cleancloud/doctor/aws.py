@@ -1,7 +1,3 @@
-"""
-Enterprise-grade AWS doctor with robust auth detection and acquirer-friendly logging.
-"""
-
 import os
 from typing import Optional
 
@@ -10,15 +6,6 @@ from cleancloud.providers.aws.session import create_aws_session
 
 
 def detect_aws_auth_method(session) -> tuple[str, str, dict]:
-    """
-    Detect how AWS credentials are being sourced.
-
-    IMPORTANT: Uses credentials.method (what boto3 actually used),
-    NOT environment variables (which might be stale or overridden).
-
-    Returns:
-        tuple: (method_id, human_readable_description, metadata_dict)
-    """
     try:
         credentials = session.get_credentials()
 
@@ -169,14 +156,6 @@ def detect_aws_auth_method(session) -> tuple[str, str, dict]:
 
 
 def run_aws_doctor(profile: Optional[str], region: str) -> None:
-    """
-    Validate AWS credentials and permissions with enterprise-grade logging.
-
-    Provides detailed authentication diagnostics suitable for security audits
-    and acquirer due diligence.
-    """
-
-    # Header
     info("")
     info("=" * 70)
     info("AWS ENVIRONMENT VALIDATION")
