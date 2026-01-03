@@ -50,6 +50,17 @@ Most tools do one of two things:
 
 This makes it safe to run in **production accounts and CI pipelines**.
 
+## Where CleanCloud Fits
+
+CleanCloud is intentionally designed as a **read-only, review-only cloud hygiene tool**.
+
+It sits between:
+- native cloud provider checks (e.g. AWS Config, Trusted Advisor)
+- and automated cleanup / mutation tools
+
+For a visual overview of this positioning, see:
+→ [Where CleanCloud Fits (design diagram)](docs/design.md#where-cleancloud-fits)
+
 ## Built for Production & Enterprise Use
 CleanCloud is designed to be approved by security teams, not bypassed.
 
