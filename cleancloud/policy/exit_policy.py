@@ -1,15 +1,11 @@
 from typing import List, Optional
 
+from cleancloud.core.confidence import CONFIDENCE_ORDER
+
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_POLICY_VIOLATION = 2
 EXIT_PERMISSION_ERROR = 3
-
-CONFIDENCE_ORDER = {
-    "LOW": 1,
-    "MEDIUM": 2,
-    "HIGH": 3,
-}
 
 
 def determine_exit_code(
@@ -32,7 +28,7 @@ def determine_exit_code(
     if not findings:
         return EXIT_OK
 
-    # 1️⃣ Hard override: fail on any finding
+    # Hard override: fail on any finding
     if fail_on_findings:
         return EXIT_POLICY_VIOLATION
 
@@ -43,7 +39,7 @@ def determine_exit_code(
         else CONFIDENCE_ORDER["HIGH"]
     )
 
-    # 2️⃣ Confidence-based evaluation
+    # Confidence-based evaluation
     for f in findings:
         confidence = getattr(f, "confidence", None) or f.confidence
         if not confidence:

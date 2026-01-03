@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from cleancloud.exit_policy import determine_exit_code
+from cleancloud.policy.exit_policy import determine_exit_code
 
 
 @dataclass

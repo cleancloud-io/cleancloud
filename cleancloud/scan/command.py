@@ -17,12 +17,6 @@ from cleancloud.config.schema import (
     load_config,
 )
 from cleancloud.core.finding import Finding
-from cleancloud.exit_policy import (
-    EXIT_ERROR,
-    EXIT_PERMISSION_ERROR,
-    EXIT_POLICY_VIOLATION,
-    determine_exit_code,
-)
 from cleancloud.filtering.tags import (
     compile_rules,
     filter_findings_by_tags,
@@ -32,6 +26,13 @@ from cleancloud.output.feedback import should_show_feedback, show_feedback_promp
 from cleancloud.output.human import print_human
 from cleancloud.output.json import write_json
 from cleancloud.output.summary import build_summary
+from cleancloud.policy.exit_policy import (
+    CONFIDENCE_ORDER,
+    EXIT_ERROR,
+    EXIT_PERMISSION_ERROR,
+    EXIT_POLICY_VIOLATION,
+    determine_exit_code,
+)
 
 # ------------------------
 # AWS rules
@@ -58,12 +59,6 @@ from cleancloud.providers.azure.rules.untagged_resources import (
     find_untagged_resources as find_azure_untagged_resources,
 )
 from cleancloud.providers.azure.session import create_azure_session
-
-CONFIDENCE_ORDER = {
-    "LOW": 1,
-    "MEDIUM": 2,
-    "HIGH": 3,
-}
 
 
 @click.command("scan")
