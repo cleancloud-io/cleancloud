@@ -3,9 +3,10 @@ from typing import List
 
 from azure.mgmt.compute import ComputeManagementClient
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 MIN_AGE_DAYS_HIGH = 14
 MIN_AGE_DAYS_MEDIUM = 7
@@ -55,7 +56,7 @@ def find_unattached_managed_disks(
         disk_age_days = _age_in_days(disk.time_created)
 
         if disk_age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence_value = Confidence.MEDIUM.value  # conservative for all ages
+            confidence_value = ConfidenceLevel.MEDIUM.value  # conservative for all ages
         else:
             continue  # too new
 
@@ -83,7 +84,7 @@ def find_unattached_managed_disks(
                 title="Unattached Azure managed disk",
                 summary=f"Disk not attached to any VM for {disk_age_days} days",
                 reason="Disk has no VM attachment and exceeds age threshold",
-                risk=Risk.LOW.value,
+                risk=RiskLevel.LOW.value,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,

@@ -1,7 +1,7 @@
 from collections import Counter
 from typing import Dict, List
 
-from cleancloud.models.finding import Finding
+from cleancloud.core.finding import Finding
 
 
 def build_summary(findings: List[Finding]) -> Dict[str, object]:

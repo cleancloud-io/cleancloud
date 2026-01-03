@@ -75,7 +75,7 @@ jobs:
 aws configure --profile cleancloud
 
 # Use with CleanCloud
-cleancloud scan --provider aws --profile cleancloud
+cleancloud scan --provider aws --profile cleancloud --region us-east-1
 ```
 
 ---
@@ -87,7 +87,7 @@ export AWS_ACCESS_KEY_ID=<your-key>
 export AWS_SECRET_ACCESS_KEY=<your-secret>
 export AWS_DEFAULT_REGION=us-east-1
 
-cleancloud scan --provider aws
+cleancloud scan --provider aws --region us-east-1
 ```
 
 ⚠️ **Not recommended for CI/CD** - Use OIDC instead
@@ -160,7 +160,7 @@ Attach this policy to your IAM role or user:
 
 ```bash
 # AWS requires explicit region choice
-cleancloud scan --provider aws
+cleancloud scan --provider aws --region us-east-1
 
 # ERROR: Must specify --region or --all-regions
 ```
@@ -192,7 +192,7 @@ cleancloud scan --provider aws --all-regions
 Use the `doctor` command to verify credentials and permissions:
 
 ```bash
-cleancloud doctor --provider aws
+cleancloud doctor --provider aws --region us-east-1
 ```
 
 **What it checks:**

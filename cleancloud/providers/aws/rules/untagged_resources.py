@@ -3,9 +3,10 @@ from typing import List, Optional
 
 import boto3
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 
 def find_untagged_resources(
@@ -57,8 +58,8 @@ def find_untagged_resources(
                         title="Untagged EBS volume",
                         summary="EBS volume has no tags",
                         reason="No tags found on resource",
-                        risk=Risk.LOW.value,
-                        confidence=Confidence.MEDIUM.value,
+                        risk=RiskLevel.LOW.value,
+                        confidence=ConfidenceLevel.MEDIUM.value,
                         detected_at=now,
                         evidence=evidence,
                         details={
@@ -99,8 +100,8 @@ def find_untagged_resources(
                     title="Untagged S3 bucket",
                     summary="S3 bucket has no tags",
                     reason="No tags found on resource",
-                    risk=Risk.LOW.value,
-                    confidence=Confidence.MEDIUM.value,
+                    risk=RiskLevel.LOW.value,
+                    confidence=ConfidenceLevel.MEDIUM.value,
                     detected_at=now,
                     evidence=evidence,
                     details={},
@@ -133,8 +134,8 @@ def find_untagged_resources(
                         title="Untagged CloudWatch log group",
                         summary="Log group has no tags",
                         reason="No tags found on resource",
-                        risk=Risk.LOW.value,
-                        confidence=Confidence.MEDIUM.value,
+                        risk=RiskLevel.LOW.value,
+                        confidence=ConfidenceLevel.MEDIUM.value,
                         detected_at=now,
                         evidence=evidence,
                         details={},

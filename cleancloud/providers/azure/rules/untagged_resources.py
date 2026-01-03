@@ -3,9 +3,10 @@ from typing import List, Optional
 
 from azure.mgmt.compute import ComputeManagementClient
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 MIN_SNAPSHOT_AGE_DAYS = 7
 
@@ -50,7 +51,7 @@ def find_untagged_resources(
             continue
 
         confidence_value = (
-            Confidence.MEDIUM.value if disk.managed_by is None else Confidence.LOW.value
+            ConfidenceLevel.MEDIUM.value if disk.managed_by is None else ConfidenceLevel.LOW.value
         )
 
         evidence = Evidence(
@@ -74,7 +75,7 @@ def find_untagged_resources(
                 title="Untagged Azure managed disk",
                 summary="Disk has no tags",
                 reason="No tags found on resource",
-                risk=Risk.LOW.value,
+                risk=RiskLevel.LOW.value,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,
@@ -125,8 +126,8 @@ def find_untagged_resources(
                 title="Untagged Azure snapshot",
                 summary="Snapshot has no tags",
                 reason="No tags found on resource",
-                risk=Risk.LOW.value,
-                confidence=Confidence.LOW.value,
+                risk=RiskLevel.LOW.value,
+                confidence=ConfidenceLevel.LOW.value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,
                 details={

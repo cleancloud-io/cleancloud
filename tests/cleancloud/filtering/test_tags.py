@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 
+from cleancloud.core.finding import Evidence, Finding
 from cleancloud.filtering.tags import (
     IgnoreTagRule,
     filter_findings_by_tags,
 )
-from cleancloud.models.finding import Evidence, Finding
 
 
 def _finding(resource_id: str, tags: dict):

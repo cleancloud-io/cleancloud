@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from cleancloud.models.evidence import Evidence
+from cleancloud.core.evidence import Evidence
 
 
 @dataclass

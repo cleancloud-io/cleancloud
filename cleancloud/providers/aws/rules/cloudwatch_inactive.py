@@ -3,9 +3,10 @@ from typing import List
 
 import boto3
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 
 def find_inactive_cloudwatch_logs(
@@ -55,8 +56,8 @@ def find_inactive_cloudwatch_logs(
                         title="CloudWatch log group with infinite retention",
                         summary="Log group has no retention policy configured",
                         reason="Retention is not set (logs never expire)",
-                        risk=Risk.LOW.value,
-                        confidence=Confidence.MEDIUM.value,  # conservative
+                        risk=RiskLevel.LOW.value,
+                        confidence=ConfidenceLevel.MEDIUM.value,  # conservative
                         detected_at=now,
                         evidence=evidence,
                         details={

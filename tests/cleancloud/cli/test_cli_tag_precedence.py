@@ -4,7 +4,7 @@ import yaml
 from click.testing import CliRunner
 
 from cleancloud.cli import cli
-from cleancloud.models.finding import Evidence, Finding
+from cleancloud.core.finding import Evidence, Finding
 
 
 def _fake_finding(resource_id, tags):

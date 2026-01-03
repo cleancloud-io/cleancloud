@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from cleancloud.config.schema import IgnoreTagRuleConfig
-from cleancloud.models.finding import Finding
+from cleancloud.core.finding import Finding
 
 
 @dataclass(frozen=True)

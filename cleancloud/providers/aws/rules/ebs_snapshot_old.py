@@ -3,9 +3,10 @@ from typing import List
 
 import boto3
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 
 def find_old_ebs_snapshots(
@@ -58,8 +59,8 @@ def find_old_ebs_snapshots(
                         title="Old EBS snapshot",
                         summary=f"EBS snapshot older than {days_old} days",
                         reason="Snapshot exceeds configured age threshold",
-                        risk=Risk.LOW.value,
-                        confidence=Confidence.MEDIUM.value,  # conservative
+                        risk=RiskLevel.LOW.value,
+                        confidence=ConfidenceLevel.MEDIUM.value,  # conservative
                         detected_at=now,
                         evidence=evidence,
                         details={

@@ -3,9 +3,10 @@ from typing import List, Optional
 
 from azure.mgmt.compute import ComputeManagementClient
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 MIN_AGE_DAYS_MEDIUM = 30
 MIN_AGE_DAYS_HIGH = 90
@@ -51,9 +52,9 @@ def find_old_snapshots(
         age_days = _age_in_days(snapshot.time_created)
 
         if age_days >= MIN_AGE_DAYS_HIGH:
-            confidence_value = Confidence.MEDIUM.value  # conservative
+            confidence_value = ConfidenceLevel.MEDIUM.value  # conservative
         elif age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence_value = Confidence.MEDIUM.value
+            confidence_value = ConfidenceLevel.MEDIUM.value
         else:
             continue  # too new, ignore
 
@@ -78,7 +79,7 @@ def find_old_snapshots(
                 title="Old Azure managed snapshot",
                 summary=f"Snapshot has existed for {age_days} days",
                 reason="Snapshot age exceeds configured threshold",
-                risk=Risk.LOW.value,
+                risk=RiskLevel.LOW.value,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,

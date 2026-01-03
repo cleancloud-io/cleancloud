@@ -17,6 +17,7 @@ from cleancloud.config.schema import (
     IgnoreTagRuleConfig,
     load_config,
 )
+from cleancloud.core.finding import Finding
 from cleancloud.doctor import run_doctor
 from cleancloud.exit_policy import (
     EXIT_ERROR,
@@ -28,7 +29,6 @@ from cleancloud.filtering.tags import (
     compile_rules,
     filter_findings_by_tags,
 )
-from cleancloud.models.finding import Finding
 from cleancloud.output.csv import write_csv
 from cleancloud.output.human import print_human
 from cleancloud.output.json import write_json

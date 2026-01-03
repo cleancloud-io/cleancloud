@@ -4,9 +4,10 @@ from typing import List
 import boto3
 from botocore.exceptions import ClientError
 
-from cleancloud.models.confidence import Confidence, Risk
-from cleancloud.models.evidence import Evidence
-from cleancloud.models.finding import Finding
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.evidence import Evidence
+from cleancloud.core.finding import Finding
+from cleancloud.core.risk import RiskLevel
 
 
 def find_unattached_ebs_volumes(
@@ -56,8 +57,8 @@ def find_unattached_ebs_volumes(
                         title="Unattached EBS volume",
                         summary="EBS volume is not attached to any EC2 instance",
                         reason="Volume is not currently attached at the provider level",
-                        risk=Risk.LOW.value,
-                        confidence=Confidence.MEDIUM.value,  # important correction
+                        risk=RiskLevel.LOW.value,
+                        confidence=ConfidenceLevel.MEDIUM.value,  # important correction
                         detected_at=datetime.now(timezone.utc),
                         evidence=evidence,
                         details={

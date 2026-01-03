@@ -2,7 +2,7 @@ from datetime import datetime
 
 import pytest
 
-from cleancloud.models.finding import Finding
+from cleancloud.core.finding import Finding
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.unattached_managed_disks import find_unattached_managed_disks

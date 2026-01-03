@@ -2,7 +2,7 @@ import csv
 from pathlib import Path
 from typing import List
 
-from cleancloud.models.finding import Finding
+from cleancloud.core.finding import Finding
 
 CSV_FIELDS = [
     "provider",

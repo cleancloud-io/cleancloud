@@ -70,7 +70,7 @@ CleanCloud is designed for policy enforcement without side effects.
 
 ```bash
 # Fail only on high-confidence hygiene risks
-cleancloud scan --fail-on-confidence HIGH
+cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH
 ```
 Exit codes are stable and intentional:
 
@@ -97,7 +97,8 @@ pip install cleancloud
 
 ```bash
 # AWS
-cleancloud doctor --provider aws
+cleancloud doctor --provider aws --region us-east-1
+cleancloud scan --provider aws --all-regions
 
 # Azure
 cleancloud doctor --provider azure
@@ -120,13 +121,13 @@ cleancloud scan --provider azure
 
 ```bash
 # Human-readable output (default)
-cleancloud scan --provider aws
+cleancloud scan --provider aws --region us-east-1
 
 # JSON output
-cleancloud scan --provider aws --output json --output-file results.json
+cleancloud scan --provider aws --region us-east-1 --output json --output-file results.json
 
 # CSV output
-cleancloud scan --provider aws --output csv --output-file results.csv
+cleancloud scan --provider aws --region us-east-1 --output csv --output-file results.csv
 ```
 
 ---
@@ -229,7 +230,7 @@ CleanCloud supports three AWS authentication methods:
 ```bash
 # Using AWS profile
 aws configure --profile cleancloud
-cleancloud scan --provider aws --profile cleancloud
+cleancloud scan --provider aws --profile cleancloud --region us-east-1
 ```
 
 **Environment Variables**
@@ -238,7 +239,7 @@ export AWS_ACCESS_KEY_ID=...
 export AWS_SECRET_ACCESS_KEY=...
 export AWS_DEFAULT_REGION=us-east-1
 
-cleancloud scan --provider aws
+cleancloud scan --provider aws --region us-east-1
 ```
 
 
@@ -439,6 +440,7 @@ You can pass ignore tags directly via CLI:
 ```
 cleancloud scan \
   --provider aws \
+  --region us-east-1 \
   --ignore-tag env:production \
   --ignore-tag team:platform
 

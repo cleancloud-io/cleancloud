@@ -1,6 +1,6 @@
 from typing import List
 
-from cleancloud.models.finding import Finding
+from cleancloud.core.finding import Finding
 
 
 def print_human(findings: List[Finding]):
