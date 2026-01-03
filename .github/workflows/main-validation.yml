@@ -31,7 +31,7 @@ jobs:
       - name: Verify imports
         run: |
           python -c "from cleancloud.cli import main; print('✅ CLI imports')"
-          python -c "from cleancloud.models.finding import Finding; print('✅ Models import')"
+          python -c "from cleancloud.core.finding import Finding; print('✅ Models import')"
           python -c "from cleancloud.providers.aws.session import create_aws_session; print('✅ AWS imports')"
           python -c "from cleancloud.providers.azure.session import create_azure_session; print('✅ Azure imports')"
 
