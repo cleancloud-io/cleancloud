@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
+from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.finding import Evidence, Finding
+from cleancloud.core.risk import RiskLevel
 from cleancloud.filtering.tags import (
     IgnoreTagRule,
     filter_findings_by_tags,
@@ -17,8 +19,8 @@ def _finding(resource_id: str, tags: dict):
         title="Test",
         summary="Test",
         reason="Test",
-        risk="LOW",
-        confidence="LOW",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.LOW,
         detected_at=datetime.now(timezone.utc),
         details={"tags": tags},
         evidence=Evidence(

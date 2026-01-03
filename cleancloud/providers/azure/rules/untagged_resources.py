@@ -51,7 +51,7 @@ def find_untagged_resources(
             continue
 
         confidence_value = (
-            ConfidenceLevel.MEDIUM.value if disk.managed_by is None else ConfidenceLevel.LOW.value
+            ConfidenceLevel.MEDIUM if disk.managed_by is None else ConfidenceLevel.LOW
         )
 
         evidence = Evidence(
@@ -75,7 +75,7 @@ def find_untagged_resources(
                 title="Untagged Azure managed disk",
                 summary="Disk has no tags",
                 reason="No tags found on resource",
-                risk=RiskLevel.LOW.value,
+                risk=RiskLevel.LOW,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,
@@ -126,8 +126,8 @@ def find_untagged_resources(
                 title="Untagged Azure snapshot",
                 summary="Snapshot has no tags",
                 reason="No tags found on resource",
-                risk=RiskLevel.LOW.value,
-                confidence=ConfidenceLevel.LOW.value,
+                risk=RiskLevel.LOW,
+                confidence=ConfidenceLevel.LOW,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,
                 details={

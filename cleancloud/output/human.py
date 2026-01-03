@@ -12,14 +12,17 @@ def print_human(findings: List[Finding]):
 
     for i, f in enumerate(findings, start=1):
         print(f"{i}. [{f.provider.upper()}] {f.title}")
-        print(f"   Resource : {f.resource_type} → {f.resource_id}")
+
+        print(f"   Risk       : {f.risk.value.capitalize()}")
+        print(f"   Confidence : {f.confidence.value.capitalize()}")
+
+        print(f"   Resource   : {f.resource_type} → {f.resource_id}")
         if f.region:
-            print(f"   Region   : {f.region}")
-        print(f"   Rule     : {f.rule_id}")
-        print(f"   Risk     : {f.risk}")
-        print(f"   Confidence: {f.confidence}")
-        print(f"   Reason   : {f.reason}")
-        print(f"   Detected : {f.detected_at.isoformat()}")
+            print(f"   Region     : {f.region}")
+
+        print(f"   Rule       : {f.rule_id}")
+        print(f"   Reason     : {f.reason}")
+        print(f"   Detected   : {f.detected_at.isoformat()}")
 
         if f.details:
             print("   Details:")

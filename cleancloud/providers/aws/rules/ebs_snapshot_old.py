@@ -59,8 +59,8 @@ def find_old_ebs_snapshots(
                         title="Old EBS snapshot",
                         summary=f"EBS snapshot older than {days_old} days",
                         reason="Snapshot exceeds configured age threshold",
-                        risk=RiskLevel.LOW.value,
-                        confidence=ConfidenceLevel.MEDIUM.value,  # conservative
+                        risk=RiskLevel.LOW,
+                        confidence=ConfidenceLevel.MEDIUM,  # conservative
                         detected_at=now,
                         evidence=evidence,
                         details={

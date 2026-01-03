@@ -62,8 +62,8 @@ def find_unused_public_ips(
                 title="Unused Azure Public IP",
                 summary="Public IP is not attached to any resource",
                 reason="IP configuration is None (not attached)",
-                risk=RiskLevel.LOW.value,
-                confidence=ConfidenceLevel.MEDIUM.value,  # conservative
+                risk=RiskLevel.LOW,
+                confidence=ConfidenceLevel.MEDIUM,  # conservative
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,
                 details={

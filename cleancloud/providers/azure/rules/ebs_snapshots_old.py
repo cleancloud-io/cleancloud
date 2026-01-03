@@ -52,9 +52,9 @@ def find_old_snapshots(
         age_days = _age_in_days(snapshot.time_created)
 
         if age_days >= MIN_AGE_DAYS_HIGH:
-            confidence_value = ConfidenceLevel.MEDIUM.value  # conservative
+            confidence_value = ConfidenceLevel.MEDIUM  # conservative
         elif age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence_value = ConfidenceLevel.MEDIUM.value
+            confidence_value = ConfidenceLevel.MEDIUM
         else:
             continue  # too new, ignore
 
@@ -79,7 +79,7 @@ def find_old_snapshots(
                 title="Old Azure managed snapshot",
                 summary=f"Snapshot has existed for {age_days} days",
                 reason="Snapshot age exceeds configured threshold",
-                risk=RiskLevel.LOW.value,
+                risk=RiskLevel.LOW,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,

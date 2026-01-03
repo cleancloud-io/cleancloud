@@ -4,7 +4,9 @@ import yaml
 from click.testing import CliRunner
 
 from cleancloud.cli import cli
+from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.finding import Evidence, Finding
+from cleancloud.core.risk import RiskLevel
 
 
 def _fake_finding(resource_id, tags):
@@ -17,8 +19,8 @@ def _fake_finding(resource_id, tags):
         title="Test",
         summary="Test",
         reason="Test",
-        risk="LOW",
-        confidence="LOW",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.LOW,
         detected_at=datetime.now(timezone.utc),
         details={"tags": tags},
         evidence=Evidence(

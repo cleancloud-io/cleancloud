@@ -56,8 +56,8 @@ def find_inactive_cloudwatch_logs(
                         title="CloudWatch log group with infinite retention",
                         summary="Log group has no retention policy configured",
                         reason="Retention is not set (logs never expire)",
-                        risk=RiskLevel.LOW.value,
-                        confidence=ConfidenceLevel.MEDIUM.value,  # conservative
+                        risk=RiskLevel.LOW,
+                        confidence=ConfidenceLevel.MEDIUM,  # conservative
                         detected_at=now,
                         evidence=evidence,
                         details={

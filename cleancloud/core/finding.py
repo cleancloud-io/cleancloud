@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
+from cleancloud.core.risk import RiskLevel
 
 
 @dataclass
@@ -17,8 +19,8 @@ class Finding:
     summary: str
     reason: str
 
-    risk: str
-    confidence: str
+    risk: RiskLevel
+    confidence: ConfidenceLevel
 
     detected_at: datetime
     details: Dict[str, Any]
@@ -34,8 +36,8 @@ class Finding:
             "title": self.title,
             "summary": self.summary,
             "reason": self.reason,
-            "risk": self.risk,
-            "confidence": self.confidence,
+            "risk": self.risk.value,
+            "confidence": self.confidence.value,
             "detected_at": self.detected_at.isoformat(),
             "details": self.details,
             "evidence": self.evidence,

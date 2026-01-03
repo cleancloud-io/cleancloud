@@ -57,8 +57,8 @@ def find_unattached_ebs_volumes(
                         title="Unattached EBS volume",
                         summary="EBS volume is not attached to any EC2 instance",
                         reason="Volume is not currently attached at the provider level",
-                        risk=RiskLevel.LOW.value,
-                        confidence=ConfidenceLevel.MEDIUM.value,  # important correction
+                        risk=RiskLevel.LOW,
+                        confidence=ConfidenceLevel.MEDIUM,  # important correction
                         detected_at=datetime.now(timezone.utc),
                         evidence=evidence,
                         details={

@@ -56,7 +56,7 @@ def find_unattached_managed_disks(
         disk_age_days = _age_in_days(disk.time_created)
 
         if disk_age_days >= MIN_AGE_DAYS_MEDIUM:
-            confidence_value = ConfidenceLevel.MEDIUM.value  # conservative for all ages
+            confidence_value = ConfidenceLevel.MEDIUM  # conservative for all ages
         else:
             continue  # too new
 
@@ -84,7 +84,7 @@ def find_unattached_managed_disks(
                 title="Unattached Azure managed disk",
                 summary=f"Disk not attached to any VM for {disk_age_days} days",
                 reason="Disk has no VM attachment and exceeds age threshold",
-                risk=RiskLevel.LOW.value,
+                risk=RiskLevel.LOW,
                 confidence=confidence_value,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,

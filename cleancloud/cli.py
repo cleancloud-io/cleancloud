@@ -474,22 +474,43 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
         return False, f"Error: {error_msg}"
 
 
+def _format_enum_counts(data: dict) -> dict[str, int]:
+    result = {}
+    for key, value in data.items():
+        if hasattr(key, "value"):
+            result[key.value] = value
+        else:
+            result[str(key)] = value
+    return result
+
+
 def _print_summary(summary: dict, region_selection_mode: str = None):
-    """Print scan summary with region selection context."""
     click.echo("\n--- Scan Summary ---")
     click.echo(f"Total findings: {summary['total_findings']}")
-    click.echo(f"By risk: {summary['by_risk']}")
-    click.echo(f"By confidence: {summary['by_confidence']}")
 
+    # By risk
+    by_risk = _format_enum_counts(summary.get("by_risk", {}))
+    if by_risk:
+        click.echo("\nBy risk:")
+        for risk in sorted(by_risk):
+            click.echo(f"  {risk}: {by_risk[risk]}")
+
+    # By confidence
+    by_conf = _format_enum_counts(summary.get("by_confidence", {}))
+    if by_conf:
+        click.echo("\nBy confidence:")
+        for conf in sorted(by_conf):
+            click.echo(f"  {conf}: {by_conf[conf]}")
+
+    # Regions scanned
     regions_scanned = summary.get("regions_scanned", [])
     if isinstance(regions_scanned, list):
         regions_str = ", ".join(regions_scanned)
     else:
         regions_str = str(regions_scanned)
 
-    click.echo(f"Regions scanned: {regions_str}", nl=False)
+    click.echo(f"\nRegions scanned: {regions_str}", nl=False)
 
-    # Add context about region selection
     if region_selection_mode == "all-regions":
         click.echo(" (auto-detected)")
     elif region_selection_mode == "explicit":
@@ -499,9 +520,11 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
 
     click.echo(f"Scanned at: {summary['scanned_at']}")
 
+    # Tag filtering visibility
     if summary.get("ignored_by_tag_policy", 0) > 0:
         click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
 
+    # Success message
     if summary["total_findings"] == 0:
         click.echo()
         click.echo("🎉 No hygiene issues detected")
@@ -654,6 +677,8 @@ def show_feedback_prompt():
     click.echo(
         "Share feedback or feature requests: https://github.com/cleancloud-io/cleancloud/discussions"
     )
+    click.echo()
+    click.echo("Report any issues: https://github.com/cleancloud-io/cleancloud/issues")
     click.echo()
     click.echo("Or email: suresh@sure360.io")
     click.echo()
