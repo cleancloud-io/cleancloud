@@ -254,7 +254,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 ---
 
-## Azure Rules (5 Total)
+## Azure Rules (6 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -397,6 +397,53 @@ if plan.number_of_sites == 0:
 
 ---
 
+### 6. Standard Load Balancer with No Backend Members
+
+**Rule ID:** `azure.load_balancer.no_backends`
+
+**What it detects:** Standard Load Balancers where all backend pools have zero members
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Standard SKU with zero backend members across all pools (deterministic state)
+
+**Excluded:**
+- Basic SKU load balancers are skipped (retired, no cost signal)
+
+**Why this matters:**
+- Standard Load Balancers incur base charges (~$18/month) regardless of backends
+- Empty LBs are a clear cost optimization signal
+- Common after VM/VMSS teardowns or migrations
+
+**Detection logic:**
+```python
+if lb.sku.name == "Standard":
+    pools = lb.backend_address_pools or []
+    # Check both NIC-based and IP-based backend representations
+    has_members = any(
+        pool.backend_ip_configurations or pool.load_balancer_backend_addresses
+        for pool in pools
+    )
+    if not has_members:
+        confidence = "HIGH"  # Deterministic: zero members across all pools
+```
+
+**Backend representations checked:**
+- `backend_ip_configurations` — NIC-based backends (standard VMs)
+- `load_balancer_backend_addresses` — IP-based backends (Private Link, hybrid)
+
+**Common causes:**
+- VMs or VMSS deleted but LB retained
+- Migration from Basic to Standard leaving empty LBs
+- Failed deployments or incomplete teardowns
+- Hub-spoke architecture cleanup gaps
+
+**Required permission:** `Microsoft.Network/loadBalancers/read`
+
+---
+
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
@@ -416,7 +463,6 @@ This guarantees trust for long-running CI/CD integrations.
 - Unused EBS encryption keys
 
 **Azure:**
-- Load Balancers with no backend pool members
 - Orphaned storage accounts
 
 **Multi-Cloud:**
