@@ -254,7 +254,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 ---
 
-## Azure Rules (4 Total)
+## Azure Rules (5 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -360,6 +360,43 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 ---
 
+### 5. Empty App Service Plans
+
+**Rule ID:** `azure.app_service_plan.empty`
+
+**What it detects:** Paid App Service Plans with zero hosted apps (`number_of_sites == 0`)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Paid tier plan with 0 apps (deterministic state)
+
+**Excluded tiers:**
+- Free and Shared tiers are skipped (no cost signal)
+
+**Why this matters:**
+- Paid App Service Plans incur charges regardless of hosted apps
+- Empty plans are a clear cost optimization signal
+- Common after app deletions or failed deployments
+
+**Detection logic:**
+```python
+if plan.number_of_sites == 0:
+    if plan.sku.tier not in ("Free", "Shared"):
+        confidence = "HIGH"  # Deterministic: zero apps on paid plan
+```
+
+**Common causes:**
+- Apps deleted but plan retained
+- Failed deployments leaving empty plans
+- Scaling plans created but never used
+- Migration leaving old plans behind
+
+**Required permission:** `Microsoft.Web/serverfarms/read`
+
+---
+
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
@@ -379,8 +416,7 @@ This guarantees trust for long-running CI/CD integrations.
 - Unused EBS encryption keys
 
 **Azure:**
-- Unused Network Interfaces
-- Old VM images
+- Load Balancers with no backend pool members
 - Orphaned storage accounts
 
 **Multi-Cloud:**

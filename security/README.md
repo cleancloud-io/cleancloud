@@ -15,6 +15,7 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 | File | Description |
 |------|-------------|
 | `aws-readonly-policy.json` | AWS IAM policy with minimum required read-only permissions |
+| `azure-readonly-role.json` | Azure custom role definition with minimum required read-only permissions |
 | `verify-aws-policy.sh` | Script to verify AWS IAM policy contains no write/delete permissions |
 | `verify-azure-role.sh` | Script to verify Azure role is read-only |
 

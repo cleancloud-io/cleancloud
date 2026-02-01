@@ -6,6 +6,9 @@ from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoun
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.azure.rules.app_service_plan_empty import (
+    find_empty_app_service_plans,
+)
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.unattached_managed_disks import (
@@ -91,6 +94,7 @@ AZURE_RULES: List[Callable] = [
     find_old_snapshots,
     find_azure_untagged_resources,
     find_unused_public_ips,
+    find_empty_app_service_plans,
 ]
 
 
