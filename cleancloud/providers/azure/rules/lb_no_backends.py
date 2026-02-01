@@ -102,7 +102,7 @@ def find_lb_no_backends(
                     f"behind after a teardown or migration."
                 ),
                 reason=(
-                    f"All backend pools empty on Standard SKU load balancer"
+                    "All backend pools empty on Standard SKU load balancer"
                     if pool_count > 0
                     else "No backend pools configured on Standard SKU load balancer"
                 ),
