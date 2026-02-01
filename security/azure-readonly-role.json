@@ -13,7 +13,8 @@
         "Microsoft.Insights/diagnosticSettings/read",
         "Microsoft.Resources/tags/read",
         "Microsoft.Authorization/roleAssignments/read",
-        "Microsoft.Web/serverfarms/read"
+        "Microsoft.Web/serverfarms/read",
+        "Microsoft.Network/loadBalancers/read"
       ],
       "NotActions": [],
       "DataActions": [],

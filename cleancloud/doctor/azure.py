@@ -251,6 +251,7 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Compute/snapshots/read")
     info("    - Microsoft.Network/publicIPAddresses/read")
     info("    - Microsoft.Web/serverfarms/read")
+    info("    - Microsoft.Network/loadBalancers/read")
 
     # Summary
     info("")
