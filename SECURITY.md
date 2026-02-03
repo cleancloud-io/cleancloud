@@ -1,8 +1,11 @@
 # Security Policy
 
 **CleanCloud Security Documentation**
+
 Version: 1.0
+
 Last Updated: 2026-01-21
+
 Classification: Public
 
 ---
@@ -32,33 +35,33 @@ CleanCloud is a **read-only cloud hygiene evaluation tool** designed for enterpr
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│   Automated Security Pipeline (Every PR + Main)     │
+│ Automated Security Pipeline (Every PR + Main)       │
 ├─────────────────────────────────────────────────────┤
-│  ✅ Dependency CVE Scan     → pip-audit             │
-│  ✅ SAST (Code Security)    → Bandit                │
-│  ✅ Advanced SAST           → CodeQL                │
-│  ✅ Secrets Detection       → TruffleHog            │
-│  ✅ License Compliance      → pip-licenses          │
-│  ✅ Safety Regression       → Custom read-only test │
+│  Dependency CVE Scan     → pip-audit                │
+│  SAST (Code Security)    → Bandit                   │
+│  Advanced SAST           → CodeQL                   │
+│  Secrets Detection       → TruffleHog               │
+│  License Compliance      → pip-licenses             │
+│  Safety Regression       → Custom read-only test    │
 │                                                     │
 │  Policy: ANY FAILURE = MERGE BLOCKED                │
 └─────────────────────────────────────────────────────┘
 ```
 
-**Current Status** (2026-01-21): ✅ Zero CVEs, ✅ Zero HIGH/MEDIUM issues, ✅ Zero secrets
+**Current Status** (2026-01-21): Zero CVEs, Zero HIGH/MEDIUM issues, Zero secrets
 
 ### Security Posture Summary
 
 | Security Domain | Status | Details |
 |----------------|--------|---------|
-| **Read-Only by Design** | ✅ Enforced | No write, delete, or modify permissions required |
-| **Zero Telemetry** | ✅ Enforced | No data leaves your environment |
-| **OIDC Authentication** | ✅ Supported | Short-lived credentials, no secrets storage |
-| **Automated Security Scanning** | ✅ Active | 6 security gates on every commit (pip-audit, Bandit, CodeQL, TruffleHog, license checks, safety tests) |
-| **Supply Chain Security** | ✅ Active | Real-time CVE monitoring, SBOM generation, Dependabot auto-updates |
-| **Secrets Detection** | ✅ Active | TruffleHog scans every commit for leaked credentials |
-| **Audit Trail** | ✅ Supported | Deterministic output, versioned schemas, 30-day scan artifact retention |
-| **Open Source** | ✅ MIT License | Full code transparency, community security review |
+| **Read-Only by Design** | Enforced | No write, delete, or modify permissions required |
+| **Zero Telemetry** | Enforced | No data leaves your environment |
+| **OIDC Authentication** | Supported | Short-lived credentials, no secrets storage |
+| **Automated Security Scanning** | Active | 6 security gates on every commit (pip-audit, Bandit, CodeQL, TruffleHog, license checks, safety tests) |
+| **Supply Chain Security** | Active | Real-time CVE monitoring, SBOM generation, Dependabot auto-updates |
+| **Secrets Detection** | Active | TruffleHog scans every commit for leaked credentials |
+| **Audit Trail** | Supported | Deterministic output, versioned schemas, 30-day scan artifact retention |
+| **Open Source** | MIT License | Full code transparency, community security review |
 
 ---
 
@@ -99,13 +102,13 @@ CleanCloud is built on **defense-in-depth** principles with security enforced at
 ### Network Security
 
 **Outbound Connections:**
-- ✅ **AWS/Azure API endpoints only** (HTTPS, TLS 1.2+)
-- ❌ **No connections to CleanCloud infrastructure** (we have none)
-- ❌ **No analytics or telemetry endpoints**
-- ❌ **No update servers or phone-home**
+- **AWS/Azure API endpoints only** (HTTPS, TLS 1.2+)
+- **No connections to CleanCloud infrastructure** (we have none)
+- **No analytics or telemetry endpoints**
+- **No update servers or phone-home**
 
 **Inbound Connections:**
-- ❌ Not applicable (CleanCloud is a CLI tool, not a service)
+- Not applicable (CleanCloud is a CLI tool, not a service)
 
 ### Authentication & Authorization
 
@@ -113,21 +116,21 @@ CleanCloud is built on **defense-in-depth** principles with security enforced at
 
 | Provider | Method | Security Level | Use Case |
 |----------|--------|---------------|----------|
-| **AWS** | OIDC (IAM Roles) | ⭐⭐⭐⭐⭐ Excellent | CI/CD (GitHub Actions) - **Recommended** |
-| **AWS** | IAM Access Keys | ⭐⭐ Poor | Local development only |
-| **Azure** | OIDC (Workload Identity) | ⭐⭐⭐⭐⭐ Excellent | CI/CD (GitHub Actions) - **Recommended** |
-| **Azure** | Service Principal (Secret) | ⭐⭐ Poor | Local development only |
-| **Azure** | Azure CLI | ⭐⭐⭐ Acceptable | Local development only |
-| **Azure** | Managed Identity | ⭐⭐⭐⭐⭐ Excellent | Azure VM/Container Apps |
+| **AWS** | OIDC (IAM Roles) | Excellent | CI/CD (GitHub Actions) - **Recommended** |
+| **AWS** | IAM Access Keys | Poor | Local development only |
+| **Azure** | OIDC (Workload Identity) | Excellent | CI/CD (GitHub Actions) - **Recommended** |
+| **Azure** | Service Principal (Secret) | Poor | Local development only |
+| **Azure** | Azure CLI | Acceptable | Local development only |
+| **Azure** | Managed Identity | Excellent | Azure VM/Container Apps |
 
 #### OIDC Implementation (Recommended)
 
 CleanCloud supports **OpenID Connect (OIDC)** federation with GitHub Actions, eliminating the need to store long-lived credentials:
 
-- ✅ **Short-lived tokens** (1 hour validity)
-- ✅ **No secrets in CI/CD**
-- ✅ **Automatic rotation**
-- ✅ **Conditional access via trust policies**
+- **Short-lived tokens** (1 hour validity)
+- **No secrets in CI/CD**
+- **Automatic rotation**
+- **Conditional access via trust policies**
 
 **Example AWS IAM Trust Policy:**
 ```json
@@ -176,11 +179,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 
 | Threat Category | Industry Risk | CleanCloud's Defense | Status |
 |----------------|--------------|---------------------|--------|
-| **Credential Exposure** | Long-lived secrets in code/CI | OIDC support, no secret storage | ✅ Mitigated |
-| **Excessive Permissions** | Over-privileged cloud access | Read-only by design, IAM Proof Pack | ✅ Mitigated |
-| **Supply Chain Attacks** | Compromised dependencies | Automated CVE scanning, SBOM | ✅ Monitored |
-| **Data Exfiltration** | Telemetry to vendor servers | Zero telemetry, fully local | ✅ Eliminated |
-| **Accidental Changes** | Unintended resource mutations | Architectural impossibility (read-only) | ✅ Eliminated |
+| **Credential Exposure** | Long-lived secrets in code/CI | OIDC support, no secret storage | Mitigated |
+| **Excessive Permissions** | Over-privileged cloud access | Read-only by design, IAM Proof Pack | Mitigated |
+| **Supply Chain Attacks** | Compromised dependencies | Automated CVE scanning, SBOM | Monitored |
+| **Data Exfiltration** | Telemetry to vendor servers | Zero telemetry, fully local | Eliminated |
+| **Accidental Changes** | Unintended resource mutations | Architectural impossibility (read-only) | Eliminated |
 
 ### Threat Analysis & Mitigations
 
@@ -189,11 +192,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** Cloud credentials used by any tool could be exposed through code commits, logs, or CI/CD systems.
 
 **How CleanCloud Addresses This:**
-- ✅ **OIDC support** eliminates long-lived credentials in CI/CD
-- ✅ **Read-only IAM policies** limit blast radius if credentials are compromised
-- ✅ **TruffleHog scanning** in CI/CD prevents secret commits
-- ✅ **No credential storage** in CleanCloud codebase
-- ✅ **Short-lived tokens** (1 hour) when using OIDC
+- **OIDC support** eliminates long-lived credentials in CI/CD
+- **Read-only IAM policies** limit blast radius if credentials are compromised
+- **TruffleHog scanning** in CI/CD prevents secret commits
+- **No credential storage** in CleanCloud codebase
+- **Short-lived tokens** (1 hour) when using OIDC
 
 **Risk Level:** Low (with OIDC recommended deployment)
 
@@ -204,12 +207,12 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** Any software tool faces risk from compromised dependencies (industry-wide challenge).
 
 **How CleanCloud Addresses This:**
-- ✅ **Automated CVE scanning** (pip-audit on every commit)
-- ✅ **Dependency pinning** with secure minimum versions
-- ✅ **SBOM generation** for transparency and audit
-- ✅ **License compliance checks** (no GPL/AGPL)
-- ✅ **Continuous monitoring** via GitHub Dependabot
-- ✅ **Open source** (code is auditable by your security team)
+- **Automated CVE scanning** (pip-audit on every commit)
+- **Dependency pinning** with secure minimum versions
+- **SBOM generation** for transparency and audit
+- **License compliance checks** (no GPL/AGPL)
+- **Continuous monitoring** via GitHub Dependabot
+- **Open source** (code is auditable by your security team)
 
 **Risk Level:** Low (actively monitored and patched)
 
@@ -220,11 +223,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** Tools granted excessive cloud permissions could enable unintended actions.
 
 **How CleanCloud Addresses This:**
-- ✅ **Read-only by design** - architecture prevents write operations
-- ✅ **IAM Proof Pack** with verified, minimal permission policies
-- ✅ **Automated IAM validation** scripts for your security team
-- ✅ **Safety regression tests** that fail builds if write operations detected
-- ✅ **Static analysis** blocks forbidden SDK calls at code level
+- **Read-only by design** - architecture prevents write operations
+- **IAM Proof Pack** with verified, minimal permission policies
+- **Automated IAM validation** scripts for your security team
+- **Safety regression tests** that fail builds if write operations detected
+- **Static analysis** blocks forbidden SDK calls at code level
 
 **Risk Level:** None (architecturally enforced read-only)
 
@@ -235,11 +238,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** SaaS tools often send telemetry or scan data to vendor servers.
 
 **How CleanCloud Addresses This:**
-- ✅ **Zero telemetry by design** - no analytics, no phone-home
-- ✅ **Fully local execution** - all data stays in your environment
-- ✅ **No vendor servers** - CleanCloud has no backend infrastructure
-- ✅ **Open source** - network behavior is auditable
-- ✅ **User-controlled output** - you decide where results are stored
+- **Zero telemetry by design** - no analytics, no phone-home
+- **Fully local execution** - all data stays in your environment
+- **No vendor servers** - CleanCloud has no backend infrastructure
+- **Open source** - network behavior is auditable
+- **User-controlled output** - you decide where results are stored
 
 **Risk Level:** None (no external data transmission)
 
@@ -250,11 +253,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** Tools that process user input could be vulnerable to injection attacks.
 
 **How CleanCloud Addresses This:**
-- ✅ **Bandit SAST** scanning on every commit (HIGH/MEDIUM severity)
-- ✅ **CodeQL security analysis** for advanced vulnerability detection
-- ✅ **Input validation** on configuration files (YAML schema)
-- ✅ **Type safety** enforcement (Python type hints, mypy checking)
-- ✅ **Minimal attack surface** (read-only operations, no user-generated queries)
+- **Bandit SAST** scanning on every commit (HIGH/MEDIUM severity)
+- **CodeQL security analysis** for advanced vulnerability detection
+- **Input validation** on configuration files (YAML schema)
+- **Type safety** enforcement (Python type hints, mypy checking)
+- **Minimal attack surface** (read-only operations, no user-generated queries)
 
 **Risk Level:** Low (continuously tested)
 
@@ -265,11 +268,11 @@ CleanCloud's architecture addresses standard cloud security threats:
 **Scenario:** Tool bugs or misconfigurations could cause unintended cloud changes.
 
 **How CleanCloud Addresses This:**
-- ✅ **Read-only by design** - no Delete*, Modify*, or Tag* permissions ever required
-- ✅ **Safety regression tests** fail builds if write operations detected
-- ✅ **AST analysis** blocks forbidden SDK calls at code level
-- ✅ **Runtime SDK guards** prevent mutations in test suites
-- ✅ **Architectural guarantee** - destructive operations are impossible
+- **Read-only by design** - no Delete*, Modify*, or Tag* permissions ever required
+- **Safety regression tests** fail builds if write operations detected
+- **AST analysis** blocks forbidden SDK calls at code level
+- **Runtime SDK guards** prevent mutations in test suites
+- **Architectural guarantee** - destructive operations are impossible
 
 **Risk Level:** None (architecturally eliminated)
 
@@ -281,30 +284,30 @@ CleanCloud's architecture addresses standard cloud security threats:
 
 | Control | Implementation | Status |
 |---------|---------------|--------|
-| **Read-Only Enforcement** | IAM policy restrictions, safety tests | ✅ Active |
-| **Input Validation** | Schema validation on config files | ✅ Active |
-| **Least Privilege IAM** | Documented policies in IAM Proof Pack | ✅ Active |
-| **Secrets Prevention** | TruffleHog scanning in CI/CD | ✅ Active |
-| **Dependency Scanning** | pip-audit, automated CVE checks | ✅ Active |
-| **Code Signing** | PyPI package signatures (planned) | 🔄 Roadmap |
+| **Read-Only Enforcement** | IAM policy restrictions, safety tests | Active |
+| **Input Validation** | Schema validation on config files | Active |
+| **Least Privilege IAM** | Documented policies in IAM Proof Pack | Active |
+| **Secrets Prevention** | TruffleHog scanning in CI/CD | Active |
+| **Dependency Scanning** | pip-audit, automated CVE checks | Active |
+| **Code Signing** | PyPI package signatures (planned) | Roadmap |
 
 ### Detective Controls
 
 | Control | Implementation | Status |
 |---------|---------------|--------|
-| **SAST Scanning** | Bandit (HIGH/MEDIUM severity) on every commit | ✅ Active |
-| **Advanced SAST** | CodeQL security queries on every commit | ✅ Active |
-| **Dependency Audit** | pip-audit on every commit (PR + main) | ✅ Active |
-| **License Compliance** | Automated GPL/AGPL detection on every commit | ✅ Active |
-| **Secret Detection** | TruffleHog (verified secrets only) on every commit | ✅ Active |
+| **SAST Scanning** | Bandit (HIGH/MEDIUM severity) on every commit | Active |
+| **Advanced SAST** | CodeQL security queries on every commit | Active |
+| **Dependency Audit** | pip-audit on every commit (PR + main) | Active |
+| **License Compliance** | Automated GPL/AGPL detection on every commit | Active |
+| **Secret Detection** | TruffleHog (verified secrets only) on every commit | Active |
 
 ### Corrective Controls
 
 | Control | Implementation | Status |
 |---------|---------------|--------|
-| **Automated Patching** | Dependabot PRs for CVEs | ✅ Active |
-| **Incident Response** | Security contact & disclosure policy | ✅ Active |
-| **Version Pinning** | Minimum secure versions in pyproject.toml | ✅ Active |
+| **Automated Patching** | Dependabot PRs for CVEs | Active |
+| **Incident Response** | Security contact & disclosure policy | Active |
+| **Version Pinning** | Minimum secure versions in pyproject.toml | Active |
 
 ---
 
@@ -328,9 +331,9 @@ CleanCloud's architecture addresses standard cloud security threats:
 
 ### Data Encryption
 
-- ✅ **In Transit**: All cloud API calls use TLS 1.2+ (enforced by AWS/Azure SDKs)
-- ✅ **At Rest**: Results stored on user-controlled filesystems (user manages encryption)
-- ❌ **No CleanCloud-side storage**: Tool does not persist data
+- **In Transit**: All cloud API calls use TLS 1.2+ (enforced by AWS/Azure SDKs)
+- **At Rest**: Results stored on user-controlled filesystems (user manages encryption)
+- **No CleanCloud-side storage**: Tool does not persist data
 
 ### Data Retention
 
@@ -396,9 +399,9 @@ All fixes enforced via minimum version constraints in `pyproject.toml`.
 
 Current status: **No known vulnerabilities** (as of 2026-01-21)
 
-**Last pip-audit scan**: 2026-01-21 ✅ Clean
+**Last pip-audit scan**: 2026-01-21 Clean
 
-**Last Bandit scan**: 2026-01-21 ✅ Clean (0 HIGH/MEDIUM issues)
+**Last Bandit scan**: 2026-01-21 Clean (0 HIGH/MEDIUM issues)
 
 See: [GitHub Security Advisories](https://github.com/cleancloud-io/cleancloud/security/advisories) for historical records.
 
@@ -412,8 +415,8 @@ CleanCloud implements **defense-in-depth security testing** with 6 automated sec
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Security Scanning Pipeline                │
-│                 (Runs on Every Commit to PR/Main)            │
+│ Security Scanning Pipeline │
+│ (Runs on Every Commit to PR/Main) │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
 │  1️⃣  Dependency CVE Scan        → pip-audit                 │
@@ -429,11 +432,11 @@ CleanCloud implements **defense-in-depth security testing** with 6 automated sec
 ```
 
 **Current Security Posture** (as of 2026-01-21):
-- ✅ Zero known CVEs in dependencies
-- ✅ Zero HIGH/MEDIUM severity code issues
-- ✅ Zero verified secrets in codebase
-- ✅ 100% permissive licenses (MIT/Apache/BSD)
-- ✅ 100% read-only operation guarantee
+- Zero known CVEs in dependencies
+- Zero HIGH/MEDIUM severity code issues
+- Zero verified secrets in codebase
+- 100% permissive licenses (MIT/Apache/BSD)
+- 100% read-only operation guarantee
 
 ### Continuous Security Testing (CI/CD)
 
@@ -481,7 +484,7 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 **Configuration**:
 ```yaml
 - name: Run Bandit SAST
-  run: bandit -r cleancloud/ -ll -f json -o bandit-report.json
+ run: bandit -r cleancloud/ -ll -f json -o bandit-report.json
 ```
 
 **Severity Filter**: `-ll` flag = HIGH and MEDIUM severity only
@@ -505,10 +508,10 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 **Configuration**:
 ```yaml
 - name: Initialize CodeQL
-  uses: github/codeql-action/init@v3
-  with:
-    languages: python
-    queries: security-extended
+ uses: github/codeql-action/init@v3
+ with:
+ languages: python
+ queries: security-extended
 ```
 
 **Query Suite**: `security-extended` (comprehensive security checks)
@@ -530,9 +533,9 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 **Configuration**:
 ```yaml
 - name: TruffleHog Secrets Scan
-  uses: trufflesecurity/trufflehog@main
-  with:
-    extra_args: --only-verified --fail
+ uses: trufflesecurity/trufflehog@main
+ with:
+ extra_args: --only-verified --fail
 ```
 
 **Mode**: `--only-verified` (reduces false positives)
@@ -554,10 +557,10 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 **Configuration**:
 ```yaml
 - name: Check for non-permissive licenses
-  run: |
-    if pip-licenses | grep -iE "GPL|AGPL|Unknown"; then
-      exit 1
-    fi
+ run: |
+ if pip-licenses | grep -iE "GPL|AGPL|Unknown"; then
+ exit 1
+ fi
 ```
 
 **Fail Criteria**: GPL, AGPL, or Unknown licenses detected
@@ -584,12 +587,12 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 
 | Test Type | Tool | Frequency | Blocks Merge | Retention |
 |-----------|------|-----------|--------------|-----------|
-| **Dependency CVEs** | pip-audit | Every commit | ✅ Yes | 30 days |
-| **SAST (Basic)** | Bandit | Every commit | ✅ Yes | 30 days |
-| **SAST (Advanced)** | CodeQL | Every commit | ✅ Yes | Permanent (GitHub) |
-| **Secrets** | TruffleHog | Every commit | ✅ Yes | N/A (fail fast) |
-| **License Compliance** | pip-licenses | Every commit | ✅ Yes | 30 days |
-| **Safety Regression** | Custom tests | Every commit | ✅ Yes | Test results |
+| **Dependency CVEs** | pip-audit | Every commit | Yes | 30 days |
+| **SAST (Basic)** | Bandit | Every commit | Yes | 30 days |
+| **SAST (Advanced)** | CodeQL | Every commit | Yes | Permanent (GitHub) |
+| **Secrets** | TruffleHog | Every commit | Yes | N/A (fail fast) |
+| **License Compliance** | pip-licenses | Every commit | Yes | 30 days |
+| **Safety Regression** | Custom tests | Every commit | Yes | Test results |
 
 **Total Security Gates**: 6 automated checks on every PR
 **Policy**: Zero tolerance - any failure blocks merge
@@ -611,27 +614,27 @@ CleanCloud is designed to align with:
 
 | Standard | Status | Notes |
 |----------|--------|-------|
-| **NIST Cybersecurity Framework** | ✅ Aligned | Identify, Protect, Detect functions |
-| **CIS Controls** | ✅ Aligned | v8 Controls 2.1, 4.1, 16.1 |
-| **ISO 27001** | 🔄 Partial | Annex A.9.2 (Access Control), A.12.6 (Technical Vulnerability Management) |
-| **FedRAMP** | 🔄 Evaluating | Potential alignment for government use |
-| **SOC 2** | ❌ N/A | CleanCloud is a tool, not a service |
-| **GDPR** | ✅ Compliant | No personal data processed |
+| **NIST Cybersecurity Framework** | Aligned | Identify, Protect, Detect functions |
+| **CIS Controls** | Aligned | v8 Controls 2.1, 4.1, 16.1 |
+| **ISO 27001** | Partial | Annex A.9.2 (Access Control), A.12.6 (Technical Vulnerability Management) |
+| **FedRAMP** | Evaluating | Potential alignment for government use |
+| **SOC 2** | N/A | CleanCloud is a tool, not a service |
+| **GDPR** | Compliant | No personal data processed |
 
 ### Government Use
 
 CleanCloud is suitable for government environments, including:
 
-- ✅ **UK Public Sector** (e.g., MoJ, HMRC, NHS Digital)
-- ✅ **US Federal** (with FedRAMP-aligned deployment)
-- ✅ **Regulated Industries** (finance, healthcare)
+- **UK Public Sector** (e.g., MoJ, HMRC, NHS Digital)
+- **US Federal** (with FedRAMP-aligned deployment)
+- **Regulated Industries** (finance, healthcare)
 
 **Key Requirements Met**:
-- ✅ Open source (full code transparency)
-- ✅ Read-only operations (minimal risk)
-- ✅ Zero telemetry (data sovereignty)
-- ✅ OIDC support (no long-lived credentials)
-- ✅ Auditable (deterministic output)
+- Open source (full code transparency)
+- Read-only operations (minimal risk)
+- Zero telemetry (data sovereignty)
+- OIDC support (no long-lived credentials)
+- Auditable (deterministic output)
 
 ---
 
@@ -687,24 +690,24 @@ CleanCloud is suitable for government environments, including:
 
 ### Out of Scope
 
-- ❌ Vulnerabilities in third-party dependencies (report to upstream)
-- ❌ Social engineering or phishing attempts
-- ❌ Physical security issues
-- ❌ Denial of service (tool runs locally, no service to DoS)
+- Vulnerabilities in third-party dependencies (report to upstream)
+- Social engineering or phishing attempts
+- Physical security issues
+- Denial of service (tool runs locally, no service to DoS)
 
 ### Responsible Disclosure
 
 **What we ask from security researchers**:
-- ✅ **Allow reasonable time for fixes** (suggest 90 days, but flexible based on severity)
-- ✅ **Report in good faith** (no malicious exploitation)
-- ✅ **Avoid public disclosure** until patch is available
+- **Allow reasonable time for fixes** (suggest 90 days, but flexible based on severity)
+- **Report in good faith** (no malicious exploitation)
+- **Avoid public disclosure** until patch is available
 
 **What we commit to**:
-- ✅ **Acknowledge reports** (target: within 3-5 business days, best effort)
-- ✅ **Keep you updated** on progress (no fixed schedule, depends on complexity)
-- ✅ **Credit researchers** in security advisories (if desired)
-- ✅ **No legal action** against good-faith security researchers
-- ✅ **Transparent process** via GitHub Security Advisories
+- **Acknowledge reports** (target: within 3-5 business days, best effort)
+- **Keep you updated** on progress (no fixed schedule, depends on complexity)
+- **Credit researchers** in security advisories (if desired)
+- **No legal action** against good-faith security researchers
+- **Transparent process** via GitHub Security Advisories
 
 **Reality Check**: We're a small open-source project. Response times will vary based on maintainer availability, issue complexity, and severity. Critical issues get priority, but we can't guarantee fixed timelines.
 

@@ -113,7 +113,7 @@ def scan(
     no_feedback: bool,
 ):
     click.echo()
-    click.echo("🔍 Starting CleanCloud scan...")
+    click.echo("Starting CleanCloud scan...")
     click.echo()
     click.echo(f"Provider: {provider}")
     click.echo()
@@ -212,12 +212,12 @@ def scan(
                 },
                 output_path,
             )
-            click.echo(f"✓ JSON output written to {output_path}")
+            click.echo(f"JSON output written to {output_path}")
             click.echo()
 
         elif output == "csv":
             write_csv(findings, output_path)
-            click.echo(f"✓ CSV output written to {output_path}")
+            click.echo(f"CSV output written to {output_path}")
             click.echo()
 
         else:
@@ -237,20 +237,20 @@ def scan(
         )
 
         if exit_code == EXIT_POLICY_VIOLATION:
-            click.echo("\n❌ CleanCloud policy violation detected")
+            click.echo("\nCleanCloud policy violation detected")
 
         sys.exit(exit_code)
 
     except PermissionError as e:
-        click.echo(f"🔒 Permission error: {e}")
+        click.echo(f"Permission error: {e}")
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except botocore.exceptions.NoCredentialsError:
-        click.echo("❌ No AWS credentials found")
+        click.echo("No AWS credentials found")
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except Exception as e:
-        click.echo(f"💥 Unexpected error: {e}")
+        click.echo(f"Unexpected error: {e}")
         import traceback
 
         traceback.print_exc()

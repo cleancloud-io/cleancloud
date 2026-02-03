@@ -86,7 +86,7 @@ def run_azure_doctor() -> None:
     info("")
 
     # Step 1: Detect authentication method
-    info("🔐 Step 1: Azure Credential Resolution")
+    info("Step 1: Azure Credential Resolution")
     info("-" * 70)
 
     method_id, description, metadata = detect_azure_auth_method()
@@ -113,26 +113,26 @@ def run_azure_doctor() -> None:
     security_grade = metadata.get("security_grade", "unknown")
 
     if security_grade == "excellent":
-        success("Security Grade: EXCELLENT ✅")
-        success("  ✓ No client secrets stored")
-        success("  ✓ Temporary credentials")
-        success("  ✓ Auto-rotated")
+        success("Security Grade: EXCELLENT")
+        success("  - No client secrets stored")
+        success("  - Temporary credentials")
+        success("  - Auto-rotated")
 
     elif security_grade == "good":
-        success("Security Grade: GOOD ✅")
-        info("  ✓ Temporary credentials")
+        success("Security Grade: GOOD")
+        info("  - Temporary credentials")
 
     elif security_grade == "acceptable":
-        warn("Security Grade: ACCEPTABLE ⚠️")
+        warn("Security Grade: ACCEPTABLE")
         info("  Suitable for local development")
         if method_id == "azure_cli":
             info("  Azure CLI authentication (interactive)")
 
     elif security_grade == "poor":
-        warn("Security Grade: POOR ⚠️")
-        warn("  ⚠ Long-lived client secret")
-        warn("  ⚠ Requires manual rotation")
-        warn("  ⚠ High blast radius if compromised")
+        warn("Security Grade: POOR")
+        warn("  - Long-lived client secret")
+        warn("  - Requires manual rotation")
+        warn("  - High blast radius if compromised")
         info("")
         info("  Recommendation for CI/CD:")
         info("    Switch to OIDC (Workload Identity Federation)")
@@ -144,24 +144,24 @@ def run_azure_doctor() -> None:
     # CI/CD readiness
     info("")
     if metadata.get("ci_cd_ready"):
-        success("CI/CD Ready: YES ✅")
+        success("CI/CD Ready: YES")
         success("  Suitable for production CI/CD pipelines")
     else:
         if method_id == "azure_cli":
             info("CI/CD Ready: NO (Local development only)")
             info("  Azure CLI is interactive and not suitable for CI/CD")
         else:
-            warn("CI/CD Ready: NO ⚠️")
+            warn("CI/CD Ready: NO")
             warn("  Client secrets not recommended for automated pipelines")
 
     # Compliance notes
     info("")
     if metadata.get("security_grade") in ("excellent", "good"):
-        success("Compliance: SOC2/ISO27001 Compatible ✅")
+        success("Compliance: SOC2/ISO27001 Compatible")
     elif metadata.get("security_grade") == "acceptable":
         info("Compliance: Acceptable for development environments")
     else:
-        warn("Compliance: May not meet enterprise security requirements ⚠️")
+        warn("Compliance: May not meet enterprise security requirements")
 
     # Display configured environment
     info("")
@@ -185,7 +185,7 @@ def run_azure_doctor() -> None:
 
     # Step 2: Authenticate
     info("")
-    info("🔑 Step 2: Credential Acquisition")
+    info("Step 2: Credential Acquisition")
     info("-" * 70)
 
     try:
@@ -207,7 +207,7 @@ def run_azure_doctor() -> None:
 
     # Step 3: Subscription access validation
     info("")
-    info("📋 Step 3: Subscription Access Validation")
+    info("Step 3: Subscription Access Validation")
     info("-" * 70)
 
     try:
@@ -240,12 +240,12 @@ def run_azure_doctor() -> None:
 
     # Step 4: Permission validation
     info("")
-    info("🔒 Step 4: Permission Validation")
+    info("Step 4: Permission Validation")
     info("-" * 70)
 
     # For Azure, we've already validated subscription access
     # Reader role gives us all the permissions we need
-    success("✓ Subscription read access confirmed")
+    success("Subscription read access confirmed")
     info("  Reader role provides all required permissions:")
     info("    - Microsoft.Compute/disks/read")
     info("    - Microsoft.Compute/snapshots/read")
@@ -267,6 +267,6 @@ def run_azure_doctor() -> None:
         info(f"Filtered to: {subscription_id}")
 
     info("")
-    success("🎉 AZURE ENVIRONMENT READY FOR CLEANCLOUD")
+    success("AZURE ENVIRONMENT READY FOR CLEANCLOUD")
     info("=" * 70)
     info("")

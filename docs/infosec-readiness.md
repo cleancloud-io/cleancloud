@@ -46,12 +46,12 @@ CleanCloud is an **open-source, read-only cloud hygiene scanning tool** designed
 
 | Security Dimension | Rating | Evidence |
 |-------------------|--------|----------|
-| Data Privacy | ✅ Excellent | No data exfiltration, no telemetry |
-| Access Control | ✅ Excellent | Read-only IAM/RBAC policies only |
-| Authentication | ✅ Excellent | OIDC-first, short-lived credentials |
-| Code Transparency | ✅ Excellent | Open-source, automated safety tests |
-| Supply Chain | ✅ Good | Standard PyPI distribution, minimal dependencies |
-| Auditability | ✅ Excellent | Deterministic output, CloudTrail/Activity Log compatible |
+| Data Privacy | Excellent | No data exfiltration, no telemetry |
+| Access Control | Excellent | Read-only IAM/RBAC policies only |
+| Authentication | Excellent | OIDC-first, short-lived credentials |
+| Code Transparency | Excellent | Open-source, automated safety tests |
+| Supply Chain | Good | Standard PyPI distribution, minimal dependencies |
+| Auditability | Excellent | Deterministic output, CloudTrail/Activity Log compatible |
 
 ---
 
@@ -65,14 +65,14 @@ This is a critical security guarantee for enterprise environments:
 
 | Endpoint Type | Called? | Purpose | Verification |
 |---------------|---------|---------|--------------|
-| AWS APIs (`*.amazonaws.com`) | ✅ Yes | Read cloud resource metadata | CloudTrail audit logs |
-| Azure APIs (`management.azure.com`) | ✅ Yes | Read cloud resource metadata | Azure Activity Log |
-| Azure Auth (`login.microsoftonline.com`) | ✅ Yes | OIDC token exchange only | Azure AD sign-in logs |
-| PyPI (`pypi.org`, `files.pythonhosted.org`) | ⚠️ Installation only | Package download during `pip install` | N/A (one-time) |
-| **Analytics / Telemetry** | ❌ Never | — | Code review, network monitoring |
-| **Third-party APIs** | ❌ Never | — | Code review, network monitoring |
-| **Update checks / Version pings** | ❌ Never | — | No phone-home code |
-| **Error reporting / Crash analytics** | ❌ Never | — | No Sentry, Bugsnag, etc. |
+| AWS APIs (`*.amazonaws.com`) | Yes | Read cloud resource metadata | CloudTrail audit logs |
+| Azure APIs (`management.azure.com`) | Yes | Read cloud resource metadata | Azure Activity Log |
+| Azure Auth (`login.microsoftonline.com`) | Yes | OIDC token exchange only | Azure AD sign-in logs |
+| PyPI (`pypi.org`, `files.pythonhosted.org`) | Installation only | Package download during `pip install` | N/A (one-time) |
+| **Analytics / Telemetry** | Never | — | Code review, network monitoring |
+| **Third-party APIs** | Never | — | Code review, network monitoring |
+| **Update checks / Version pings** | Never | — | No phone-home code |
+| **Error reporting / Crash analytics** | Never | — | No Sentry, Bugsnag, etc. |
 
 ### Verification Methods
 
@@ -128,7 +128,7 @@ aws ec2 create-security-group --group-name cleancloud-test --description "CleanC
 
 # Allow outbound to AWS APIs only (use VPC endpoints or specific CIDR ranges)
 aws ec2 authorize-security-group-egress --group-id sg-xxx \
-  --ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0}]
+ --ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges=[{CidrIp=0.0.0.0/0}]
 
 # Run CleanCloud from EC2 instance with this security group
 # Expected: Scan succeeds (proves only AWS APIs are called)
@@ -142,16 +142,16 @@ az network nsg create --resource-group test --name cleancloud-test-nsg
 
 # Allow outbound to Azure Management API only
 az network nsg rule create --nsg-name cleancloud-test-nsg \
-  --resource-group test --name allow-azure-apis \
-  --priority 100 --direction Outbound --access Allow \
-  --protocol Tcp --destination-port-ranges 443 \
-  --destination-address-prefixes AzureCloud
+ --resource-group test --name allow-azure-apis \
+ --priority 100 --direction Outbound --access Allow \
+ --protocol Tcp --destination-port-ranges 443 \
+ --destination-address-prefixes AzureCloud
 
 # Deny all other outbound (except DNS)
 az network nsg rule create --nsg-name cleancloud-test-nsg \
-  --resource-group test --name deny-all-outbound \
-  --priority 200 --direction Outbound --access Deny \
-  --protocol '*' --destination-address-prefixes '*'
+ --resource-group test --name deny-all-outbound \
+ --priority 200 --direction Outbound --access Deny \
+ --protocol '*' --destination-address-prefixes '*'
 
 # Run CleanCloud from VM with this NSG attached
 # Expected: Scan succeeds (proves only Azure APIs are called)
@@ -323,7 +323,7 @@ The IAM Proof Pack includes:
 ```bash
 # Download policy
 curl -o aws-readonly-policy.json \
-  https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
+ https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
 
 # Verify no write/delete/tag permissions
 cat aws-readonly-policy.json | jq '.Statement[].Action[]' | grep -iE '(delete|put|create|update|tag)'
@@ -331,7 +331,7 @@ cat aws-readonly-policy.json | jq '.Statement[].Action[]' | grep -iE '(delete|pu
 
 # Create IAM policy (optional - for testing)
 aws iam create-policy --policy-name CleanCloudReadOnly \
-  --policy-document file://aws-readonly-policy.json
+ --policy-document file://aws-readonly-policy.json
 ```
 
 **Attach to OIDC role:**
@@ -358,16 +358,16 @@ aws iam attach-role-policy \
 ```bash
 # List Reader role permissions
 az role definition list --name "Reader" --output json \
-  | jq '.[0].permissions[0].actions'
+ | jq '.[0].permissions[0].actions'
 
 # Expected output (read-only actions):
 [
-  "*/read"
+ "*/read"
 ]
 
 # Verify no write permissions
 az role definition list --name "Reader" --output json \
-  | jq '.[0].permissions[0].actions[]' | grep -iE '(delete|write|create|update)'
+ | jq '.[0].permissions[0].actions[]' | grep -iE '(delete|write|create|update)'
 # Expected: No results (exit code 1)
 ```
 
@@ -394,18 +394,18 @@ az role assignment create \
 
 POLICY_FILE="aws-readonly-policy.json"
 
-echo "🔍 Verifying AWS IAM Policy: $POLICY_FILE"
+echo " Verifying AWS IAM Policy: $POLICY_FILE"
 
 # Check for forbidden actions
 FORBIDDEN=$(cat $POLICY_FILE | jq -r '.Statement[].Action[]?' | grep -iE '(delete|put|create|update|tag|modify|terminate|reboot|stop|start)')
 
 if [ -z "$FORBIDDEN" ]; then
-  echo "✅ PASS: No write/delete/tag permissions found"
-  exit 0
+ echo " PASS: No write/delete/tag permissions found"
+ exit 0
 else
-  echo "❌ FAIL: Found forbidden permissions:"
-  echo "$FORBIDDEN"
-  exit 1
+ echo " FAIL: Found forbidden permissions:"
+ echo "$FORBIDDEN"
+ exit 1
 fi
 ```
 
@@ -425,7 +425,7 @@ chmod +x verify-aws-policy.sh
 
 ROLE_NAME="Reader"
 
-echo "🔍 Verifying Azure Role: $ROLE_NAME"
+echo " Verifying Azure Role: $ROLE_NAME"
 
 # Get role definition
 ACTIONS=$(az role definition list --name "$ROLE_NAME" --output json | jq -r '.[0].permissions[0].actions[]')
@@ -434,12 +434,12 @@ ACTIONS=$(az role definition list --name "$ROLE_NAME" --output json | jq -r '.[0
 FORBIDDEN=$(echo "$ACTIONS" | grep -iE '(delete|write|create|update|action)')
 
 if [ -z "$FORBIDDEN" ]; then
-  echo "✅ PASS: Role is read-only"
-  exit 0
+ echo " PASS: Role is read-only"
+ exit 0
 else
-  echo "❌ FAIL: Found write permissions:"
-  echo "$FORBIDDEN"
-  exit 1
+ echo " FAIL: Found write permissions:"
+ echo "$FORBIDDEN"
+ exit 1
 fi
 ```
 
@@ -475,18 +475,18 @@ fi
 ```
 
 **Key Attributes:**
-- ✅ `"readOnly": true` - Confirms read operation
-- ✅ `"eventName": "DescribeVolumes"` - Read-only API call
-- ✅ No `Delete*`, `Put*`, `Create*`, `Tag*` events
+- `"readOnly": true` - Confirms read operation
+- `"eventName": "DescribeVolumes"` - Read-only API call
+- No `Delete*`, `Put*`, `Create*`, `Tag*` events
 
 **CloudTrail Query (All CleanCloud Events):**
 
 ```bash
 # Query CloudTrail for all CleanCloud events in last 24 hours
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
-  --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S) \
-  --output json | jq '.Events[].CloudTrailEvent | fromjson | .eventName' | sort | uniq
+ --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
+ --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S) \
+ --output json | jq '.Events[].CloudTrailEvent | fromjson | .eventName' | sort | uniq
 
 # Expected output (read-only events only):
 # "DescribeInstances"
@@ -528,8 +528,8 @@ pytest cleancloud/safety/ -v --tb=short
 pytest cleancloud/safety/ -v --html=safety-test-report.html --self-contained-html
 
 # Open report
-open safety-test-report.html  # macOS
-xdg-open safety-test-report.html  # Linux
+open safety-test-report.html # macOS
+xdg-open safety-test-report.html # Linux
 ```
 
 **Sample Output:**
@@ -593,7 +593,7 @@ cd cleancloud
 
 ```bash
 curl -o aws-readonly-policy.json \
-  https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
+ https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
 ```
 
 ---
@@ -678,42 +678,42 @@ CleanCloud's attack surface is intentionally minimal:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    THREAT MODEL OVERVIEW                     │
+│ THREAT MODEL OVERVIEW │
 └─────────────────────────────────────────────────────────────┘
 
 ┌──────────────────┐
-│  ATTACK VECTORS  │
+│ ATTACK VECTORS │
 └──────────────────┘
-    │
-    ├─► Credential Compromise
-    │   ├─ Likelihood: ⚠️ Low-Medium (depends on auth method)
-    │   ├─ Impact: Medium-High (read access to cloud metadata)
-    │   └─ Mitigation: OIDC (1-hour tokens), read-only IAM/RBAC
-    │
-    ├─► Resource Mutation (Accidental Deletion)
-    │   ├─ Likelihood: Extremely Low (prevented by IAM/RBAC enforcement and automated safety controls)
-    │   ├─ Impact: Critical (if possible)
-    │   └─ Mitigation: No write permissions, safety regression tests
-    │
-    ├─► Data Exfiltration
-    │   ├─ Likelihood: Extremely Low (prevented by design: zero telemetry, local processing only)
-    │   ├─ Impact: Medium (cloud metadata exposure)
-    │   └─ Mitigation: No outbound calls (except cloud APIs), code review
-    │
-    ├─► Supply Chain Attack (Malicious Dependency)
-    │   ├─ Likelihood: ⚠️ Low
-    │   ├─ Impact: Medium
-    │   └─ Mitigation: Minimal dependencies, pip-audit in CI, code review
-    │
-    ├─► API Throttling / Denial of Service
-    │   ├─ Likelihood: ⚠️ Low
-    │   ├─ Impact: Low (scan fails, no resource impact)
-    │   └─ Mitigation: Respects rate limits, parallel scanning configurable
-    │
-    └─► False Positive (Incorrect Findings)
-        ├─ Likelihood: ⚠️ Medium (conservative detection reduces this)
-        ├─ Impact: Low (review-only, no auto-action)
-        └─ Mitigation: Confidence levels (LOW/MEDIUM/HIGH), review-only design
+ │
+ ├─► Credential Compromise
+ │ ├─ Likelihood: Low-Medium (depends on auth method)
+ │ ├─ Impact: Medium-High (read access to cloud metadata)
+ │ └─ Mitigation: OIDC (1-hour tokens), read-only IAM/RBAC
+ │
+ ├─► Resource Mutation (Accidental Deletion)
+ │ ├─ Likelihood: Extremely Low (prevented by IAM/RBAC enforcement and automated safety controls)
+ │ ├─ Impact: Critical (if possible)
+ │ └─ Mitigation: No write permissions, safety regression tests
+ │
+ ├─► Data Exfiltration
+ │ ├─ Likelihood: Extremely Low (prevented by design: zero telemetry, local processing only)
+ │ ├─ Impact: Medium (cloud metadata exposure)
+ │ └─ Mitigation: No outbound calls (except cloud APIs), code review
+ │
+ ├─► Supply Chain Attack (Malicious Dependency)
+ │ ├─ Likelihood: Low
+ │ ├─ Impact: Medium
+ │ └─ Mitigation: Minimal dependencies, pip-audit in CI, code review
+ │
+ ├─► API Throttling / Denial of Service
+ │ ├─ Likelihood: Low
+ │ ├─ Impact: Low (scan fails, no resource impact)
+ │ └─ Mitigation: Respects rate limits, parallel scanning configurable
+ │
+ └─► False Positive (Incorrect Findings)
+ ├─ Likelihood: Medium (conservative detection reduces this)
+ ├─ Impact: Low (review-only, no auto-action)
+ └─ Mitigation: Confidence levels (LOW/MEDIUM/HIGH), review-only design
 ```
 
 ---
@@ -730,9 +730,9 @@ CleanCloud's attack surface is intentionally minimal:
 3. Uses credentials to access cloud provider APIs
 
 **Impact:**
-- ⚠️ **Read access to cloud metadata** (resource IDs, tags, configurations)
-- ❌ **Cannot delete or modify resources** (no write permissions)
-- ⚠️ **Potential reconnaissance** for further attacks
+- **Read access to cloud metadata** (resource IDs, tags, configurations)
+- **Cannot delete or modify resources** (no write permissions)
+- **Potential reconnaissance** for further attacks
 
 **Likelihood:** Low-Medium (depends on credential management practices)
 
@@ -740,25 +740,25 @@ CleanCloud's attack surface is intentionally minimal:
 
 | Mitigation | Effectiveness | Implementation |
 |------------|--------------|----------------|
-| **Use OIDC (short-lived tokens)** | ✅ High | 1-hour token lifetime, automatic expiration |
-| **Restrict IAM/RBAC to read-only** | ✅ High | Limits blast radius to metadata read access |
-| **Enable CloudTrail/Activity Log monitoring** | ✅ High | Detect unusual API calls, IP addresses |
-| **Conditional Access (IP restrictions)** | ✅ Medium | Limit credential use to known CI/CD IPs |
-| **MFA on credential issuance** | ✅ Medium | Protect OIDC token issuance (GitHub MFA) |
-| **Rotate long-lived keys regularly** | ✅ Medium | If using access keys (not recommended) |
+| **Use OIDC (short-lived tokens)** | High | 1-hour token lifetime, automatic expiration |
+| **Restrict IAM/RBAC to read-only** | High | Limits blast radius to metadata read access |
+| **Enable CloudTrail/Activity Log monitoring** | High | Detect unusual API calls, IP addresses |
+| **Conditional Access (IP restrictions)** | Medium | Limit credential use to known CI/CD IPs |
+| **MFA on credential issuance** | Medium | Protect OIDC token issuance (GitHub MFA) |
+| **Rotate long-lived keys regularly** | Medium | If using access keys (not recommended) |
 
 **Detection:**
 ```bash
 # AWS: Detect unusual CleanCloud API calls
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
-  | jq '.Events[] | select(.SourceIPAddress != "<expected-ci-ip>")'
+ --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
+ | jq '.Events[] | select(.SourceIPAddress != "<expected-ci-ip>")'
 
 # Azure: Detect unusual service principal activity
 az monitor activity-log list \
-  --caller <cleancloud-sp-id> \
-  --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S) \
-  | jq '.[] | select(.ipAddress != "<expected-ci-ip>")'
+ --caller <cleancloud-sp-id> \
+ --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S) \
+ | jq '.[] | select(.ipAddress != "<expected-ci-ip>")'
 ```
 
 **Response:**
@@ -781,7 +781,7 @@ az monitor activity-log list \
 
 **Impact:**
 - 🚨 **Critical** (if successful) - production resource deletion
-- ✅ **Extremely Low in practice** - multiple safety layers prevent this
+- **Extremely Low in practice** - multiple safety layers prevent this
 
 **Likelihood:** Extremely Low (prevented by multiple enforcement layers)
 
@@ -789,17 +789,17 @@ az monitor activity-log list \
 
 | Layer | Mechanism | Effectiveness |
 |-------|-----------|--------------|
-| **1. IAM/RBAC Policy** | No `Delete*`, `Put*`, `Create*` permissions granted | ✅ Critical - API call fails with `AccessDenied` |
-| **2. Static AST Analysis** | Code is scanned for forbidden API calls before merge | ✅ High - Detected in CI before release |
-| **3. Runtime Guards** | Test fixtures intercept mutation attempts during tests | ✅ High - Caught during test execution |
-| **4. Policy Validation Tests** | IAM/RBAC policies automatically tested for write permissions | ✅ High - Policy drift detected |
+| **1. IAM/RBAC Policy** | No `Delete*`, `Put*`, `Create*` permissions granted | Critical - API call fails with `AccessDenied` |
+| **2. Static AST Analysis** | Code is scanned for forbidden API calls before merge | High - Detected in CI before release |
+| **3. Runtime Guards** | Test fixtures intercept mutation attempts during tests | High - Caught during test execution |
+| **4. Policy Validation Tests** | IAM/RBAC policies automatically tested for write permissions | High - Policy drift detected |
 
 **Detection (If Attempted):**
 ```bash
 # AWS: No Delete events should ever appear for CleanCloud
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
-  | jq '.Events[].CloudTrailEvent | fromjson | select(.eventName | test("Delete|Put|Create|Update|Tag"))'
+ --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudCIReadOnly \
+ | jq '.Events[].CloudTrailEvent | fromjson | select(.eventName | test("Delete|Put|Create|Update|Tag"))'
 # Expected: Zero results
 
 # If results appear, it means:
@@ -828,9 +828,9 @@ aws cloudtrail lookup-events \
 5. Cloud metadata exfiltrated during scans
 
 **Impact:**
-- ⚠️ **Medium** - Exposure of cloud resource metadata (IDs, tags, configurations)
-- ❌ **No credential exfiltration** (credentials not stored by CleanCloud)
-- ⚠️ **Reconnaissance data** for attackers
+- **Medium** - Exposure of cloud resource metadata (IDs, tags, configurations)
+- **No credential exfiltration** (credentials not stored by CleanCloud)
+- **Reconnaissance data** for attackers
 
 **Likelihood:** Low (open-source code, community review, no history of compromise)
 
@@ -838,12 +838,12 @@ aws cloudtrail lookup-events \
 
 | Mitigation | Effectiveness | How to Use |
 |------------|--------------|------------|
-| **Open-source code review** | ✅ High | Review code before use: `git clone` and inspect |
-| **Network monitoring** | ✅ High | Run with `tcpdump`/Wireshark, verify only AWS/Azure calls |
-| **Egress firewall** | ✅ High | Block all outbound except AWS/Azure APIs |
-| **Code auditing** | ✅ Medium | Search for HTTP libraries: `grep -r "requests\." cleancloud/` |
-| **Dependency pinning** | ✅ Medium | Pin exact versions in `requirements.txt`, review diffs |
-| **PyPI package verification** | ✅ Medium | Verify SHA256 checksum of downloaded package |
+| **Open-source code review** | High | Review code before use: `git clone` and inspect |
+| **Network monitoring** | High | Run with `tcpdump`/Wireshark, verify only AWS/Azure calls |
+| **Egress firewall** | High | Block all outbound except AWS/Azure APIs |
+| **Code auditing** | Medium | Search for HTTP libraries: `grep -r "requests\." cleancloud/` |
+| **Dependency pinning** | Medium | Pin exact versions in `requirements.txt`, review diffs |
+| **PyPI package verification** | Medium | Verify SHA256 checksum of downloaded package |
 
 **Detection:**
 ```bash
@@ -881,7 +881,7 @@ tcpdump -r cleancloud-traffic.pcap -n | awk '{print $3}' | sort | uniq
 
 **Impact:**
 - 🚨 **High** - Could compromise credentials, exfiltrate data
-- ⚠️ **Depends on compromised dependency capabilities**
+- **Depends on compromised dependency capabilities**
 
 **Likelihood:** Low (major dependencies like boto3 have strong security practices)
 
@@ -889,12 +889,12 @@ tcpdump -r cleancloud-traffic.pcap -n | awk '{print $3}' | sort | uniq
 
 | Mitigation | Effectiveness | Implementation |
 |------------|--------------|----------------|
-| **Minimal dependencies** | ✅ High | CleanCloud has only 6 core dependencies |
-| **Trust reputable dependencies** | ✅ High | boto3 (AWS), azure-sdk (Microsoft), click (Pallets) |
-| **Dependency scanning** | ✅ High | `pip-audit` in CI, Dependabot alerts |
-| **Version pinning** | ✅ Medium | Pin minimum versions, allow security updates |
-| **SBOM generation** | ✅ Medium | Track all dependencies with `pip freeze` |
-| **Offline installation** | ✅ Medium | Download wheels, verify checksums, install offline |
+| **Minimal dependencies** | High | CleanCloud has only 6 core dependencies |
+| **Trust reputable dependencies** | High | boto3 (AWS), azure-sdk (Microsoft), click (Pallets) |
+| **Dependency scanning** | High | `pip-audit` in CI, Dependabot alerts |
+| **Version pinning** | Medium | Pin minimum versions, allow security updates |
+| **SBOM generation** | Medium | Track all dependencies with `pip freeze` |
+| **Offline installation** | Medium | Download wheels, verify checksums, install offline |
 
 **Detection:**
 ```bash
@@ -925,8 +925,8 @@ pip freeze | grep -v -E '(boto3|azure|click|pyyaml|cleancloud)'
 3. Scan fails, other tools in same account throttled
 
 **Impact:**
-- ⚠️ **Low** - Scan fails, no resource damage
-- ⚠️ **Potential impact to other tools** using same credentials
+- **Low** - Scan fails, no resource damage
+- **Potential impact to other tools** using same credentials
 
 **Likelihood:** Low (CleanCloud uses pagination, respects rate limits)
 
@@ -940,11 +940,11 @@ pip freeze | grep -v -E '(boto3|azure|click|pyyaml|cleancloud)'
 ```bash
 # AWS: Monitor for throttling events
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=ErrorCode,AttributeValue=ThrottlingException
+ --lookup-attributes AttributeKey=ErrorCode,AttributeValue=ThrottlingException
 
 # Azure: Monitor for 429 (Too Many Requests) responses
 az monitor activity-log list --status "Failed" \
-  | jq '.[] | select(.subStatus.localizedValue == "TooManyRequests")'
+ | jq '.[] | select(.subStatus.localizedValue == "TooManyRequests")'
 ```
 
 **Response:**
@@ -965,8 +965,8 @@ az monitor activity-log list --status "Failed" \
 4. Production impact from accidental deletion
 
 **Impact:**
-- ⚠️ **Low** - Review-only design prevents auto-action
-- ⚠️ **User error** if findings trusted without validation
+- **Low** - Review-only design prevents auto-action
+- **User error** if findings trusted without validation
 
 **Likelihood:** Medium (conservative detection reduces this, but edge cases exist)
 
@@ -999,12 +999,12 @@ az monitor activity-log list --status "Failed" \
 **Risk Acceptance:**
 
 CleanCloud is appropriate for organizations that accept:
-- ✅ **Low-Medium credential compromise risk** (mitigated by OIDC, read-only permissions)
-- ✅ **Low supply chain risk** (minimal dependencies, open-source auditability)
+- **Low-Medium credential compromise risk** (mitigated by OIDC, read-only permissions)
+- **Low supply chain risk** (minimal dependencies, open-source auditability)
 
 CleanCloud is NOT appropriate if you require:
-- ❌ **Zero risk tolerance** (all software has some risk)
-- ❌ **Guaranteed uptime SLA** (open-source tool, community support)
+- **Zero risk tolerance** (all software has some risk)
+- **Guaranteed uptime SLA** (open-source tool, community support)
 
 ---
 
@@ -1016,16 +1016,16 @@ CleanCloud is NOT appropriate if you require:
 
 | Data Type | Collected? | Transmitted? | Stored? |
 |-----------|-----------|--------------|---------|
-| Usage analytics | ❌ No | ❌ No | ❌ No |
-| Resource metadata | ⚠️ Local only | ❌ No | ⚠️ User-controlled |
-| Account identifiers | ⚠️ Local only | ❌ No | ⚠️ User-controlled |
-| Error reports | ❌ No | ❌ No | ❌ No |
-| Version check | ❌ No | ❌ No | ❌ No |
+| Usage analytics | No | No | No |
+| Resource metadata | Local only | No | User-controlled |
+| Account identifiers | Local only | No | User-controlled |
+| Error reports | No | No | No |
+| Version check | No | No | No |
 
 **Legend:**
-- ❌ No: Never accessed or stored
-- ⚠️ Local only: Processed locally but never transmitted
-- ⚠️ User-controlled: Only stored in outputs explicitly created by the user
+- No: Never accessed or stored
+- Local only: Processed locally but never transmitted
+- User-controlled: Only stored in outputs explicitly created by the user
 
 ### Data Residency
 
@@ -1078,9 +1078,9 @@ CleanCloud output may contain:
 
 | Method | Security Grade | Use Case | Credential Lifetime |
 |--------|---------------|----------|---------------------|
-| OIDC (GitHub Actions) | ✅ Excellent | CI/CD | 1 hour (temporary) |
-| AWS CLI Profiles | ✅ Good | Local development | Session-based |
-| Environment Variables | ⚠️ Acceptable | Local/CI | Varies (can be long-lived) |
+| OIDC (GitHub Actions) | Excellent | CI/CD | 1 hour (temporary) |
+| AWS CLI Profiles | Good | Local development | Session-based |
+| Environment Variables | Acceptable | Local/CI | Varies (can be long-lived) |
 
 **Recommendation:** Use OIDC for CI/CD, AWS SSO profiles for local development.
 
@@ -1088,9 +1088,9 @@ CleanCloud output may contain:
 
 | Method | Security Grade | Use Case | Credential Lifetime |
 |--------|---------------|----------|---------------------|
-| OIDC (Workload Identity) | ✅ Excellent | CI/CD | 1 hour (temporary) |
-| Azure CLI (`az login`) | ✅ Good | Local development | Session-based |
-| Managed Identity | ✅ Excellent | Azure VMs/Containers | Automatic rotation |
+| OIDC (Workload Identity) | Excellent | CI/CD | 1 hour (temporary) |
+| Azure CLI (`az login`) | Good | Local development | Session-based |
+| Managed Identity | Excellent | Azure VMs/Containers | Automatic rotation |
 
 **Recommendation:** Use OIDC for CI/CD, Azure CLI with MFA for local development.
 
@@ -1145,10 +1145,10 @@ The minimum required permissions are **read-only**:
 ```
 
 **Characteristics:**
-- ✅ Zero `Delete*`, `Put*`, `Create*`, `Update*`, or `Tag*` permissions
-- ✅ Compatible with `Resource: "*"` without security risk
-- ✅ Can be safely used in production accounts
-- ✅ Automated tests ensure policy remains read-only
+- Zero `Delete*`, `Put*`, `Create*`, `Update*`, or `Tag*` permissions
+- Compatible with `Resource: "*"` without security risk
+- Can be safely used in production accounts
+- Automated tests ensure policy remains read-only
 
 See: [`docs/aws.md`](aws.md) for full policy
 
@@ -1156,9 +1156,9 @@ See: [`docs/aws.md`](aws.md) for full policy
 
 **Minimum role required:** `Reader` at subscription scope
 
-- ✅ Built-in Azure role (no custom role needed)
-- ✅ Read-only across all resource types
-- ✅ No write, delete, or tag modification permissions
+- Built-in Azure role (no custom role needed)
+- Read-only across all resource types
+- No write, delete, or tag modification permissions
 
 See: [`docs/azure.md`](azure.md) for OIDC setup
 
@@ -1167,24 +1167,24 @@ See: [`docs/azure.md`](azure.md) for OIDC setup
 **For InfoSec Teams:**
 
 1. **Enforce OIDC in CI/CD**
-   - Require short-lived credentials (1-hour max lifetime)
-   - Use repository/branch conditions in trust policies
-   - Audit OIDC token requests in CloudTrail/Azure AD logs
+ - Require short-lived credentials (1-hour max lifetime)
+ - Use repository/branch conditions in trust policies
+ - Audit OIDC token requests in CloudTrail/Azure AD logs
 
 2. **Restrict to Specific Accounts/Subscriptions**
-   - Grant CleanCloud access only to non-production environments initially
-   - Expand to production after validation period
-   - Use separate roles/service principals per environment
+ - Grant CleanCloud access only to non-production environments initially
+ - Expand to production after validation period
+ - Use separate roles/service principals per environment
 
 3. **Enable Audit Logging**
-   - AWS: Enable CloudTrail for all API calls
-   - Azure: Enable Activity Log and route to Log Analytics
-   - Monitor for unexpected API calls or access patterns
+ - AWS: Enable CloudTrail for all API calls
+ - Azure: Enable Activity Log and route to Log Analytics
+ - Monitor for unexpected API calls or access patterns
 
 4. **Review Session Duration**
-   - AWS: Set `MaxSessionDuration` to 1 hour on OIDC roles
-   - Azure: Use short-lived tokens (default 1 hour)
-   - Avoid indefinite credential validity
+ - AWS: Set `MaxSessionDuration` to 1 hour on OIDC roles
+ - Azure: Use short-lived tokens (default 1 hour)
+ - Avoid indefinite credential validity
 
 ---
 
@@ -1196,42 +1196,42 @@ CleanCloud can run in:
 
 | Environment | Security Considerations |
 |-------------|------------------------|
-| **CI/CD Runners** (GitHub Actions, GitLab CI) | ✅ Ephemeral, no persistent state<br>✅ OIDC authentication recommended<br>⚠️ Ensure artifact encryption if storing outputs |
-| **Developer Workstations** | ⚠️ Requires credential security hygiene<br>✅ Outputs stay local<br>⚠️ Ensure disk encryption |
-| **Bastion Hosts / Jump Boxes** | ✅ Centralized access control<br>✅ Session recording recommended<br>✅ Audit logs available |
-| **Containers / Kubernetes** | ✅ Supports managed identity (AWS IRSA, Azure Workload Identity)<br>✅ No credentials in container images<br>✅ Ephemeral by nature |
+| **CI/CD Runners** (GitHub Actions, GitLab CI) | Ephemeral, no persistent state<br> OIDC authentication recommended<br> Ensure artifact encryption if storing outputs |
+| **Developer Workstations** | Requires credential security hygiene<br> Outputs stay local<br> Ensure disk encryption |
+| **Bastion Hosts / Jump Boxes** | Centralized access control<br> Session recording recommended<br> Audit logs available |
+| **Containers / Kubernetes** | Supports managed identity (AWS IRSA, Azure Workload Identity)<br> No credentials in container images<br> Ephemeral by nature |
 
 ### Network Security
 
 **CleanCloud network requirements:**
 
 - **Outbound HTTPS (443)** to:
-  - AWS API endpoints (`*.amazonaws.com`)
-  - Azure API endpoints (`management.azure.com`, `login.microsoftonline.com`)
-  - PyPI (only during installation: `pypi.org`, `files.pythonhosted.org`)
+ - AWS API endpoints (`*.amazonaws.com`)
+ - Azure API endpoints (`management.azure.com`, `login.microsoftonline.com`)
+ - PyPI (only during installation: `pypi.org`, `files.pythonhosted.org`)
 
 - **No inbound connections required**
 
 **Firewall/Proxy Considerations:**
 
-- ✅ Compatible with corporate proxies (respects `HTTP_PROXY`, `HTTPS_PROXY` environment variables)
-- ✅ No websocket or non-standard protocol requirements
-- ✅ Standard AWS/Azure SDK network behavior (uses boto3/azure-sdk-for-python)
+- Compatible with corporate proxies (respects `HTTP_PROXY`, `HTTPS_PROXY` environment variables)
+- No websocket or non-standard protocol requirements
+- Standard AWS/Azure SDK network behavior (uses boto3/azure-sdk-for-python)
 
 ### Secrets Management
 
 **CleanCloud does NOT require:**
 
-- ❌ Storing credentials in code or configuration files
-- ❌ Secrets management systems (Vault, AWS Secrets Manager) - though compatible if you choose to use them
-- ❌ Credential files committed to repositories
+- Storing credentials in code or configuration files
+- Secrets management systems (Vault, AWS Secrets Manager) - though compatible if you choose to use them
+- Credential files committed to repositories
 
 **Best Practices:**
 
-- ✅ Use OIDC (no secrets at all)
-- ✅ Use cloud provider credential chains (AWS profiles, Azure CLI)
-- ✅ Rotate any long-lived credentials regularly
-- ✅ Audit credential access in CloudTrail/Azure AD logs
+- Use OIDC (no secrets at all)
+- Use cloud provider credential chains (AWS profiles, Azure CLI)
+- Rotate any long-lived credentials regularly
+- Audit credential access in CloudTrail/Azure AD logs
 
 ---
 
@@ -1268,9 +1268,9 @@ All CleanCloud API calls appear in CloudTrail with:
 ```
 
 **Key Audit Points:**
-- ✅ All events have `"readOnly": true`
-- ✅ No `Delete*`, `Put*`, `Create*`, or `Tag*` events will appear
-- ✅ Can set CloudWatch alarms for unexpected API calls
+- All events have `"readOnly": true`
+- No `Delete*`, `Put*`, `Create*`, or `Tag*` events will appear
+- Can set CloudWatch alarms for unexpected API calls
 
 #### Azure Activity Log
 
@@ -1321,9 +1321,9 @@ pip install -e ".[dev]"
 pytest cleancloud/safety/ -v
 
 # Expected: All tests pass
-# ✅ test_static_readonly (AST checks)
-# ✅ test_runtime_guard (runtime interception)
-# ✅ test_iam_policy_readonly (policy validation)
+# test_static_readonly (AST checks)
+# test_runtime_guard (runtime interception)
+# test_iam_policy_readonly (policy validation)
 ```
 
 See: [`docs/safety.md`](safety.md) for full details
@@ -1343,9 +1343,9 @@ cleancloud scan --provider aws --region us-east-1
 
 # Verify only read operations in CloudTrail
 aws cloudtrail lookup-events \
-  --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudScanner \
-  --start-time $(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%S) \
-  | jq '.Events[].EventName' | sort | uniq
+ --lookup-attributes AttributeKey=Username,AttributeValue=CleanCloudScanner \
+ --start-time $(date -u -d '5 minutes ago' +%Y-%m-%dT%H:%M:%S) \
+ | jq '.Events[].EventName' | sort | uniq
 ```
 
 **Expected output (read-only events only):**
@@ -1365,26 +1365,26 @@ aws cloudtrail lookup-events \
 | Threat | Likelihood | Impact | Mitigation |
 |--------|-----------|--------|-----------|
 | **Accidental Resource Deletion** | Extremely Low | Critical | CleanCloud has zero delete permissions; automated tests prevent mutation APIs |
-| **Credential Compromise** | ⚠️ Low-Medium | Medium-High | Use OIDC (short-lived); scope to read-only; monitor CloudTrail |
+| **Credential Compromise** | Low-Medium | Medium-High | Use OIDC (short-lived); scope to read-only; monitor CloudTrail |
 | **Data Exfiltration** | Extremely Low | Medium | No telemetry; all processing local; outputs user-controlled |
-| **Supply Chain Attack** | ⚠️ Low | Medium | Open-source (auditable); minimal dependencies; PyPI checksums |
-| **Denial of Service (API Throttling)** | ⚠️ Low | Low | CleanCloud respects rate limits; parallel scanning configurable |
-| **False Positive (Incorrect Findings)** | ⚠️ Medium | Low | Conservative detection logic; confidence levels; review-only (no auto-action) |
+| **Supply Chain Attack** | Low | Medium | Open-source (auditable); minimal dependencies; PyPI checksums |
+| **Denial of Service (API Throttling)** | Low | Low | CleanCloud respects rate limits; parallel scanning configurable |
+| **False Positive (Incorrect Findings)** | Medium | Low | Conservative detection logic; confidence levels; review-only (no auto-action) |
 
 ### Risk Acceptance Criteria
 
 CleanCloud is appropriate for organizations that accept:
 
-✅ **Read-only tool execution** in production accounts
-✅ **Local processing** of cloud metadata (no external transmission)
-✅ **Open-source software** with community contributions
-✅ **CLI-based tools** without web interfaces or dashboards
+ **Read-only tool execution** in production accounts
+ **Local processing** of cloud metadata (no external transmission)
+ **Open-source software** with community contributions
+ **CLI-based tools** without web interfaces or dashboards
 
 CleanCloud may NOT be appropriate if you require:
 
-❌ **Fully managed SaaS** with 24/7 vendor support
-❌ **Zero internet connectivity** (CleanCloud needs AWS/Azure API access)
-❌ **Automated remediation** (CleanCloud is review-only)
+ **Fully managed SaaS** with 24/7 vendor support
+ **Zero internet connectivity** (CleanCloud needs AWS/Azure API access)
+ **Automated remediation** (CleanCloud is review-only)
 
 ---
 
@@ -1505,24 +1505,24 @@ InfoSec teams can perform penetration testing on CleanCloud:
 **Suggested Test Scenarios:**
 
 1. **Attempt Resource Mutation**
-   - Grant CleanCloud only read permissions
-   - Attempt to modify code to call `delete_volume()`
-   - Expected: AWS/Azure API returns `AccessDenied`
+ - Grant CleanCloud only read permissions
+ - Attempt to modify code to call `delete_volume()`
+ - Expected: AWS/Azure API returns `AccessDenied`
 
 2. **Credential Escalation**
-   - Start with read-only credentials
-   - Attempt to escalate privileges via CleanCloud
-   - Expected: No escalation path (tool has no write permissions)
+ - Start with read-only credentials
+ - Attempt to escalate privileges via CleanCloud
+ - Expected: No escalation path (tool has no write permissions)
 
 3. **Data Exfiltration**
-   - Run CleanCloud with network monitoring (Wireshark/tcpdump)
-   - Verify no data sent to non-AWS/Azure endpoints
-   - Expected: Only API calls to `*.amazonaws.com` or `management.azure.com`
+ - Run CleanCloud with network monitoring (Wireshark/tcpdump)
+ - Verify no data sent to non-AWS/Azure endpoints
+ - Expected: Only API calls to `*.amazonaws.com` or `management.azure.com`
 
 4. **Dependency Vulnerability Scanning**
-   - Run `pip install safety` and `safety check`
-   - Run `pip install pip-audit` and `pip-audit`
-   - Expected: No known vulnerabilities in dependencies
+ - Run `pip install safety` and `safety check`
+ - Run `pip install pip-audit` and `pip-audit`
+ - Expected: No known vulnerabilities in dependencies
 
 **Responsible Disclosure:**
 
@@ -1541,19 +1541,19 @@ We aim to acknowledge reports within 48 hours and provide a resolution timeline 
 CleanCloud has **minimal dependencies**:
 
 ```
-boto3 >= 1.26.0        # AWS SDK (maintained by AWS)
-azure-identity >= 1.12.0  # Azure Auth (maintained by Microsoft)
-azure-mgmt-compute >= 30.0.0  # Azure Compute SDK
-azure-mgmt-storage >= 21.0.0  # Azure Storage SDK
-click >= 8.0.0         # CLI framework
-pyyaml >= 6.0          # Config parsing
+boto3 >= 1.26.0 # AWS SDK (maintained by AWS)
+azure-identity >= 1.12.0 # Azure Auth (maintained by Microsoft)
+azure-mgmt-compute >= 30.0.0 # Azure Compute SDK
+azure-mgmt-storage >= 21.0.0 # Azure Storage SDK
+click >= 8.0.0 # CLI framework
+pyyaml >= 6.0 # Config parsing
 ```
 
 **Dependency Security:**
-- ✅ All dependencies are from well-known, actively maintained projects
-- ✅ Minimum version pinning (allows security updates)
-- ✅ No transitive dependencies from untrusted sources
-- ✅ Dependencies scanned with `pip-audit` in CI
+- All dependencies are from well-known, actively maintained projects
+- Minimum version pinning (allows security updates)
+- No transitive dependencies from untrusted sources
+- Dependencies scanned with `pip-audit` in CI
 
 ### Distribution & Integrity
 

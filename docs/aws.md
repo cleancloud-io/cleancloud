@@ -90,7 +90,7 @@ export AWS_DEFAULT_REGION=us-east-1
 cleancloud scan --provider aws --region us-east-1
 ```
 
-⚠️ **Not recommended for CI/CD** - Use OIDC instead
+**Not recommended for CI/CD** - Use OIDC instead
 
 ---
 
@@ -149,10 +149,10 @@ Attach this policy to your IAM role or user:
 ```
 
 **Key characteristics:**
-- ✅ Read-only operations only
-- ✅ No `Delete*`, `Create*`, or `Tag*` permissions
-- ✅ Safe for production accounts
-- ✅ Compatible with security-reviewed pipelines
+- Read-only operations only
+- No `Delete*`, `Create*`, or `Tag*` permissions
+- Safe for production accounts
+- Compatible with security-reviewed pipelines
 
 ---
 
@@ -178,7 +178,7 @@ CleanCloud validates region names immediately. If you specify an invalid region,
 
 ```bash
 cleancloud scan --provider aws --region invalid-xyz
-# ❌ Error: 'invalid-xyz' is not a valid AWS region
+# Error: 'invalid-xyz' is not a valid AWS region
 #
 # Common AWS regions:
 #   us-east-1, us-east-2, us-west-1, us-west-2
@@ -224,36 +224,36 @@ cleancloud doctor --provider aws --region us-east-1
 ```
 
 **What it checks:**
-- ✅ AWS credentials are valid
-- ✅ Authentication method (OIDC, profiles, keys)
-- ✅ Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
-- ✅ Required permissions are present
-- ✅ Account ID and ARN
+- AWS credentials are valid
+- Authentication method (OIDC, profiles, keys)
+- Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
+- Required permissions are present
+- Account ID and ARN
 
 **Example output:**
 ```
-🔐 AWS Credential Resolution
-✅ AWS session created successfully
+Step 1: AWS Credential Resolution
+[OK] AWS session created successfully
 
-🔍 Authentication Method Detection
+Step 2: Authentication Method Detection
 Authentication Method: OIDC (AssumeRoleWithWebIdentity)
-✅ Security Grade: EXCELLENT ✅
-✅ CI/CD Ready: YES ✅
+[OK] Security Grade: EXCELLENT
+[OK] CI/CD Ready: YES
 
-👤 Identity Verification
-✅ Account ID: 123456789012
-✅ ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudScanner/GitHubActions
+Step 3: Identity Verification
+[OK] Account ID: 123456789012
+[OK] ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudScanner/GitHubActions
 
-🔒 Read-Only Permission Validation
-✅ ✓ ec2:DescribeVolumes
-✅ ✓ ec2:DescribeSnapshots
-✅ ✓ ec2:DescribeRegions
-✅ ✓ ec2:DescribeAddresses
-✅ ✓ ec2:DescribeNetworkInterfaces
-✅ ✓ logs:DescribeLogGroups
-✅ ✓ s3:ListAllMyBuckets
+Step 4: Read-Only Permission Validation
+[OK] ec2:DescribeVolumes
+[OK] ec2:DescribeSnapshots
+[OK] ec2:DescribeRegions
+[OK] ec2:DescribeAddresses
+[OK] ec2:DescribeNetworkInterfaces
+[OK] logs:DescribeLogGroups
+[OK] s3:ListAllMyBuckets
 
-✅ 🎉 AWS ENVIRONMENT READY FOR CLEANCLOUD
+[OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ```
 
 ---
@@ -297,7 +297,7 @@ cleancloud doctor --provider aws
 
 ## Security Best Practices
 
-### ✅ DO
+### DO
 
 - Use OIDC for CI/CD (no long-lived credentials)
 - Use least-privilege IAM policy
@@ -305,7 +305,7 @@ cleancloud doctor --provider aws
 - Restrict OIDC trust to specific repos and branches
 - Rotate access keys regularly (if using keys)
 
-### ❌ DON'T
+### DON'T
 
 - Use long-lived access keys in CI/CD
 - Use overly broad policies (e.g., `ReadOnlyAccess`)
@@ -319,9 +319,9 @@ cleancloud doctor --provider aws
 All AWS commercial regions are supported.
 
 CleanCloud auto-detects opt-in status:
-- ✅ Default regions (us-east-1, us-west-2, etc.)
-- ✅ Opt-in regions you've enabled (ap-east-1, me-south-1, etc.)
-- ❌ Disabled regions (skipped automatically)
+- Default regions (us-east-1, us-west-2, etc.)
+- Opt-in regions you've enabled (ap-east-1, me-south-1, etc.)
+- Disabled regions (skipped automatically)
 
 **Not tested:** AWS GovCloud, AWS China regions
 

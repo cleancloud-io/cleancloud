@@ -36,7 +36,7 @@ def scan_azure_with_region_selection(
     # Validate region parameter
     validate_region_params(region)
 
-    click.echo("🔍 Authenticating to Azure")
+    click.echo("Authenticating to Azure")
     click.echo()
 
     session = create_azure_session()
@@ -54,9 +54,9 @@ def scan_azure_with_region_selection(
         # Validate that requested subscriptions are accessible
         inaccessible = set(subscription_ids) - set(all_accessible_subscriptions)
         if inaccessible:
-            click.echo(f"⚠️  Warning: {len(inaccessible)} subscription(s) not accessible:")
+            click.echo(f"Warning: {len(inaccessible)} subscription(s) not accessible:")
             for sub_id in sorted(inaccessible)[:5]:
-                click.echo(f"   • {sub_id}")
+                click.echo(f"   - {sub_id}")
             if len(inaccessible) > 5:
                 click.echo(f"   ... and {len(inaccessible) - 5} more")
             click.echo()
@@ -67,12 +67,12 @@ def scan_azure_with_region_selection(
             if not subscription_ids:
                 raise PermissionError("None of the specified subscriptions are accessible")
 
-        click.echo(f"✓ Scanning {len(subscription_ids)} specified subscription(s)")
+        click.echo(f"Scanning {len(subscription_ids)} specified subscription(s)")
     else:
         # Default: scan all accessible subscriptions
         subscription_ids = all_accessible_subscriptions
         subscription_selection_mode = "all"
-        click.echo(f"✓ Found {len(subscription_ids)} accessible subscription(s)")
+        click.echo(f"Found {len(subscription_ids)} accessible subscription(s)")
 
     click.echo()
 
@@ -131,12 +131,12 @@ def scan_azure_subscriptions(
                 except RuntimeError as e:
                     # RuntimeError indicates a complete subscription failure (all rules failed)
                     # This is fatal for explicitly requested subscriptions
-                    click.echo(f"❌ Subscription {sub_id} failed: {e}")
+                    click.echo(f"Subscription {sub_id} failed: {e}")
                     advance(bar)
                     raise  # Re-raise to fail the entire scan
                 except Exception as e:
                     # Other exceptions might be transient - log and continue
-                    click.echo(f"⚠️ Subscription {sub_id} failed: {e}")
+                    click.echo(f"Subscription {sub_id} failed: {e}")
                     advance(bar)
 
     return all_findings
@@ -179,21 +179,21 @@ def _scan_azure_subscription(
                     # Resource not found - likely invalid subscription ID
                     rules_failed += 1
                     resource_not_found_errors += 1
-                    click.echo(f"⚠️ Azure rule failed in subscription {subscription_id}: {e}")
+                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
                 except HttpResponseError as e:
                     # HTTP error - could be permissions (403), not found (404), etc.
                     rules_failed += 1
                     if e.status_code == 403:
                         permission_errors += 1
-                    click.echo(f"⚠️ Azure rule failed in subscription {subscription_id}: {e}")
+                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
                 except AzureError as e:
                     # Other Azure SDK errors
                     rules_failed += 1
-                    click.echo(f"⚠️ Azure rule failed in subscription {subscription_id}: {e}")
+                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
                 except Exception as e:
                     # Unexpected errors
                     rules_failed += 1
-                    click.echo(f"⚠️ Azure rule failed in subscription {subscription_id}: {e}")
+                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
                 finally:
                     advance(bar)
 

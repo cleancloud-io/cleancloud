@@ -9,15 +9,15 @@ Thank you for your interest in CleanCloud! We welcome contributions from the com
 CleanCloud is a **trust-first cloud hygiene engine** designed for production and enterprise environments. It provides read-only, confidence-scored hygiene signals for AWS and Azure that are safe to run in production and CI/CD pipelines.
 
 **Key Focus Areas:**
-- ✅ **Read-only by design** - No mutations, deletions, or modifications
-- ✅ **Enterprise-ready** - OIDC authentication, policy enforcement, audit-friendly
-- ✅ **Conservative signals** - Explicit confidence levels (LOW/MEDIUM/HIGH)
-- ✅ **Production-safe** - Multi-layer safety regression tests
+- **Read-only by design** - No mutations, deletions, or modifications
+- **Enterprise-ready** - OIDC authentication, policy enforcement, audit-friendly
+- **Conservative signals** - Explicit confidence levels (LOW/MEDIUM/HIGH)
+- **Production-safe** - Multi-layer safety regression tests
 
 **If you use CleanCloud:**
-- ⭐ Star the project to help signal adoption and guide investment
-- 💬 Share feedback in [GitHub Discussions](https://github.com/cleancloud-io/cleancloud/discussions)
-- 📧 For business inquiries (partnerships, licensing, integrations): suresh@getcleancloud.com
+- Star the project to help signal adoption and guide investment
+- Share feedback in [GitHub Discussions](https://github.com/cleancloud-io/cleancloud/discussions)
+- For business inquiries (partnerships, licensing, integrations): suresh@getcleancloud.com
 
 ---
 
@@ -176,10 +176,10 @@ CleanCloud has strict criteria for new hygiene rules to maintain trust and quali
 
 ### Before Submitting
 
-- ✅ All tests pass locally
-- ✅ Code follows style guidelines
-- ✅ Documentation updated
-- ✅ Commit messages are clear and descriptive
+- All tests pass locally
+- Code follows style guidelines
+- Documentation updated
+- Commit messages are clear and descriptive
 
 ### PR Guidelines
 
@@ -324,11 +324,11 @@ All contributions must be your original work or properly attributed.
 ## Recognition
 
 Contributors will be:
-- ✨ Mentioned in release notes for their contributions
-- 📝 Credited in documentation for significant features
-- 🏆 Listed in CONTRIBUTORS.md (for substantial contributions)
-- 💼 Referenced for enterprise features on our website (with permission)
+- Mentioned in release notes for their contributions
+- Credited in documentation for significant features
+- Listed in CONTRIBUTORS.md (for substantial contributions)
+- Referenced for enterprise features on our website (with permission)
 
 **We value all contributions** - whether it's fixing a typo, improving documentation, or adding a major feature. Every contribution helps make CleanCloud better for enterprise teams worldwide.
 
-Thank you for helping make CleanCloud better! 🎉
+Thank you for helping make CleanCloud better!

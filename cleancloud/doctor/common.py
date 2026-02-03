@@ -7,13 +7,13 @@ def info(msg: str) -> None:
 
 
 def success(msg: str) -> None:
-    print(f"✔ {msg}")
+    print(f"[OK] {msg}")
 
 
 def warn(msg: str) -> None:
-    print(f"⚠ {msg}")
+    print(f"[!] {msg}")
 
 
 def fail(msg: str) -> None:
-    print(f"❌ {msg}")
+    print(f"[FAIL] {msg}")
     raise DoctorError(msg)

@@ -10,9 +10,9 @@
 
 CleanCloud helps teams **reduce cloud costs** by safely identifying orphaned, untagged, and inactive resources for review. Built as a **read-only, trust-first hygiene evaluation engine** for AWS and Azure — safe to run in production and CI/CD pipelines. Designed for SRE and platform teams who need cost optimization without mutations, deletions, or automated cleanup.
 
-* ⚠️ **Read-only by design** - No deletions, no tag modifications, no resource changes
-* ⚠️ **Policy-safe** - Conservative signals with explicit confidence levels
-* ⚠️ **Privacy-first** - Zero telemetry, no phone-home, no data collection
+- **Read-only by design** - No deletions, no tag modifications, no resource changes
+- **Policy-safe** - Conservative signals with explicit confidence levels
+- **Privacy-first** - Zero telemetry, no phone-home, no data collection
 ---
 
 ## Table of Contents
@@ -37,10 +37,10 @@ CleanCloud is designed for enterprise environments where security review and app
 ### Why InfoSec Teams Trust CleanCloud
 
 **Verifiable Read-Only Design:**
-- 🔒 **IAM Proof Pack**: Audit a 30-line JSON policy, not our code
-- 🎫 **OIDC-First**: Temporary credentials, no secrets stored
-- ✅ **Cloud-Enforced**: AWS/Azure guarantees read-only, not us
-- 🛡️ **Conservative Detection**: MEDIUM confidence by default, age thresholds, explicit evidence
+- **IAM Proof Pack**: Audit a 30-line JSON policy, not our code
+- **OIDC-First**: Temporary credentials, no secrets stored
+- **Cloud-Enforced**: AWS/Azure guarantees read-only, not us
+- **Conservative Detection**: MEDIUM confidence by default, age thresholds, explicit evidence
 
 **How It Works:**
 1. You create a read-only IAM role (we provide the JSON policy)
@@ -54,43 +54,43 @@ CleanCloud is designed for enterprise environments where security review and app
 ### Read-Only by Design
 
 **No destructive permissions required:**
-- ✅ Only `List*`, `Describe*`, `Get*` operations
-- ❌ No `Delete*`, `Modify*`, or `Tag*` permissions
-- ❌ No resource mutations or state changes
-- ✅ Safe for production accounts and regulated environments
+- Only `List*`, `Describe*`, `Get*` operations
+- No `Delete*`, `Modify*`, or `Tag*` permissions
+- No resource mutations or state changes
+- Safe for production accounts and regulated environments
 
 **IAM Proof Pack:** [Ready-to-use policies and verification scripts](security/) with automated safety tests
 
 ### OIDC-First Authentication
 
 **No long-lived credentials:**
-- ✅ AWS IAM Roles with GitHub Actions OIDC (recommended)
-- ✅ Azure Workload Identity Federation (recommended)
-- ✅ Short-lived tokens only
-- ❌ No stored credentials in CI/CD
+- AWS IAM Roles with GitHub Actions OIDC (recommended)
+- Azure Workload Identity Federation (recommended)
+- Short-lived tokens only
+- No stored credentials in CI/CD
 
 ### Privacy Guarantees
 
 **Zero telemetry, zero outbound calls:**
-- ❌ No analytics or usage tracking
-- ❌ No phone-home or update checks
-- ❌ No data collection of any kind
-- ✅ Only AWS/Azure API calls (read-only)
+- No analytics or usage tracking
+- No phone-home or update checks
+- No data collection of any kind
+- Only AWS/Azure API calls (read-only)
 
 ### Safety Regression Tests
 
 **Multi-layer verification:**
-- 🧪 Static AST analysis blocks forbidden SDK calls
-- 🧪 Runtime SDK guards prevent mutations in tests
-- 🧪 IAM policy validation ensures read-only access
-- ✅ Runs automatically in CI for all PRs
+- Static AST analysis blocks forbidden SDK calls
+- Runtime SDK guards prevent mutations in tests
+- IAM policy validation ensures read-only access
+- Runs automatically in CI for all PRs
 
 **For InfoSec Teams:**
-- 🔒 [Security Policy & Threat Model](SECURITY.md) - **Enterprise security documentation**
-- 📋 [Information Security Readiness Guide](docs/infosec-readiness.md)
-- 🔐 [IAM Proof Pack Documentation](docs/infosec-readiness.md#iam-proof-pack)
-- 🛡️ [Threat Model & Mitigations](docs/infosec-readiness.md#threat-model)
-- ✅ [Safety Test Documentation](docs/safety.md)
+- [Security Policy & Threat Model](SECURITY.md) - **Enterprise security documentation**
+- [Information Security Readiness Guide](docs/infosec-readiness.md)
+- [IAM Proof Pack Documentation](docs/infosec-readiness.md#iam-proof-pack)
+- [Threat Model & Mitigations](docs/infosec-readiness.md#threat-model)
+- [Safety Test Documentation](docs/safety.md)
 
 ---
 
@@ -104,10 +104,10 @@ CleanCloud is designed for enterprise environments where security review and app
 - Organizations using IaC and ephemeral resources
 
 **CleanCloud is NOT:**
-- ❌ An automated cleanup or deletion service (one-click account nuking)
-- ❌ A replacement for Trusted Advisor or Config
-- ❌ A cost dashboard with rightsizing recommendations
-- ❌ A tool that modifies, tags, or deletes resources
+- An automated cleanup or deletion service (one-click account nuking)
+- A replacement for Trusted Advisor or Config
+- A cost dashboard with rightsizing recommendations
+- A tool that modifies, tags, or deletes resources
 
 CleanCloud exists to answer one question safely:
 
@@ -119,17 +119,17 @@ CleanCloud exists to answer one question safely:
 CleanCloud is designed to be approved by security teams, not bypassed.
 
 ### Enterprise Features
-- ✅ **Read-only by design** - No Delete*, Modify*, or Tag* permissions required
-- ✅ **OIDC-first authentication** - AWS IAM Roles & Azure Workload Identity
-- ✅ **Parallel, multi-region scanning** - Fast execution across all regions
-- ✅ **CI/CD native** - Stable exit codes, JSON/CSV output, policy enforcement
-- ✅ **Audit-friendly** - Deterministic output, no side effects, versioned schemas
+- **Read-only by design** - No Delete*, Modify*, or Tag* permissions required
+- **OIDC-first authentication** - AWS IAM Roles & Azure Workload Identity
+- **Parallel, multi-region scanning** - Fast execution across all regions
+- **CI/CD native** - Stable exit codes, JSON/CSV output, policy enforcement
+- **Audit-friendly** - Deterministic output, no side effects, versioned schemas
 
 ### Stability Guarantees
-- 🔒 **CLI backward compatibility** within major versions
-- 🔒 **Exit codes are stable and intentional** - Never fails builds by accident
-- 🔒 **JSON schemas are versioned** - Safe to parse programmatically
-- 🔒 **Read-only always** - Safety regression tests in CI
+- **CLI backward compatibility** within major versions
+- **Exit codes are stable and intentional** - Never fails builds by accident
+- **JSON schemas are versioned** - Safe to parse programmatically
+- **Read-only always** - Safety regression tests in CI
 
 ### Exit Codes
 
@@ -478,7 +478,7 @@ CleanCloud supports tag-based filtering to reduce noise by ignoring findings for
 
 This is useful when certain environments, teams, or services should be out of scope for hygiene review (for example: production or shared platform resources).
 
-> ⚠️ Tag filtering is **ignore-only**
+> **Note:** Tag filtering is **ignore-only**
 >
 > It does **not** disable rules, modify resources, or protect them from deletion.  
 > CleanCloud remains **read-only and review-only**.
@@ -537,11 +537,9 @@ cleancloud scan \
 
 Ignored findings are:
 
-❌ Not included in scan results
-
-✅ Counted and reported in the summary
-
-✅ Preserved internally for auditability
+- Not included in scan results
+- Counted and reported in the summary
+- Preserved internally for auditability
 
 Example summary output:
 ```
@@ -570,12 +568,12 @@ It is **not intended** for per-resource exceptions or lifecycle management.
 
 | Need | Cost Dashboards | CleanCloud |
 |------|-----------------|------------|
-| **Spending trends & analysis** | ✅ Excellent | ➖ Not a goal |
-| **Orphaned resource detection** | ❌ Limited or noisy | ✅ Conservative, high-signal |
-| **Safe for production** | ⚠️ Varies | ✅ Read-only always |
-| **CI/CD cost enforcement** | ❌ Not designed for it | ✅ Purpose-built |
-| **Confidence scoring** | ❌ Binary yes/no | ✅ LOW/MEDIUM/HIGH |
-| **No mutations required** | ⚠️ Often needs write access | ✅ Read-only by design |
+| **Spending trends & analysis** | Excellent | Not a goal |
+| **Orphaned resource detection** | Limited or noisy | Conservative, high-signal |
+| **Safe for production** | Varies | Read-only always |
+| **CI/CD cost enforcement** | Not designed for it | Purpose-built |
+| **Confidence scoring** | Binary yes/no | LOW/MEDIUM/HIGH |
+| **No mutations required** | Often needs write access | Read-only by design |
 
 ### CleanCloud Complements Your Cost Tools
 
@@ -637,14 +635,14 @@ CleanCloud will remain focused on **safe cost optimization through hygiene detec
 
 ---
 
-## 💬 Questions or Feedback?
+## Questions or Feedback?
 
 We'd love to hear from you:
 
-- 🐛 **Found a bug?** [Open an issue](https://github.com/cleancloud-io/cleancloud/issues)
-- 💡 **Have a feature request?** [Start a discussion](https://github.com/cleancloud-io/cleancloud/discussions)
-- 📧 **Want to chat?** Email us at suresh@getcleancloud.com
-- 🌟 **Like CleanCloud?** [Star us on GitHub](https://github.com/cleancloud-io/cleancloud)
+- **Found a bug?** [Open an issue](https://github.com/cleancloud-io/cleancloud/issues)
+- **Have a feature request?** [Start a discussion](https://github.com/cleancloud-io/cleancloud/discussions)
+- **Want to chat?** Email us at suresh@getcleancloud.com
+- **Like CleanCloud?** [Star us on GitHub](https://github.com/cleancloud-io/cleancloud)
 
 **Using CleanCloud in production?** We'd love to feature your story!
 

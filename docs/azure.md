@@ -82,7 +82,7 @@ jobs:
 - `AZURE_TENANT_ID` - Azure tenant ID
 - `AZURE_SUBSCRIPTION_ID` - Subscription to scan
 
-**No secret needed:** `AZURE_CLIENT_SECRET` ✅
+**No secret needed:** `AZURE_CLIENT_SECRET`
 
 ---
 
@@ -116,7 +116,7 @@ export AZURE_SUBSCRIPTION_ID="<SUBSCRIPTION_ID>"
 cleancloud scan --provider azure
 ```
 
-⚠️ **Not recommended for CI/CD** - Use OIDC (Method 1) instead to avoid storing secrets.
+**Not recommended for CI/CD** - Use OIDC (Method 1) instead to avoid storing secrets.
 
 ---
 
@@ -158,18 +158,18 @@ az role assignment create \
 ```
 
 **What Reader allows:**
-- ✅ `Microsoft.Compute/disks/read`
-- ✅ `Microsoft.Compute/snapshots/read`
-- ✅ `Microsoft.Network/publicIPAddresses/read`
-- ✅ `Microsoft.Web/serverfarms/read`
-- ✅ `Microsoft.Network/loadBalancers/read`
-- ✅ `Microsoft.Resources/subscriptions/read`
+- `Microsoft.Compute/disks/read`
+- `Microsoft.Compute/snapshots/read`
+- `Microsoft.Network/publicIPAddresses/read`
+- `Microsoft.Web/serverfarms/read`
+- `Microsoft.Network/loadBalancers/read`
+- `Microsoft.Resources/subscriptions/read`
 
 **What Reader does NOT allow:**
-- ❌ Delete operations (`*/delete`)
-- ❌ Modification operations (`*/write`)
-- ❌ Tagging operations (`Microsoft.Resources/tags/*`)
-- ❌ Billing data access (`Microsoft.CostManagement/*`)
+- Delete operations (`*/delete`)
+- Modification operations (`*/write`)
+- Tagging operations (`Microsoft.Resources/tags/*`)
+- Billing data access (`Microsoft.CostManagement/*`)
 
 ### Custom Role (Optional Least-Privilege)
 
@@ -252,10 +252,10 @@ cleancloud scan --provider azure \
 CleanCloud validates that specified subscriptions are accessible:
 ```bash
 cleancloud scan --provider azure --subscription invalid-sub-id
-# ⚠️ Warning: 1 subscription(s) not accessible:
-#   • invalid-sub-id
+# Warning: 1 subscription(s) not accessible:
+#   - invalid-sub-id
 #
-# ❌ Error: None of the specified subscriptions are accessible
+# Error: None of the specified subscriptions are accessible
 ```
 
 ### Region Filtering
@@ -281,11 +281,11 @@ cleancloud doctor --provider azure
 ```
 
 **What it checks:**
-- ✅ Azure credentials are valid
-- ✅ Authentication method (OIDC, service principal, Azure CLI)
-- ✅ Security grade (EXCELLENT/GOOD/ACCEPTABLE)
-- ✅ Required permissions are present
-- ✅ Accessible subscriptions
+- Azure credentials are valid
+- Authentication method (OIDC, service principal, Azure CLI)
+- Security grade (EXCELLENT/GOOD/ACCEPTABLE)
+- Required permissions are present
+- Accessible subscriptions
 
 ---
 
@@ -408,7 +408,7 @@ az role assignment list \
 
 ## Security Best Practices
 
-### ✅ DO
+### DO
 
 - Use OIDC for CI/CD (no stored secrets)
 - Use Reader role (least privilege)
@@ -416,7 +416,7 @@ az role assignment list \
 - Monitor Azure Activity Log for CleanCloud actions
 - Use separate service principals per environment
 
-### ❌ DON'T
+### DON'T
 
 - Use client secrets in CI/CD
 - Grant Contributor role
@@ -427,9 +427,9 @@ az role assignment list \
 
 ## Supported Azure Clouds
 
-- ✅ Azure Commercial
-- ⚠️ Azure Government (not tested)
-- ⚠️ Azure China (not tested)
+- Azure Commercial
+- Azure Government (not tested)
+- Azure China (not tested)
 
 ---
 
