@@ -89,14 +89,14 @@ def validate_subscription_params(
 
     # Both flags specified - this is redundant but acceptable
     if subscriptions and all_subscriptions:
-        click.echo("⚠️  Warning: --all-subscriptions flag is redundant with --subscription")
+        click.echo("Warning: --all-subscriptions flag is redundant with --subscription")
         click.echo("   Will scan the specified subscriptions only")
         click.echo()
 
 
 def validate_region_params(region: Optional[str]) -> None:
     if region and region not in KNOWN_AZURE_LOCATIONS:
-        click.echo(f"❌ Error: '{region}' is not a valid Azure location")
+        click.echo(f"Error: '{region}' is not a valid Azure location")
         click.echo()
         click.echo("Common Azure locations:")
         click.echo("  eastus, eastus2, westus, westus2, centralus")
@@ -108,6 +108,6 @@ def validate_region_params(region: Optional[str]) -> None:
         for i in range(0, len(locations_list), 4):
             click.echo("  " + ", ".join(locations_list[i : i + 4]))
         click.echo()
-        click.echo("💡 Tip: Azure uses location names like 'eastus', not 'us-east-1'")
+        click.echo("Tip: Azure uses location names like 'eastus', not 'us-east-1'")
         click.echo("   Leave out --region to scan all locations")
         sys.exit(EXIT_ERROR)

@@ -219,15 +219,15 @@ if eni['Status'] == 'available':  # Currently detached
 ```
 
 **What gets flagged:**
-- ✅ User-created ENIs (InterfaceType='interface')
-- ✅ **Lambda/ECS/RDS ENIs** (RequesterManaged=true but YOUR resources!) — explicitly annotated in evidence and details
-- ✅ Detached ENIs from deleted services
+- User-created ENIs (InterfaceType='interface')
+- **Lambda/ECS/RDS ENIs** (RequesterManaged=true but YOUR resources!) - explicitly annotated in evidence and details
+- Detached ENIs from deleted services
 
 **AWS infrastructure ENIs (excluded):**
-- ❌ NAT Gateways (InterfaceType='nat_gateway')
-- ❌ Load Balancers (InterfaceType='load_balancer')
-- ❌ VPC Endpoints (InterfaceType='vpc_endpoint')
-- ❌ Gateway Load Balancers
+- NAT Gateways (InterfaceType='nat_gateway')
+- Load Balancers (InterfaceType='load_balancer')
+- VPC Endpoints (InterfaceType='vpc_endpoint')
+- Gateway Load Balancers
 
 **Key insight:** `RequesterManaged=true` means "AWS created this in YOUR VPC for YOUR resource" — these ARE your responsibility and often waste. RequesterManaged ENIs are included in findings with an explicit evidence signal and `requester_managed: true` in details for downstream filtering.
 
@@ -447,10 +447,10 @@ if lb.sku.name == "Standard":
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
-- ✅ Rule ID remains stable
-- ✅ Confidence semantics unchanged
-- ✅ Backwards compatibility preserved
-- ✅ Schema additions only (no breaking changes)
+- Rule ID remains stable
+- Confidence semantics unchanged
+- Backwards compatibility preserved
+- Schema additions only (no breaking changes)
 
 This guarantees trust for long-running CI/CD integrations.
 

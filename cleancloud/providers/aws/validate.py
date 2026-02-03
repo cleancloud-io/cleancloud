@@ -53,7 +53,7 @@ KNOWN_AWS_REGIONS = {
 def validate_region_params(region: Optional[str], all_regions: bool):
     # Validate region name if provided
     if region and region not in KNOWN_AWS_REGIONS:
-        click.echo(f"❌ Error: '{region}' is not a valid AWS region")
+        click.echo(f"Error: '{region}' is not a valid AWS region")
         click.echo()
         click.echo("Common AWS regions:")
         click.echo("  us-east-1, us-east-2, us-west-1, us-west-2")
@@ -67,18 +67,18 @@ def validate_region_params(region: Optional[str], all_regions: bool):
         sys.exit(EXIT_ERROR)
 
     if not region and not all_regions:
-        click.echo("❌ Error: Must specify either --region or --all-regions for AWS")
+        click.echo("Error: Must specify either --region or --all-regions for AWS")
         click.echo()
         click.echo("Examples:")
         click.echo("  cleancloud scan --provider aws --region us-east-1")
         click.echo("  cleancloud scan --provider aws --all-regions")
         click.echo()
-        click.echo("💡 Tip: Use --all-regions to automatically detect and scan")
+        click.echo("Tip: Use --all-regions to automatically detect and scan")
         click.echo("   regions with resources (volumes, snapshots, logs)")
         sys.exit(EXIT_ERROR)
 
     if region and all_regions:
-        click.echo("❌ Error: Cannot specify both --region and --all-regions")
+        click.echo("Error: Cannot specify both --region and --all-regions")
         click.echo()
         click.echo("Choose one:")
         click.echo("  --region us-east-1        # Scan specific region")

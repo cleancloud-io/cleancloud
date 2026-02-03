@@ -33,9 +33,9 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 
 **Expected output:**
 ```
-🔍 Verifying AWS IAM Policy: aws-readonly-policy.json
+Verifying AWS IAM Policy: aws-readonly-policy.json
 
-✅ PASS: No write/delete/tag permissions found
+PASS: No write/delete/tag permissions found
 
 Allowed actions:
 ec2:DescribeInstances
@@ -81,10 +81,10 @@ az login
 
 **Expected output:**
 ```
-🔍 Verifying Azure Role: Reader
+Verifying Azure Role: Reader
 
 Fetching role definition...
-✅ PASS: Role is read-only
+PASS: Role is read-only
 
 Allowed actions:
 */read
@@ -108,15 +108,15 @@ az role assignment create \
 This IAM Proof Pack accelerates security approval by providing:
 
 **For InfoSec Teams:**
-- ✅ **Policy review** - Programmatic verification of read-only permissions
-- ✅ **Compliance audits** - Evidence of least privilege principle
-- ✅ **Penetration testing** - Proof that CleanCloud cannot mutate resources
-- ✅ **Risk assessment** - Demonstrate limited blast radius
+- **Policy review** - Programmatic verification of read-only permissions
+- **Compliance audits** - Evidence of least privilege principle
+- **Penetration testing** - Proof that CleanCloud cannot mutate resources
+- **Risk assessment** - Demonstrate limited blast radius
 
 **For Compliance Teams:**
-- 📋 Pre-verified policies ready for SOC2/ISO 27001 reviews
-- 📋 Automated verification scripts (auditable, repeatable)
-- 📋 Links to comprehensive threat model and security documentation
+- Pre-verified policies ready for SOC2/ISO 27001 reviews
+- Automated verification scripts (auditable, repeatable)
+- Links to comprehensive threat model and security documentation
 
 **Time to approval:** Many enterprises approve CleanCloud in 1-2 weeks using this proof pack.
 
@@ -156,25 +156,25 @@ See [`docs/safety.md`](../docs/safety.md) for details on automated safety testin
 ## Additional Resources
 
 **For InfoSec Teams:**
-- 🔐 [Information Security Readiness Guide](../docs/infosec-readiness.md) - Comprehensive security assessment
-- 🛡️ [Threat Model & Mitigations](../docs/infosec-readiness.md#threat-model) - Detailed threat analysis
-- 🧪 [Safety Testing Documentation](../docs/safety.md) - Multi-layer safety regression tests
+- [Information Security Readiness Guide](../docs/infosec-readiness.md) - Comprehensive security assessment
+- [Threat Model & Mitigations](../docs/infosec-readiness.md#threat-model) - Detailed threat analysis
+- [Safety Testing Documentation](../docs/safety.md) - Multi-layer safety regression tests
 
 **For Implementation:**
-- ⚙️ [AWS Setup Guide](../docs/aws.md) - Authentication methods and IAM policies
-- ⚙️ [Azure Setup Guide](../docs/azure.md) - Authentication methods and RBAC roles
-- 🚀 [CI/CD Integration Guide](../docs/ci.md) - GitHub Actions and Azure DevOps examples
+- [AWS Setup Guide](../docs/aws.md) - Authentication methods and IAM policies
+- [Azure Setup Guide](../docs/azure.md) - Authentication methods and RBAC roles
+- [CI/CD Integration Guide](../docs/ci.md) - GitHub Actions and Azure DevOps examples
 
 **Main Documentation:**
-- 📖 [README](../README.md) - Quick start and overview
+- [README](../README.md) - Quick start and overview
 
 ---
 
 ## Support
 
 **For security-related questions:**
-- 📧 Email: suresh@getcleancloud.com
-- 🐛 GitHub Issues: https://github.com/cleancloud-io/cleancloud/issues
-- 💬 Discussions: https://github.com/cleancloud-io/cleancloud/discussions
+- Email: suresh@getcleancloud.com
+- GitHub Issues: https://github.com/cleancloud-io/cleancloud/issues
+- Discussions: https://github.com/cleancloud-io/cleancloud/discussions
 
 **Enterprise customers:** We're happy to join security review calls or provide additional documentation.

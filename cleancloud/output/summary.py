@@ -88,5 +88,5 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
     # Success message
     if summary["total_findings"] == 0:
         click.echo()
-        click.echo("🎉 No hygiene issues detected")
+        click.echo("No hygiene issues detected")
         click.echo()

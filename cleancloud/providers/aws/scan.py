@@ -45,15 +45,15 @@ def scan_aws_with_region_selection(
         region_selection_mode = "explicit"
 
     else:
-        click.echo("🔍 Auto-detecting regions with resources...")
+        click.echo("Auto-detecting regions with resources...")
         regions_to_scan = _get_active_aws_regions(base_session)
 
         if regions_to_scan:
-            click.echo(f"✓ Found {len(regions_to_scan)} active regions:")
+            click.echo(f"Found {len(regions_to_scan)} active regions:")
             click.echo(f"   {', '.join(regions_to_scan)}")
             click.echo("   (Regions with EBS volumes, snapshots, logs, Elastic IPs, or ENIs)")
         else:
-            click.echo("⚠️  No active regions detected")
+            click.echo("No active regions detected")
             click.echo("   Falling back to us-east-1")
             regions_to_scan = ["us-east-1"]
 
@@ -75,7 +75,7 @@ def _get_active_aws_regions(session) -> List[str]:
             Filters=[{"Name": "opt-in-status", "Values": ["opt-in-not-required", "opted-in"]}],
         )
     except Exception as e:
-        click.echo(f"⚠️  Failed to list AWS regions: {e}")
+        click.echo(f"Failed to list AWS regions: {e}")
         return []
 
     enabled_regions = [r["RegionName"] for r in response["Regions"]]
@@ -104,9 +104,9 @@ def _get_active_aws_regions(session) -> List[str]:
 
     if errors:
         click.echo()
-        click.echo(f"⚠️  Could not check {len(errors)} region(s):")
+        click.echo(f"Could not check {len(errors)} region(s):")
         for region, error in errors[:5]:
-            click.echo(f"   • {region}: {error[:80]}")
+            click.echo(f"   - {region}: {error[:80]}")
         if len(errors) > 5:
             click.echo(f"   ... and {len(errors) - 5} more")
         click.echo()
@@ -203,12 +203,12 @@ def scan_aws_regions(
                 except RuntimeError as e:
                     # RuntimeError indicates a complete region failure (all rules failed)
                     # This is fatal for explicitly requested regions
-                    click.echo(f"❌ Region {region} failed: {e}")
+                    click.echo(f"Region {region} failed: {e}")
                     advance(bar)
                     raise  # Re-raise to fail the entire scan
                 except Exception as e:
                     # Other exceptions might be transient - log and continue
-                    click.echo(f"⚠️  Region {region} failed: {e}")
+                    click.echo(f"Region {region} failed: {e}")
                     advance(bar)
 
     return findings
@@ -239,11 +239,11 @@ def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
                     # Endpoint connection error - likely invalid region
                     rules_failed += 1
                     endpoint_errors += 1
-                    click.echo(f"⚠️ Rule failed in {region}: {e}")
+                    click.echo(f"Rule failed in {region}: {e}")
                 except Exception as e:
                     # Other errors (permissions, throttling, etc.)
                     rules_failed += 1
-                    click.echo(f"⚠️ Rule failed in {region}: {e}")
+                    click.echo(f"Rule failed in {region}: {e}")
                 finally:
                     advance(bar)
 

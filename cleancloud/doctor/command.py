@@ -22,7 +22,7 @@ from cleancloud.doctor.runner import run_doctor
     help="Path to cleancloud.yaml",
 )
 def doctor(provider: Optional[str], region: str, profile: Optional[str], config: Optional[str]):
-    click.echo("🩺 Running CleanCloud doctor")
+    click.echo("Running CleanCloud doctor")
     click.echo()
 
     run_doctor(provider=provider, profile=profile, region=region)
@@ -36,10 +36,12 @@ def doctor(provider: Optional[str], region: str, profile: Optional[str], config:
 
         if cfg.tag_filtering and cfg.tag_filtering.enabled:
             click.echo()
-            click.echo("ℹ️  Tag filtering is enabled — some findings may be intentionally ignored")
+            click.echo(
+                "Note: Tag filtering is enabled - some findings may be intentionally ignored"
+            )
             click.echo()
 
     except Exception as e:
         # Config validation failure is not fatal for doctor command
-        click.echo(f"⚠️  Config validation warning: {e}")
+        click.echo(f"Warning: Config validation warning: {e}")
         click.echo()

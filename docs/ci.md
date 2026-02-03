@@ -598,14 +598,14 @@ jobs:
 
 ### Best Practices
 
-**✅ DO:**
+**DO:**
 - Use OIDC for CI/CD (no long-lived credentials)
 - Use environment-specific secrets (dev, staging, prod)
 - Store secrets in platform secret managers (GitHub Secrets, Azure Key Vault)
 - Rotate credentials regularly
 - Use least-privilege roles
 
-**❌ DON'T:**
+**DON'T:**
 - Use repository-level secrets for production
 - Hard-code credentials in workflows
 - Share credentials across environments
@@ -642,10 +642,10 @@ cleancloud scan --provider azure
 ### Multi-Region AWS Scans
 
 ```bash
-# ❌ INCORRECT - comma-separated regions not supported
+# INCORRECT - comma-separated regions not supported
 cleancloud scan --provider aws --region us-east-1,us-west-2
 
-# ✅ CORRECT - use --all-regions for multiple regions
+# CORRECT - use --all-regions for multiple regions
 cleancloud scan --provider aws --all-regions
 ```
 
@@ -673,8 +673,8 @@ cleancloud scan --provider azure --all-subscriptions
 
 **Error examples:**
 ```
-❌ Error: 'us-east-1' is not a valid Azure location
-❌ Error: 'eastus' is not a valid AWS region
+Error: 'us-east-1' is not a valid Azure location
+Error: 'eastus' is not a valid AWS region
 ```
 
 **Fix:**

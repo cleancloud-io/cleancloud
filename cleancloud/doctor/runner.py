@@ -13,7 +13,7 @@ def run_doctor(
     valid_providers = ["aws", "azure"]
     if provider is not None and provider not in valid_providers:
         info("")
-        print(f"❌ Invalid provider: {provider}")
+        print(f"Invalid provider: {provider}")
         info("")
         info(f"Valid providers: {', '.join(valid_providers)}")
         info("Or omit --provider to check both")
@@ -50,7 +50,7 @@ def run_doctor(
                 # Warn if region is specified for Azure (it's ignored)
                 if region:
                     info("")
-                    info("⚠️  Warning: --region parameter is not applicable for Azure")
+                    info("Warning: --region parameter is not applicable for Azure")
                     info("   Azure authentication and validation is not region-specific")
                     info("   The --region parameter is only used for AWS provider")
                     info("")
@@ -68,14 +68,14 @@ def run_doctor(
 
             # Otherwise, continue to next provider
             info("")
-            info(f"⚠️  {p.upper()} validation failed, continuing to next provider...")
+            info(f"{p.upper()} validation failed, continuing to next provider...")
             info("")
 
         except Exception as e:
             # Unexpected error
             results[p] = {"status": "error", "error": str(e)}
             info("")
-            print(f"❌ Unexpected error validating {p.upper()}: {e}")
+            print(f"Unexpected error validating {p.upper()}: {e}")
             info("")
 
             # If only checking one provider, exit immediately
@@ -97,16 +97,16 @@ def run_doctor(
             status = result["status"]
 
             if status == "passed":
-                success(f"{p.upper()}: ✅ PASSED")
+                success(f"{p.upper()}: PASSED")
             elif status == "failed":
                 # Don't use fail() here - it raises an exception!
                 # Just print the status
-                print(f"❌ {p.upper()}: ❌ FAILED")
+                print(f"{p.upper()}: FAILED")
                 all_passed = False
                 if result["error"]:
                     info(f"  Error: {result['error']}")
             else:
-                print(f"❌ {p.upper()}: ⚠️  ERROR")
+                print(f"{p.upper()}: ERROR")
                 all_passed = False
                 if result["error"]:
                     info(f"  Error: {result['error']}")
@@ -116,12 +116,12 @@ def run_doctor(
 
         if all_passed:
             info("")
-            success("✅ ALL PROVIDERS VALIDATED SUCCESSFULLY")
+            success("ALL PROVIDERS VALIDATED SUCCESSFULLY")
             info("")
             sys.exit(0)
         else:
             info("")
-            print("❌ SOME PROVIDERS FAILED VALIDATION")
+            print("SOME PROVIDERS FAILED VALIDATION")
             info("")
             info("Fix the errors above and re-run `cleancloud doctor`")
             info("")

@@ -166,7 +166,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
 
     # Validate region before proceeding
     if region not in KNOWN_AWS_REGIONS:
-        click.echo(f"❌ Error: '{region}' is not a valid AWS region")
+        click.echo(f"Error: '{region}' is not a valid AWS region")
         click.echo()
         click.echo("Common AWS regions:")
         click.echo("  us-east-1, us-east-2, us-west-1, us-west-2")
@@ -177,7 +177,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         for i in range(0, len(regions_list), 4):
             click.echo("  " + ", ".join(regions_list[i : i + 4]))
         click.echo()
-        click.echo("💡 Tip: Doctor validates credentials using a single region")
+        click.echo("Tip: Doctor validates credentials using a single region")
         click.echo("   Default region is us-east-1 if not specified")
         sys.exit(EXIT_ERROR)
 
@@ -188,7 +188,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
     info("")
 
     # Step 1: Create session
-    info("🔐 Step 1: AWS Credential Resolution")
+    info("Step 1: AWS Credential Resolution")
     info("-" * 70)
 
     try:
@@ -199,7 +199,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
 
     # Step 2: Detect authentication method
     info("")
-    info("🔍 Step 2: Authentication Method Detection")
+    info("Step 2: Authentication Method Detection")
     info("-" * 70)
 
     method_id, description, metadata = detect_aws_auth_method(session)
@@ -227,30 +227,30 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
     security_grade = metadata.get("security_grade", "unknown")
 
     if security_grade == "excellent":
-        success("Security Grade: EXCELLENT ✅")
-        success("  ✓ Temporary credentials")
-        success("  ✓ Auto-rotated")
-        success("  ✓ No secret storage required")
+        success("Security Grade: EXCELLENT")
+        success("  - Temporary credentials")
+        success("  - Auto-rotated")
+        success("  - No secret storage required")
 
     elif security_grade == "good":
-        success("Security Grade: GOOD ✅")
-        info("  ✓ Temporary credentials")
+        success("Security Grade: GOOD")
+        info("  - Temporary credentials")
         if not metadata.get("rotation_required"):
-            info("  ✓ Auto-rotated")
+            info("  - Auto-rotated")
 
     elif security_grade == "acceptable":
-        warn("Security Grade: ACCEPTABLE ⚠️")
-        warn("  ⚠ Long-lived credentials")
-        warn("  ⚠ Manual rotation required")
+        warn("Security Grade: ACCEPTABLE")
+        warn("  - Long-lived credentials")
+        warn("  - Manual rotation required")
         info("")
         info("  Recommendation for local development:")
         info("    Current setup is acceptable")
 
     elif security_grade == "poor":
-        warn("Security Grade: POOR ⚠️")
-        warn("  ⚠ Long-lived access keys")
-        warn("  ⚠ Requires 90-day rotation")
-        warn("  ⚠ High blast radius if compromised")
+        warn("Security Grade: POOR")
+        warn("  - Long-lived access keys")
+        warn("  - Requires 90-day rotation")
+        warn("  - High blast radius if compromised")
         info("")
         info("  Recommendation for CI/CD:")
         info("    Switch to OIDC (OpenID Connect)")
@@ -262,15 +262,15 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
     # CI/CD readiness
     info("")
     if metadata.get("ci_cd_ready"):
-        success("CI/CD Ready: YES ✅")
+        success("CI/CD Ready: YES")
         # Safety guarantees (informational only)
         info("")
-        info("🛡️ CleanCloud Safety Guarantees")
+        info("CleanCloud Safety Guarantees")
         info("-" * 70)
-        success("✔ Read-only operations only")
-        success("✔ No resource creation, modification, or deletion")
-        success("✔ Only Describe / List / Get APIs invoked")
-        success("✔ Enforced by CI safety regression tests")
+        success("- Read-only operations only")
+        success("- No resource creation, modification, or deletion")
+        success("- Only Describe / List / Get APIs invoked")
+        success("- Enforced by CI safety regression tests")
 
         success("  Suitable for production CI/CD pipelines")
     else:
@@ -278,21 +278,21 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             info("CI/CD Ready: NO (Local development only)")
             info("AWS CLI profiles are not available in CI/CD")
         else:
-            warn("CI/CD Ready: NO ⚠️")
+            warn("CI/CD Ready: NO")
             warn("Not recommended for automated pipelines")
 
     # Compliance notes
     info("")
     if metadata.get("security_grade") in ("excellent", "good"):
-        success("Compliance: SOC2/ISO27001 Compatible ✅")
+        success("Compliance: SOC2/ISO27001 Compatible")
     elif metadata.get("security_grade") == "acceptable":
         info("Compliance: Acceptable for development environments")
     else:
-        warn("Compliance: May not meet enterprise security requirements ⚠️")
+        warn("Compliance: May not meet enterprise security requirements")
 
     # Step 3: Identity verification
     info("")
-    info("👤 Step 3: Identity Verification")
+    info("Step 3: Identity Verification")
     info("-" * 70)
 
     try:
@@ -318,18 +318,18 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
 
         # Check if it's OIDC-based role
         if method_id == "oidc":
-            success("  ✓ OIDC-based assumed role (recommended)")
+            success("  - OIDC-based assumed role (recommended)")
 
     elif ":user/" in arn:
         user_name = arn.split("/")[-1]
         info(f"  IAM User: {user_name}")
 
         if method_id == "static_keys":
-            warn("  ⚠ Using IAM user credentials (not recommended for CI/CD)")
+            warn("  - Using IAM user credentials (not recommended for CI/CD)")
 
     # Region scope clarification
     info("")
-    info("🌍 Region Scope")
+    info("Region Scope")
     info("-" * 70)
     info(f"Active Region: {region}")
     info("Doctor validates permissions for the active region only")
@@ -337,7 +337,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
 
     # Step 4: Permission validation
     info("")
-    info("🔒 Step 4: Read-Only Permission Validation")
+    info("Step 4: Read-Only Permission Validation")
     info("-" * 70)
 
     permissions_tested = []
@@ -350,62 +350,62 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         try:
             ec2.describe_volumes(MaxResults=6)
             permissions_tested.append("ec2:DescribeVolumes")
-            success("✓ ec2:DescribeVolumes")
+            success("ec2:DescribeVolumes")
         except Exception as e:
             permissions_failed.append(("ec2:DescribeVolumes", str(e)))
-            warn(f"✗ ec2:DescribeVolumes - {e}")
+            warn(f"ec2:DescribeVolumes - {e}")
 
         try:
             ec2.describe_snapshots(OwnerIds=["self"], MaxResults=5)
             permissions_tested.append("ec2:DescribeSnapshots")
-            success("✓ ec2:DescribeSnapshots")
+            success("ec2:DescribeSnapshots")
         except Exception as e:
             permissions_failed.append(("ec2:DescribeSnapshots", str(e)))
-            warn(f"✗ ec2:DescribeSnapshots - {e}")
+            warn(f"ec2:DescribeSnapshots - {e}")
 
         try:
             ec2.describe_regions()
             permissions_tested.append("ec2:DescribeRegions")
-            success("✓ ec2:DescribeRegions")
+            success("ec2:DescribeRegions")
         except Exception as e:
             permissions_failed.append(("ec2:DescribeRegions", str(e)))
-            warn(f"✗ ec2:DescribeRegions - {e}")
+            warn(f"ec2:DescribeRegions - {e}")
 
         try:
             ec2.describe_addresses()
             permissions_tested.append("ec2:DescribeAddresses")
-            success("✓ ec2:DescribeAddresses")
+            success("ec2:DescribeAddresses")
         except Exception as e:
             permissions_failed.append(("ec2:DescribeAddresses", str(e)))
-            warn(f"✗ ec2:DescribeAddresses - {e}")
+            warn(f"ec2:DescribeAddresses - {e}")
 
         try:
             ec2.describe_network_interfaces(MaxResults=5)
             permissions_tested.append("ec2:DescribeNetworkInterfaces")
-            success("✓ ec2:DescribeNetworkInterfaces")
+            success("ec2:DescribeNetworkInterfaces")
         except Exception as e:
             permissions_failed.append(("ec2:DescribeNetworkInterfaces", str(e)))
-            warn(f"✗ ec2:DescribeNetworkInterfaces - {e}")
+            warn(f"ec2:DescribeNetworkInterfaces - {e}")
 
         # Test CloudWatch Logs permissions
         try:
             logs = session.client("logs", region_name=region)
             logs.describe_log_groups(limit=1)
             permissions_tested.append("logs:DescribeLogGroups")
-            success("✓ logs:DescribeLogGroups")
+            success("logs:DescribeLogGroups")
         except Exception as e:
             permissions_failed.append(("logs:DescribeLogGroups", str(e)))
-            warn(f"✗ logs:DescribeLogGroups - {e}")
+            warn(f"logs:DescribeLogGroups - {e}")
 
         # Test S3 permissions
         try:
             s3 = session.client("s3")
             s3.list_buckets()
             permissions_tested.append("s3:ListAllMyBuckets")
-            success("✓ s3:ListAllMyBuckets")
+            success("s3:ListAllMyBuckets")
         except Exception as e:
             permissions_failed.append(("s3:ListAllMyBuckets", str(e)))
-            warn(f"✗ s3:ListAllMyBuckets - {e}")
+            warn(f"s3:ListAllMyBuckets - {e}")
 
     except Exception:
         fail("CleanCloud cannot run safely with missing read-only permissions")
@@ -434,6 +434,6 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         fail("AWS permission validation failed")
 
     info("")
-    success("🎉 AWS ENVIRONMENT READY FOR CLEANCLOUD")
+    success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
     info("=" * 70)
     info("")
