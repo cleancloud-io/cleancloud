@@ -1,7 +1,7 @@
 import os
 
 from azure.identity import DefaultAzureCredential
-from azure.mgmt.resource import SubscriptionClient
+from azure.mgmt.subscription import SubscriptionClient
 
 from cleancloud.doctor.common import fail, info, success, warn
 
@@ -252,6 +252,7 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Network/publicIPAddresses/read")
     info("    - Microsoft.Web/serverfarms/read")
     info("    - Microsoft.Network/loadBalancers/read")
+    info("    - Microsoft.Network/applicationGateways/read")
 
     # Summary
     info("")

@@ -2,7 +2,7 @@ import os
 from typing import List, Optional
 
 from azure.identity import DefaultAzureCredential
-from azure.mgmt.resource import SubscriptionClient
+from azure.mgmt.subscription import SubscriptionClient
 
 
 class AzureSession:

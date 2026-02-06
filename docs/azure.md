@@ -163,6 +163,7 @@ az role assignment create \
 - `Microsoft.Network/publicIPAddresses/read`
 - `Microsoft.Web/serverfarms/read`
 - `Microsoft.Network/loadBalancers/read`
+- `Microsoft.Network/applicationGateways/read`
 - `Microsoft.Resources/subscriptions/read`
 
 **What Reader does NOT allow:**
@@ -183,6 +184,7 @@ az role assignment create \
     "Microsoft.Network/publicIPAddresses/read",
     "Microsoft.Web/serverfarms/read",
     "Microsoft.Network/loadBalancers/read",
+    "Microsoft.Network/applicationGateways/read",
     "Microsoft.Resources/subscriptions/read"
   ],
   "NotActions": [],

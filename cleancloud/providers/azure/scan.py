@@ -6,6 +6,9 @@ from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoun
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.azure.rules.app_gateway_no_backends import (
+    find_app_gateway_no_backends,
+)
 from cleancloud.providers.azure.rules.app_service_plan_empty import (
     find_empty_app_service_plans,
 )
@@ -97,6 +100,7 @@ AZURE_RULES: List[Callable] = [
     find_unused_public_ips,
     find_empty_app_service_plans,
     find_lb_no_backends,
+    find_app_gateway_no_backends,
 ]
 
 
