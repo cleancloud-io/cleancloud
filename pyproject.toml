@@ -49,6 +49,7 @@ aws = [
 azure = [
     "azure-identity>=1.15.0",
     "azure-mgmt-resource>=23.0.0",
+    "azure-mgmt-subscription>=3.0.0",
     "azure-mgmt-compute>=30.0.0",
     "azure-mgmt-network>=25.0.0",
     "azure-mgmt-web>=8.0.0",

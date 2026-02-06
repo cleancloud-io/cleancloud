@@ -187,7 +187,9 @@ def test_find_app_gateway_no_backends_cost_estimate(mocker):
 
 def test_find_app_gateway_no_backends_nic_based_backends(mocker):
     """Gateway with NIC-based backend_ip_configurations should NOT be flagged."""
-    nic_ref = SimpleNamespace(id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ipconfig1")
+    nic_ref = SimpleNamespace(
+        id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ipconfig1"
+    )
     gateways = [
         # Has NIC-based backends via backend_ip_configurations - should NOT be flagged
         _make_app_gateway(

@@ -1,7 +1,7 @@
 import os
 
 from azure.identity import DefaultAzureCredential
-from azure.mgmt.resource import SubscriptionClient
+from azure.mgmt.subscription import SubscriptionClient
 
 from cleancloud.doctor.common import fail, info, success, warn
 
