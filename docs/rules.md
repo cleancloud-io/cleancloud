@@ -254,7 +254,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 ---
 
-## Azure Rules (6 Total)
+## Azure Rules (7 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -441,6 +441,55 @@ if lb.sku.name == "Standard":
 - Hub-spoke architecture cleanup gaps
 
 **Required permission:** `Microsoft.Network/loadBalancers/read`
+
+---
+
+### 7. Application Gateway with No Backend Targets
+
+**Rule ID:** `azure.application_gateway.no_backends`
+
+**What it detects:** Application Gateways where all backend pools have zero targets (no IP addresses or FQDNs)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** All backend pools have zero targets (deterministic state)
+
+**Excluded:**
+- Gateways with `provisioning_state != "Succeeded"` are skipped (in-progress)
+
+**Why this matters:**
+- Application Gateways incur significant charges regardless of backends
+- Standard_v2 and WAF_v2 SKUs cost $150-300+/month
+- Empty gateways are a clear cost optimization signal
+
+**Detection logic:**
+```python
+for gw in application_gateways:
+    pools = gw.backend_address_pools or []
+    has_any_targets = any(
+        pool.backend_addresses and len(pool.backend_addresses) > 0
+        for pool in pools
+    )
+    if not has_any_targets:
+        confidence = "HIGH"  # Deterministic: zero targets across all pools
+```
+
+**Backend targets checked:**
+- `backend_addresses` array in each pool (contains IP addresses or FQDNs)
+
+**Common causes:**
+- Backend VMs or services deleted but gateway retained
+- Migration or transition leaving empty gateways
+- Failed deployments or incomplete teardowns
+- WAF-only setup without actual backends (rare)
+
+**Cost estimates by SKU:**
+- Standard_v2, WAF_v2: $150-300+/month
+- Standard, WAF (v1): $20-50/month
+
+**Required permission:** `Microsoft.Network/applicationGateways/read`
 
 ---
 

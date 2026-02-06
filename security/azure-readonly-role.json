@@ -14,7 +14,8 @@
         "Microsoft.Resources/tags/read",
         "Microsoft.Authorization/roleAssignments/read",
         "Microsoft.Web/serverfarms/read",
-        "Microsoft.Network/loadBalancers/read"
+        "Microsoft.Network/loadBalancers/read",
+        "Microsoft.Network/applicationGateways/read"
       ],
       "NotActions": [],
       "DataActions": [],
