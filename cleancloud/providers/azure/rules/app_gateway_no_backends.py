@@ -10,10 +10,17 @@ from cleancloud.core.risk import RiskLevel
 
 
 def _pool_has_targets(pool) -> bool:
-    """Check if a backend pool has any targets (IP addresses or FQDNs)."""
+    """Check if a backend pool has any targets (IP addresses, FQDNs, or NIC refs)."""
+    # Check direct backend addresses (IP or FQDN)
     addresses = getattr(pool, "backend_addresses", None)
     if addresses and len(addresses) > 0:
         return True
+
+    # Check NIC-based backend IP configurations
+    ip_configs = getattr(pool, "backend_ip_configurations", None)
+    if ip_configs and len(ip_configs) > 0:
+        return True
+
     return False
 
 
@@ -29,7 +36,7 @@ def find_app_gateway_no_backends(
 
     Conservative rule (review-only):
     - Flags only if ALL backend pools have zero targets
-    - Checks backend_addresses array in each pool
+    - Checks backend_addresses and backend_ip_configurations in each pool
     - Skips non-Succeeded provisioning state
     - Includes SKU info (Standard_v2, WAF_v2 cost $150-300+/month)
 
@@ -69,7 +76,7 @@ def find_app_gateway_no_backends(
         else:
             signals.append(
                 f"All {pool_count} backend pool(s) have zero targets "
-                f"(checked backend_addresses array)"
+                f"(checked backend_addresses and backend_ip_configurations)"
             )
         signals.append(f"SKU is {sku_tier} (incurs significant charges regardless of backends)")
 
@@ -101,15 +108,15 @@ def find_app_gateway_no_backends(
                 region=gw.location,
                 title="Application Gateway Has No Backend Targets",
                 summary=(
-                    f"Application Gateway '{gw.name}' has no backend pool targets configured. "
-                    f"This gateway is incurring charges without routing traffic to any backends."
+                    f"Application Gateway '{gw.name}' appears to have no backend targets configured "
+                    f"and may be incurring charges without serving application traffic."
                 ),
                 reason=(
                     "All backend pools empty on Application Gateway"
                     if pool_count > 0
                     else "No backend pools configured on Application Gateway"
                 ),
-                risk=RiskLevel.LOW,
+                risk=RiskLevel.MEDIUM,
                 confidence=ConfidenceLevel.HIGH,
                 detected_at=datetime.now(timezone.utc),
                 evidence=evidence,

@@ -7,9 +7,10 @@ from cleancloud.providers.azure.rules.app_gateway_no_backends import (
 )
 
 
-def _make_pool(addresses=None):
+def _make_pool(addresses=None, ip_configurations=None):
     return SimpleNamespace(
         backend_addresses=addresses,
+        backend_ip_configurations=ip_configurations,
     )
 
 
@@ -92,7 +93,7 @@ def test_find_app_gateway_no_backends(mock_network_client):
         assert f.provider == "azure"
         assert f.rule_id == "azure.application_gateway.no_backends"
         assert f.confidence.value == "high"
-        assert f.risk.value == "low"
+        assert f.risk.value == "medium"
         assert f.title == "Application Gateway Has No Backend Targets"
 
 
@@ -182,3 +183,33 @@ def test_find_app_gateway_no_backends_cost_estimate(mocker):
     assert "v2 SKU" in by_name["gw-v2"].details["cost_estimate"]
     assert "v2 SKU" in by_name["gw-waf-v2"].details["cost_estimate"]
     assert "v1 SKU" in by_name["gw-v1"].details["cost_estimate"]
+
+
+def test_find_app_gateway_no_backends_nic_based_backends(mocker):
+    """Gateway with NIC-based backend_ip_configurations should NOT be flagged."""
+    nic_ref = SimpleNamespace(id="/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ipconfig1")
+    gateways = [
+        # Has NIC-based backends via backend_ip_configurations - should NOT be flagged
+        _make_app_gateway(
+            "gw-with-nic-backends",
+            pools=[_make_pool(ip_configurations=[nic_ref])],
+        ),
+        # Empty pool (no addresses, no ip_configurations) - should be flagged
+        _make_app_gateway(
+            "gw-empty-pool",
+            pools=[_make_pool()],
+        ),
+    ]
+    client = mocker.MagicMock()
+    client.application_gateways.list_all.return_value = gateways
+
+    findings = find_app_gateway_no_backends(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+
+    names = [f.details["resource_name"] for f in findings]
+    assert len(findings) == 1
+    assert "gw-empty-pool" in names
+    assert "gw-with-nic-backends" not in names

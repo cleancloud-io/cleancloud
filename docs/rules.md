@@ -469,15 +469,18 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 for gw in application_gateways:
     pools = gw.backend_address_pools or []
     has_any_targets = any(
-        pool.backend_addresses and len(pool.backend_addresses) > 0
+        (pool.backend_addresses and len(pool.backend_addresses) > 0) or
+        (pool.backend_ip_configurations and len(pool.backend_ip_configurations) > 0)
         for pool in pools
     )
     if not has_any_targets:
         confidence = "HIGH"  # Deterministic: zero targets across all pools
+        risk = "MEDIUM"  # Significant cost impact ($150-300+/month)
 ```
 
 **Backend targets checked:**
-- `backend_addresses` array in each pool (contains IP addresses or FQDNs)
+- `backend_addresses` array (IP addresses or FQDNs)
+- `backend_ip_configurations` array (NIC-based backend references)
 
 **Common causes:**
 - Backend VMs or services deleted but gateway retained
