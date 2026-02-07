@@ -395,6 +395,14 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             permissions_failed.append(("ec2:DescribeImages", str(e)))
             warn(f"ec2:DescribeImages - {e}")
 
+        try:
+            ec2.describe_nat_gateways(MaxResults=5)
+            permissions_tested.append("ec2:DescribeNatGateways")
+            success("ec2:DescribeNatGateways")
+        except Exception as e:
+            permissions_failed.append(("ec2:DescribeNatGateways", str(e)))
+            warn(f"ec2:DescribeNatGateways - {e}")
+
         # Test CloudWatch Logs permissions
         try:
             logs = session.client("logs", region_name=region)
@@ -404,6 +412,27 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         except Exception as e:
             permissions_failed.append(("logs:DescribeLogGroups", str(e)))
             warn(f"logs:DescribeLogGroups - {e}")
+
+        # Test CloudWatch Metrics permissions (for NAT Gateway idle detection)
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            cloudwatch = session.client("cloudwatch", region_name=region)
+            now = datetime.now(timezone.utc)
+            cloudwatch.get_metric_statistics(
+                Namespace="AWS/EC2",
+                MetricName="CPUUtilization",
+                Dimensions=[],
+                StartTime=now - timedelta(hours=1),
+                EndTime=now,
+                Period=3600,
+                Statistics=["Average"],
+            )
+            permissions_tested.append("cloudwatch:GetMetricStatistics")
+            success("cloudwatch:GetMetricStatistics")
+        except Exception as e:
+            permissions_failed.append(("cloudwatch:GetMetricStatistics", str(e)))
+            warn(f"cloudwatch:GetMetricStatistics - {e}")
 
         # Test S3 permissions
         try:

@@ -31,7 +31,7 @@ Every finding includes a confidence level:
 
 ---
 
-## AWS Rules (7 Total)
+## AWS Rules (8 Total)
 
 ### 1. Unattached EBS Volumes
 
@@ -630,8 +630,8 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Idle NAT Gateways
 - Unused EBS encryption keys
+- Idle RDS instances
 
 **Azure:**
 - Orphaned storage accounts

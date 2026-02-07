@@ -10,6 +10,7 @@ from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapsho
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
 from cleancloud.providers.aws.rules.elastic_ip_unattached import find_unattached_elastic_ips
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
+from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.untagged_resources import find_untagged_resources
 
 
@@ -27,6 +28,7 @@ def test_aws_rules_run_without_error():
         find_detached_enis(session, region),
         find_untagged_resources(session, region),
         find_old_amis(session, region),
+        find_idle_nat_gateways(session, region),
     ]
 
     for rule_results in all_rules:
