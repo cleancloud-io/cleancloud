@@ -16,6 +16,7 @@ from cleancloud.providers.aws.rules.elastic_ip_unattached import (
     find_unattached_elastic_ips,
 )
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
+from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -30,6 +31,7 @@ AWS_RULES: List[Callable] = [
     find_detached_enis,
     find_aws_untagged_resources,
     find_old_amis,
+    find_idle_nat_gateways,
 ]
 
 

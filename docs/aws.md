@@ -112,6 +112,7 @@ Attach this policy to your IAM role or user:
         "ec2:DescribeInstances",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeNatGateways",
         "ec2:DescribeRegions",
         "ec2:DescribeAvailabilityZones",
         "ec2:DescribeTags"
@@ -124,7 +125,8 @@ Attach this policy to your IAM role or user:
       "Action": [
         "logs:DescribeLogGroups",
         "logs:DescribeLogStreams",
-        "logs:GetLogEvents"
+        "logs:GetLogEvents",
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
     },
