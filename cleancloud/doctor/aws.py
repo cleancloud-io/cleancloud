@@ -387,6 +387,14 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             permissions_failed.append(("ec2:DescribeNetworkInterfaces", str(e)))
             warn(f"ec2:DescribeNetworkInterfaces - {e}")
 
+        try:
+            ec2.describe_images(Owners=["self"], MaxResults=5)
+            permissions_tested.append("ec2:DescribeImages")
+            success("ec2:DescribeImages")
+        except Exception as e:
+            permissions_failed.append(("ec2:DescribeImages", str(e)))
+            warn(f"ec2:DescribeImages - {e}")
+
         # Test CloudWatch Logs permissions
         try:
             logs = session.client("logs", region_name=region)

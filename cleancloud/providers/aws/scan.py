@@ -6,6 +6,7 @@ import click
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.aws.rules.ami_old import find_old_amis
 from cleancloud.providers.aws.rules.cloudwatch_inactive import (
     find_inactive_cloudwatch_logs,
 )
@@ -28,6 +29,7 @@ AWS_RULES: List[Callable] = [
     find_unattached_elastic_ips,
     find_detached_enis,
     find_aws_untagged_resources,
+    find_old_amis,
 ]
 
 

@@ -108,6 +108,7 @@ Attach this policy to your IAM role or user:
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
+        "ec2:DescribeImages",
         "ec2:DescribeInstances",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
