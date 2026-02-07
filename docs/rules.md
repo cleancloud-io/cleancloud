@@ -258,7 +258,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 **Rule ID:** `aws.ec2.ami.old`
 
-**What it detects:** AMIs (Amazon Machine Images) older than 180 days
+**What it detects:** AMIs (Amazon Machine Images) older than 180 days (default threshold)
 
 **Confidence:**
 
@@ -280,7 +280,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 ```python
 for ami in describe_images(Owners=["self"]):
     age_days = (now - ami.creation_date).days
-    if age_days >= 180 and ami.state == "available":
+    if age_days >= 180 (default) and ami.state == "available":
         # Flag as old AMI
 ```
 
@@ -301,66 +301,6 @@ for ami in describe_images(Owners=["self"]):
 - Example: 100 GB AMI = ~$5/month
 
 **Required permission:** `ec2:DescribeImages`
-
----
-
-### 8. Idle NAT Gateways
-
-**Rule ID:** `aws.ec2.nat_gateway.idle`
-
-**What it detects:** NAT Gateways with no traffic for 14+ days
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **MEDIUM:** No traffic for 14+ days (CloudWatch metrics checked)
-
-**Why MEDIUM confidence:**
-- CloudWatch metrics could miss edge cases
-- Seasonal traffic patterns possible
-- Development/staging environments may have irregular usage
-
-**Risk:** MEDIUM
-
-**Why MEDIUM risk:**
-- NAT Gateways cost ~$32/month base (region dependent)
-- Additional data processing fees (~$0.045/GB)
-- Idle gateways are a clear cost optimization signal
-
-**Why this matters:**
-- NAT Gateways incur hourly charges regardless of traffic
-- Forgotten gateways accumulate costs over time
-- Common after infrastructure changes or migrations
-
-**Detection logic:**
-```python
-for nat_gw in describe_nat_gateways():
-    if nat_gw.state == "available":
-        bytes_out = get_metric_sum("BytesOutToDestination", days=14)
-        bytes_in = get_metric_sum("BytesInFromSource", days=14)
-        if bytes_out == 0 and bytes_in == 0:
-            if nat_gw.age_days >= 14:
-                # Flag as idle
-```
-
-**CloudWatch metrics checked:**
-- `BytesOutToDestination` — outbound traffic from private subnets
-- `BytesInFromSource` — inbound traffic to private subnets
-
-**Common causes:**
-- VPCs no longer in use but not fully torn down
-- Test/dev environments left running
-- Migration or transition leaving orphaned gateways
-- Blue/green deployments with unused standby
-
-**Cost estimates:**
-- Base hourly charge: ~$32/month (region dependent)
-- Data processing: ~$0.045/GB (not charged if no traffic)
-
-**Required permissions:**
-- `ec2:DescribeNatGateways`
-- `cloudwatch:GetMetricStatistics`
 
 ---
 
@@ -690,7 +630,7 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Unused EBS encryption keys
+- Idle NAT Gateways- Unused EBS encryption keys
 - Idle RDS instances
 
 **Azure:**
