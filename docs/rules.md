@@ -258,7 +258,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 **Rule ID:** `aws.ec2.ami.old`
 
-**What it detects:** AMIs (Amazon Machine Images) older than 180 days
+**What it detects:** AMIs (Amazon Machine Images) older than 180 days (default threshold)
 
 **Confidence:**
 
@@ -280,7 +280,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 ```python
 for ami in describe_images(Owners=["self"]):
     age_days = (now - ami.creation_date).days
-    if age_days >= 180 and ami.state == "available":
+    if age_days >= 180 (default) and ami.state == "available":
         # Flag as old AMI
 ```
 
