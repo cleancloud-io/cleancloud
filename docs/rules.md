@@ -630,7 +630,7 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Idle NAT Gateways- Unused EBS encryption keys
+- Unused EBS encryption keys
 - Idle RDS instances
 
 **Azure:**
