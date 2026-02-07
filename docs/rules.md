@@ -31,7 +31,7 @@ Every finding includes a confidence level:
 
 ---
 
-## AWS Rules (6 Total)
+## AWS Rules (7 Total)
 
 ### 1. Unattached EBS Volumes
 
@@ -251,6 +251,56 @@ if eni['Status'] == 'available':  # Currently detached
 - If an ENI is 60+ days old and currently detached, it's worth reviewing
 
 **Required permission:** `ec2:DescribeNetworkInterfaces`
+
+---
+
+### 7. Old AMIs
+
+**Rule ID:** `aws.ec2.ami.old`
+
+**What it detects:** AMIs (Amazon Machine Images) older than 180 days
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** Age ≥ 180 days (AMI may still be actively used as template)
+
+**Why MEDIUM confidence:**
+- Age alone is a moderate signal
+- AMI may be a golden image still used for launches
+- Cannot check if AMI is referenced by launch templates or Auto Scaling groups
+
+**Why this matters:**
+- AMIs have associated EBS snapshots that incur storage costs
+- Old unused AMIs accumulate over time
+- Storage costs are ~$0.05/GB-month
+
+**Detection logic:**
+```python
+for ami in describe_images(Owners=["self"]):
+    age_days = (now - ami.creation_date).days
+    if age_days >= 180 and ami.state == "available":
+        # Flag as old AMI
+```
+
+**What gets checked:**
+- AMI creation date
+- AMI state (only "available" AMIs are flagged)
+- Associated snapshot sizes for cost estimation
+
+**Common causes:**
+- AMIs from old deployments
+- Test/dev AMIs no longer needed
+- Superseded golden images
+- AMIs from terminated projects
+
+**Cost estimates:**
+- Based on total EBS snapshot storage
+- ~$0.05/GB-month for snapshot storage
+- Example: 100 GB AMI = ~$5/month
+
+**Required permission:** `ec2:DescribeImages`
 
 ---
 
@@ -580,7 +630,7 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Old AMIs (>180 days)
+- Idle NAT Gateways
 - Unused EBS encryption keys
 
 **Azure:**

@@ -4,6 +4,7 @@ import boto3
 import pytest
 
 from cleancloud.core.finding import Finding
+from cleancloud.providers.aws.rules.ami_old import find_old_amis
 from cleancloud.providers.aws.rules.cloudwatch_inactive import find_inactive_cloudwatch_logs
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
@@ -25,6 +26,7 @@ def test_aws_rules_run_without_error():
         find_unattached_elastic_ips(session, region),
         find_detached_enis(session, region),
         find_untagged_resources(session, region),
+        find_old_amis(session, region),
     ]
 
     for rule_results in all_rules:
