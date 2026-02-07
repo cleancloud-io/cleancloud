@@ -10,6 +10,7 @@ from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.unattached_managed_disks import find_unattached_managed_disks
 from cleancloud.providers.azure.rules.untagged_resources import find_untagged_resources
+from cleancloud.providers.azure.rules.vnet_gateway_idle import find_idle_vnet_gateways
 from cleancloud.providers.azure.session import create_azure_session
 
 
@@ -45,6 +46,9 @@ def test_azure_rules_run_without_error():
             subscription_id=sub_id, credential=credential, region_filter=region_filter
         ),
         find_app_gateway_no_backends(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
+        find_idle_vnet_gateways(
             subscription_id=sub_id, credential=credential, region_filter=region_filter
         ),
     ]

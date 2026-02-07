@@ -15,7 +15,9 @@
         "Microsoft.Authorization/roleAssignments/read",
         "Microsoft.Web/serverfarms/read",
         "Microsoft.Network/loadBalancers/read",
-        "Microsoft.Network/applicationGateways/read"
+        "Microsoft.Network/applicationGateways/read",
+        "Microsoft.Network/virtualNetworkGateways/read",
+        "Microsoft.Network/connections/read"
       ],
       "NotActions": [],
       "DataActions": [],

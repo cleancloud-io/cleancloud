@@ -253,6 +253,8 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Web/serverfarms/read")
     info("    - Microsoft.Network/loadBalancers/read")
     info("    - Microsoft.Network/applicationGateways/read")
+    info("    - Microsoft.Network/virtualNetworkGateways/read")
+    info("    - Microsoft.Network/connections/read")
 
     # Summary
     info("")

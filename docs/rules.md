@@ -254,7 +254,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 ---
 
-## Azure Rules (7 Total)
+## Azure Rules (8 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -493,6 +493,75 @@ for gw in application_gateways:
 - Standard, WAF (v1): $20-50/month
 
 **Required permission:** `Microsoft.Network/applicationGateways/read`
+
+---
+
+### 8. Idle VNet Gateways (VPN/ExpressRoute)
+
+**Rule ID:** `azure.virtual_network_gateway.idle`
+
+**What it detects:** VPN Gateways and ExpressRoute Gateways with no active connections
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** No active connections (connection state checked, but P2S clients not verified)
+
+**Why MEDIUM confidence:**
+- We can verify Site-to-Site and ExpressRoute connections
+- Point-to-Site VPN client count requires additional API calls
+- Gateway may have P2S config but no way to check active clients without deeper inspection
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- VNet Gateways are among the most expensive idle resources ($500-3,500+/month)
+- Cost impact is material even for a single idle gateway
+- Significantly higher than Load Balancers (~$18/month) or App Gateways (~$150-300/month)
+
+**Why this matters:**
+- VNet Gateways incur significant charges regardless of connections
+- VPN Gateway SKUs: $27-3,500+/month depending on SKU
+- ExpressRoute Gateway SKUs: $125-1,100+/month
+- Idle gateways are a major cost optimization signal
+
+**Detection logic:**
+```python
+for gw in virtual_network_gateways:
+    connections = list_connections(gw)
+    active_connections = [c for c in connections if c.connection_status == "Connected"]
+
+    if gw.gateway_type == "Vpn":
+        if len(active_connections) == 0 and not has_p2s_config:
+            # Flag as idle
+    elif gw.gateway_type == "ExpressRoute":
+        if len(active_connections) == 0:
+            # Flag as idle
+```
+
+**Connection states checked:**
+- Site-to-Site VPN connections (connection_status == "Connected")
+- ExpressRoute circuit connections
+- Point-to-Site VPN configuration (presence only, not active client count)
+
+**Common causes:**
+- VPN tunnels torn down but gateway retained
+- ExpressRoute circuits decommissioned
+- Test/dev gateways left running
+- Migration or transition leaving orphaned gateways
+- DR standby gateways (intentional, but worth reviewing)
+
+**Cost estimates by SKU:**
+- Basic: $27/month
+- VpnGw1/ErGw1AZ: $140-195/month
+- VpnGw2/ErGw2AZ: $360-505/month
+- VpnGw3/ErGw3AZ: $930-1,115/month
+- HighPerformance/UltraPerformance: $335-670/month
+
+**Required permissions:**
+- `Microsoft.Network/virtualNetworkGateways/read`
+- `Microsoft.Network/connections/read`
 
 ---
 
