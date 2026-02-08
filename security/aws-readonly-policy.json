@@ -8,23 +8,18 @@
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
         "ec2:DescribeImages",
-        "ec2:DescribeInstances",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions",
-        "ec2:DescribeAvailabilityZones",
-        "ec2:DescribeTags"
+        "ec2:DescribeRegions"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogsReadOnly",
+      "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
-        "logs:GetLogEvents",
         "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
@@ -34,9 +29,7 @@
       "Effect": "Allow",
       "Action": [
         "s3:ListAllMyBuckets",
-        "s3:GetBucketLocation",
-        "s3:GetBucketTagging",
-        "s3:ListBucket"
+        "s3:GetBucketTagging"
       ],
       "Resource": "*"
     },

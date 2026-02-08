@@ -333,7 +333,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
     info("-" * 70)
     info(f"Active Region: {region}")
     info("Doctor validates permissions for the active region only")
-    info("Multi-region scanning (future) will require region enumeration permissions")
+    info("Use 'cleancloud scan --provider aws --all-regions' to scan all active regions")
 
     # Step 4: Permission validation
     info("")
@@ -443,6 +443,27 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         except Exception as e:
             permissions_failed.append(("s3:ListAllMyBuckets", str(e)))
             warn(f"s3:ListAllMyBuckets - {e}")
+
+        try:
+            # Use a non-existent bucket to test permission without needing real buckets
+            # NoSuchBucket error means we have the permission, AccessDenied means we don't
+            s3.get_bucket_tagging(Bucket="cleancloud-permission-test-nonexistent")
+            permissions_tested.append("s3:GetBucketTagging")
+            success("s3:GetBucketTagging")
+        except s3.exceptions.NoSuchBucket:
+            # Permission exists, bucket just doesn't exist - that's fine
+            permissions_tested.append("s3:GetBucketTagging")
+            success("s3:GetBucketTagging")
+        except Exception as e:
+            if "NoSuchBucket" in str(e):
+                permissions_tested.append("s3:GetBucketTagging")
+                success("s3:GetBucketTagging")
+            elif "AccessDenied" in str(e):
+                permissions_failed.append(("s3:GetBucketTagging", str(e)))
+                warn(f"s3:GetBucketTagging - {e}")
+            else:
+                permissions_failed.append(("s3:GetBucketTagging", str(e)))
+                warn(f"s3:GetBucketTagging - {e}")
 
     except Exception:
         fail("CleanCloud cannot run safely with missing read-only permissions")

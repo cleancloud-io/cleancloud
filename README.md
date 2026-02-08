@@ -89,13 +89,14 @@ Step 4: Read-Only Permission Validation
 [OK] logs:DescribeLogGroups
 [OK] cloudwatch:GetMetricStatistics
 [OK] s3:ListAllMyBuckets
+[OK] s3:GetBucketTagging
 
 ======================================================================
 VALIDATION SUMMARY
 ======================================================================
 Authentication: OIDC (AssumeRoleWithWebIdentity)
 Security Grade: EXCELLENT
-Permissions Tested: 10/10 passed
+Permissions Tested: 11/11 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================
