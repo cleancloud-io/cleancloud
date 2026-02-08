@@ -294,13 +294,13 @@ Permissions Tested: 11/11 passed
 
 ```bash
 # Human-readable (default)
-cleancloud scan --provider aws --all-regions
+cleancloud scan --provider aws --region us-east-1
 
 # JSON (machine-readable, includes evidence and full metadata)
-cleancloud scan --provider aws --all-regions --output json --output-file results.json
+cleancloud scan --provider aws --region us-east-1 --output json --output-file results.json
 
 # CSV (spreadsheet-friendly, 11 core columns)
-cleancloud scan --provider aws --all-regions --output csv --output-file results.csv
+cleancloud scan --provider aws --region us-east-1 --output csv --output-file results.csv
 ```
 
 **JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)

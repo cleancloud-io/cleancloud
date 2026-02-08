@@ -28,7 +28,7 @@ It does **not** mean:
 | MEDIUM | Multiple signals suggest inactivity, but uncertainty remains. |
 | HIGH | Strong, long-lived signals consistently indicate abandonment. |
 
-CleanCloud will never assign HIGH confidence based on a single signal.
+HIGH confidence requires strong, deterministic signals — either multiple corroborating signals or a single binary state check (e.g., a resource with zero associations is definitively unattached).
 
 ## Signals Used
 
@@ -55,24 +55,31 @@ Conflicting signals reduce confidence, not increase it.
 CleanCloud intentionally does NOT attempt to infer:
 
 - Business criticality
-- Cost impact
 - Whether deletion is safe
-- Whether a resource is “unused forever”
+- Whether a resource is "unused forever"
 - Whether a resource is managed by Terraform, Pulumi, or CloudFormation
 
 Those decisions require human and organizational context.
 CleanCloud surfaces candidates for review — nothing more.
 
-## Age-Based Confidence (Example)
+**Note on cost estimates:** Some rules include an `estimated_monthly_cost` in finding details (e.g., idle NAT Gateways, old AMIs). These are calculated from resource properties (size, SKU, quantity) — not from billing APIs or spending data. They help prioritize review, not justify deletion.
 
-Many rules use time as one input signal.
+## Age-Based Confidence (Examples)
 
-For example:
-- A resource detached for 2 days → LOW
-- Detached for 7–13 days → MEDIUM
-- Detached for 14+ days → HIGH
+Many rules use time as one input signal. Thresholds vary by rule and resource type:
 
-Exact thresholds vary by rule and cloud provider.
+| Rule | Age Threshold | Confidence |
+|------|---------------|------------|
+| AWS Unattached EBS Volumes | 7+ days | MEDIUM |
+| AWS Unattached EBS Volumes | 14+ days | HIGH |
+| AWS Unattached Elastic IPs | 30+ days | HIGH |
+| AWS Detached ENIs | 60+ days | MEDIUM |
+| AWS Old EBS Snapshots | 90+ days | MEDIUM |
+| AWS Old AMIs | 180+ days | MEDIUM |
+| AWS Idle NAT Gateways | 14+ days idle | MEDIUM |
+| Azure Unattached Disks | 7+ days | MEDIUM |
+
+Resources below these thresholds are not flagged — this prevents false positives on recently created or temporarily detached resources.
 
 ## Using Confidence in CI/CD
 

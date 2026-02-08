@@ -36,26 +36,32 @@ These tests run automatically in CI and are **required for all PRs**.
 ## Folder Structure
 ```
 cleancloud/
-├── safety/
-│ ├── aws/
-│ │ ├── init.py
-│ │ ├── allowlist.py
-│ │ ├── test_static_readonly.py
-│ │ ├── runtime_guard.py
-│ │ └── test_iam_policy_readonly.py
-│ └── azure/
-│ ├── init.py
-│ ├── allowlist.py
-│ ├── test_static_readonly.py
-│ ├── runtime_guard.py
-│ └── test_role_definition_readonly.py
-├── security/
-│ ├── aws-readonly-policy.json
-│ └── azure-readonly-role.json
+├── cleancloud/safety/              # Allowlists (read-only method definitions)
+│   ├── aws/
+│   │   ├── __init__.py
+│   │   └── allowlist.py
+│   └── azure/
+│       ├── __init__.py
+│       └── allowlist.py
+├── tests/cleancloud/safety/        # Safety regression tests
+│   ├── aws/
+│   │   ├── test_aws_static_readonly.py
+│   │   ├── test_aws_runtime_readonly.py
+│   │   └── test_aws_iam_policy_readonly.py
+│   └── azure/
+│       ├── test_azure_static_readonly.py
+│       ├── test_azure_runtime_readonly.py
+│       └── test_azure_role_definition_readonly.py
+├── security/                       # Canonical IAM policies and role definitions
+│   ├── aws-readonly-policy.json
+│   ├── azure-readonly-role.json
+│   ├── verify-aws-policy.sh
+│   └── verify-azure-role.sh
 ```
 
-- **`safety/`** → all static + runtime + policy/role tests
-- **`security/`** → canonical AWS IAM policy and Azure role definition
+- **`cleancloud/safety/`** → allowlists defining permitted read-only SDK methods
+- **`tests/cleancloud/safety/`** → static, runtime, and policy/role safety tests
+- **`security/`** → canonical AWS IAM policy, Azure role definition, and verification scripts
 
 ---
 
@@ -63,22 +69,21 @@ cleancloud/
 
 ### Static AST Test
 
-- File: `cleancloud/safety/aws/test_static_readonly.py`
+- File: `tests/cleancloud/safety/aws/test_aws_static_readonly.py`
 - Purpose: Scan provider code to **ensure no forbidden mutating API calls** exist.
-- Uses: `allowlist.py` to define forbidden prefixes (`Delete*`, `Put*`, `Update*`, `Create*`)
+- Uses: `cleancloud/safety/aws/allowlist.py` to define forbidden prefixes (`Delete*`, `Put*`, `Update*`, `Create*`)
 - Failure: Any forbidden call raises an `AssertionError` in CI.
 
 ### Runtime SDK Guard
 
-- File: `cleancloud/safety/aws/runtime_guard.py`
+- File: `tests/cleancloud/safety/aws/test_aws_runtime_readonly.py`
 - Purpose: Intercept **runtime calls** to AWS SDK (`boto3`) during tests.
 - Mechanism: `pytest` autouse fixture wraps clients; any mutating method call raises an exception.
-- Dummy test included to ensure pytest module execution.
 
 ### IAM Policy Test
 
-- File: `cleancloud/safety/aws/test_iam_policy_readonly.py`
-- Purpose: Ensure `aws-readonly-policy.json` grants **read-only permissions only**.
+- File: `tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py`
+- Purpose: Ensure `security/aws-readonly-policy.json` grants **read-only permissions only**.
 - Checks: No `Delete*`, `Put*`, `Update*`, `Create*` actions.
 - CI failure occurs if policy grants unsafe actions.
 
@@ -88,21 +93,21 @@ cleancloud/
 
 ### Static AST Test
 
-- File: `cleancloud/safety/azure/test_static_readonly.py`
+- File: `tests/cleancloud/safety/azure/test_azure_static_readonly.py`
 - Purpose: Scan Azure provider code for forbidden SDK calls (`delete`, `begin_delete`, `create`, `begin_create`, `update`, `begin_update`).
+- Uses: `cleancloud/safety/azure/allowlist.py` to define permitted read-only methods.
 - Failure: Assertion error if a forbidden call exists in code.
 
 ### Runtime SDK Guard
 
-- File: `cleancloud/safety/azure/runtime_guard.py`
+- File: `tests/cleancloud/safety/azure/test_azure_runtime_readonly.py`
 - Purpose: Intercept any forbidden Azure SDK calls at runtime.
-- Mechanism: Autouse fixture wraps Azure client instances (`ComputeManagementClient`, `StorageManagementClient`, etc.)
-- Dummy test ensures pytest executes the module.
+- Mechanism: Autouse fixture wraps Azure client instances (`ComputeManagementClient`, `NetworkManagementClient`, etc.)
 
 ### Role Definition Test
 
-- File: `cleancloud/safety/azure/test_role_definition_readonly.py`
-- Purpose: Validate `azure-readonly-role.json` is read-only.
+- File: `tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py`
+- Purpose: Validate `security/azure-readonly-role.json` is read-only.
 - Forbidden actions: `*/delete`, `*/write`, `*/create`, `*/update`
 - Any violation fails the test.
 

@@ -19,7 +19,7 @@ pip install cleancloud
 
 # AWS
 cleancloud doctor --provider aws
-cleancloud scan --provider aws --all-regions
+cleancloud scan --provider aws --region us-east-1
 
 # Azure
 cleancloud doctor --provider azure

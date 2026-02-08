@@ -65,13 +65,13 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 **Rule ID:** `aws.ebs.snapshot.old`
 
-**What it detects:** Snapshots ≥ 365 days old
+**What it detects:** Snapshots ≥ 90 days old (default, configurable)
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Age ≥ 365 days
+- **MEDIUM:** Age ≥ 90 days (conservative — age alone is a moderate signal)
 
 **Limitations:**
 - Does NOT check AMI linkage (by design, avoids false positives)
@@ -90,13 +90,13 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 **Rule ID:** `aws.cloudwatch.logs.infinite_retention`
 
-**What it detects:** Log groups with no retention policy
+**What it detects:** Log groups with no retention policy (never expires)
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** No retention policy, ≥ 30 days old
+- **MEDIUM:** No retention policy configured
 
 **Why this matters:**
 - Logs grow indefinitely without retention
@@ -136,8 +136,9 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 **Required permissions:**
 - `ec2:DescribeVolumes`
+- `s3:ListAllMyBuckets`
 - `s3:GetBucketTagging`
-- `logs:ListTagsLogGroup`
+- `logs:DescribeLogGroups`
 
 ---
 
@@ -304,6 +305,59 @@ for ami in describe_images(Owners=["self"]):
 
 ---
 
+### 8. Idle NAT Gateways
+
+**Rule ID:** `aws.ec2.nat_gateway.idle`
+
+**What it detects:** NAT Gateways with zero traffic for 14+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** No traffic detected for 14+ days (CloudWatch metrics checked, but seasonal patterns not verified)
+
+**Why MEDIUM confidence:**
+- Zero traffic is a strong signal, but gateway may be for DR/standby
+- Cannot verify planned future usage or blue/green deployments
+- Seasonal traffic patterns not checked
+
+**Why this matters:**
+- NAT Gateways cost ~$0.045/hour + $0.045/GB data processing (~$32/month base)
+- Idle gateways are a clear cost optimization signal
+- Common after VPC restructuring or service migrations
+
+**Detection logic:**
+```python
+for gw in describe_nat_gateways():
+    if gw.state == "available" and age >= idle_threshold_days:
+        # Check CloudWatch metrics for traffic
+        bytes_out = get_metric(BytesOutToDestination, period=idle_threshold_days)
+        bytes_in = get_metric(BytesInFromSource, period=idle_threshold_days)
+        if bytes_out == 0 and bytes_in == 0:
+            confidence = "MEDIUM"
+```
+
+**CloudWatch metrics checked:**
+- `AWS/NATGateway` → `BytesOutToDestination` (daily sum)
+- `AWS/NATGateway` → `BytesInFromSource` (daily sum)
+
+**Common causes:**
+- VPC restructuring leaving orphaned NAT Gateways
+- Service migrations to different subnets/VPCs
+- Dev/staging environments with no active workloads
+- DR standby gateways (intentional, but worth reviewing)
+
+**Cost estimates:**
+- ~$32/month base cost per idle NAT Gateway
+- Additional $0.045/GB data processing when active
+
+**Required permissions:**
+- `ec2:DescribeNatGateways`
+- `cloudwatch:GetMetricStatistics`
+
+---
+
 ## Azure Rules (8 Total)
 
 ### 1. Unattached Managed Disks
@@ -371,7 +425,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Not attached (deterministic state)
+- **MEDIUM:** Not attached (deterministic state, but may be reserved intentionally)
 
 **Why this matters:**
 - Public IPs incur charges even when unused
@@ -380,7 +434,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 **Detection logic:**
 ```python
 if public_ip.ip_configuration is None:
-    confidence = "HIGH"
+    confidence = "MEDIUM"
 ```
 
 **Required permission:** `Microsoft.Network/publicIPAddresses/read`
@@ -630,14 +684,16 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Unused EBS encryption keys
+- Empty security groups
 - Idle RDS instances
 
 **Azure:**
-- Orphaned storage accounts
+- Unused NICs
+- Old images
 
 **Multi-Cloud:**
 - GCP support
+- Rule filtering (`--rules` flag)
 
 ---
 
