@@ -10,7 +10,7 @@ Azure authentication, RBAC permissions, and configuration guide.
 
 ## Authentication Methods
 
-CleanCloud supports three Azure authentication methods:
+CleanCloud supports multiple Azure authentication methods:
 
 ### 1. Azure OIDC with Workload Identity (Recommended for CI/CD)
 
@@ -288,10 +288,87 @@ cleancloud doctor --provider azure
 
 **What it checks:**
 - Azure credentials are valid
-- Authentication method (OIDC, service principal, Azure CLI)
-- Security grade (EXCELLENT/GOOD/ACCEPTABLE)
-- Required permissions are present
-- Accessible subscriptions
+- Authentication method (OIDC, Service Principal, Azure CLI, Managed Identity)
+- Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
+- CI/CD readiness and compliance compatibility
+- Token acquisition and expiry
+- Accessible subscriptions and subscription filtering
+- Required RBAC permissions (Reader role)
+
+**Example output:**
+```
+======================================================================
+AZURE ENVIRONMENT VALIDATION
+======================================================================
+
+Step 1: Azure Credential Resolution
+----------------------------------------------------------------------
+Authentication Method: OIDC (Workload Identity Federation)
+  Lifetime: 1 hour (temporary)
+  Rotation Required: No
+[OK] Uses Secret: No (secretless)
+
+[OK] Security Grade: EXCELLENT
+[OK]   - No client secrets stored
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+
+[OK] CI/CD Ready: YES
+[OK]   Suitable for production CI/CD pipelines
+
+[OK] Compliance: SOC2/ISO27001 Compatible
+
+Step 2: Credential Acquisition
+----------------------------------------------------------------------
+[OK] Azure credentials acquired successfully
+  Token expires in: ~58 minutes
+
+Step 3: Subscription Access Validation
+----------------------------------------------------------------------
+[OK] Accessible subscriptions: 2
+  • Production (a1b2c3d4-e5f6-7890-abcd-ef1234567890)
+  • Staging (f9e8d7c6-b5a4-3210-fedc-ba0987654321)
+
+Step 4: Permission Validation
+----------------------------------------------------------------------
+[OK] Subscription read access confirmed
+  Reader role provides all required permissions:
+    - Microsoft.Compute/disks/read
+    - Microsoft.Compute/snapshots/read
+    - Microsoft.Network/publicIPAddresses/read
+    - Microsoft.Web/serverfarms/read
+    - Microsoft.Network/loadBalancers/read
+    - Microsoft.Network/applicationGateways/read
+    - Microsoft.Network/virtualNetworkGateways/read
+    - Microsoft.Network/connections/read
+
+======================================================================
+VALIDATION SUMMARY
+======================================================================
+Authentication: OIDC (Workload Identity Federation)
+Security Grade: EXCELLENT
+Subscriptions: 2 accessible
+
+[OK] AZURE ENVIRONMENT READY FOR CLEANCLOUD
+======================================================================
+```
+
+---
+
+## Output Formats
+
+```bash
+# Human-readable (default)
+cleancloud scan --provider azure
+
+# JSON (machine-readable, includes evidence and full metadata)
+cleancloud scan --provider azure --output json --output-file results.json
+
+# CSV (spreadsheet-friendly, 11 core columns)
+cleancloud scan --provider azure --output csv --output-file results.csv
+```
+
+**JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)
 
 ---
 

@@ -290,6 +290,23 @@ Permissions Tested: 11/11 passed
 
 ---
 
+## Output Formats
+
+```bash
+# Human-readable (default)
+cleancloud scan --provider aws --all-regions
+
+# JSON (machine-readable, includes evidence and full metadata)
+cleancloud scan --provider aws --all-regions --output json --output-file results.json
+
+# CSV (spreadsheet-friendly, 11 core columns)
+cleancloud scan --provider aws --all-regions --output csv --output-file results.csv
+```
+
+**JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)
+
+---
+
 ## Troubleshooting
 
 ### "No credentials found"
