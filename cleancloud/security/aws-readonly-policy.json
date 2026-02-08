@@ -2,31 +2,41 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "EC2ReadOnly",
       "Effect": "Allow",
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
-        "ec2:DescribeTags",
-        "ec2:DescribeInstances",
+        "ec2:DescribeImages",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeRegions",
-        "s3:ListAllMyBuckets",
-        "s3:GetBucketLocation",
-        "s3:GetBucketTagging",
-        "s3:ListBucket",
-        "s3:GetObject",
-        "cloudwatch:DescribeAlarms",
-        "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
-        "logs:GetLogEvents",
-        "iam:ListUsers",
-        "iam:ListAccessKeys",
-        "iam:GetUser",
-        "iam:GetAccessKeyLastUsed",
-        "tag:GetResources",
-        "organizations:ListAccounts"
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeRegions"
       ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudWatchReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "cloudwatch:GetMetricStatistics"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3ReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketTagging"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "STSIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     }
   ]

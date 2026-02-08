@@ -10,7 +10,7 @@ AWS authentication, IAM policies, and configuration guide.
 
 ## Authentication Methods
 
-CleanCloud supports three AWS authentication methods:
+CleanCloud supports multiple AWS authentication methods:
 
 ### 1. GitHub Actions OIDC (Recommended for CI/CD)
 
@@ -109,23 +109,18 @@ Attach this policy to your IAM role or user:
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
         "ec2:DescribeImages",
-        "ec2:DescribeInstances",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions",
-        "ec2:DescribeAvailabilityZones",
-        "ec2:DescribeTags"
+        "ec2:DescribeRegions"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogsReadOnly",
+      "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams",
-        "logs:GetLogEvents",
         "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
@@ -135,9 +130,7 @@ Attach this policy to your IAM role or user:
       "Effect": "Allow",
       "Action": [
         "s3:ListAllMyBuckets",
-        "s3:GetBucketLocation",
-        "s3:GetBucketTagging",
-        "s3:ListBucket"
+        "s3:GetBucketTagging"
       ],
       "Resource": "*"
     },
@@ -228,36 +221,89 @@ cleancloud doctor --provider aws --region us-east-1
 
 **What it checks:**
 - AWS credentials are valid
-- Authentication method (OIDC, profiles, keys)
+- Authentication method (OIDC, Instance Profile, ECS Task Role, AssumeRole, CLI Profile, Environment Variables)
 - Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
-- Required permissions are present
-- Account ID and ARN
+- CI/CD readiness and compliance compatibility
+- Account ID, User ID, and ARN
+- All 10 required read-only permissions
 
 **Example output:**
 ```
+======================================================================
+AWS ENVIRONMENT VALIDATION
+======================================================================
+
 Step 1: AWS Credential Resolution
+----------------------------------------------------------------------
 [OK] AWS session created successfully
 
 Step 2: Authentication Method Detection
+----------------------------------------------------------------------
 Authentication Method: OIDC (AssumeRoleWithWebIdentity)
+  Boto3 Provider: assume-role-with-web-identity
+  Credential Type: Temporary
+  Lifetime: 1 hour (temporary)
+  Rotation Required: No (auto-rotated)
+
 [OK] Security Grade: EXCELLENT
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+[OK]   - No secret storage required
+
 [OK] CI/CD Ready: YES
 
+[OK] Compliance: SOC2/ISO27001 Compatible
+
 Step 3: Identity Verification
+----------------------------------------------------------------------
 [OK] Account ID: 123456789012
-[OK] ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudScanner/GitHubActions
+[OK] User ID: AROA3XFRBF23:github-actions
+[OK] ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudCIReadOnly/github-actions
+  Role Name: CleanCloudCIReadOnly
+  Session Name: github-actions
+[OK]   - OIDC-based assumed role (recommended)
 
 Step 4: Read-Only Permission Validation
+----------------------------------------------------------------------
 [OK] ec2:DescribeVolumes
 [OK] ec2:DescribeSnapshots
 [OK] ec2:DescribeRegions
 [OK] ec2:DescribeAddresses
 [OK] ec2:DescribeNetworkInterfaces
+[OK] ec2:DescribeImages
+[OK] ec2:DescribeNatGateways
 [OK] logs:DescribeLogGroups
+[OK] cloudwatch:GetMetricStatistics
 [OK] s3:ListAllMyBuckets
+[OK] s3:GetBucketTagging
+
+======================================================================
+VALIDATION SUMMARY
+======================================================================
+Authentication: OIDC (AssumeRoleWithWebIdentity)
+Security Grade: EXCELLENT
+Permissions Tested: 11/11 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
+======================================================================
 ```
+
+---
+
+## Output Formats
+
+```bash
+# Human-readable (default)
+cleancloud scan --provider aws --region us-east-1
+
+# JSON (machine-readable, includes evidence and full metadata)
+cleancloud scan --provider aws --region us-east-1 --output json --output-file results.json
+
+# CSV (spreadsheet-friendly, 11 core columns)
+cleancloud scan --provider aws --region us-east-1 --output csv --output-file results.csv
+```
+
+**JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)
 
 ---
 

@@ -1,6 +1,6 @@
 # CleanCloud
 
-**Reduce cloud costs through safe, read-only hygiene evaluation**
+**Safe, read-only cloud hygiene for teams that can't afford to break production.**
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
@@ -8,25 +8,339 @@
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-CleanCloud helps teams **reduce cloud costs** by safely identifying orphaned, untagged, and inactive resources for review. Built as a **read-only, trust-first hygiene evaluation engine** for AWS and Azure — safe to run in production and CI/CD pipelines. Designed for SRE and platform teams who need cost optimization without mutations, deletions, or automated cleanup.
+CleanCloud helps SRE and platform teams **safely identify orphaned, untagged, and inactive cloud resources** — using conservative, read-only checks designed for trust, not auto-cleanup. Built for AWS and Azure, safe to run in production, CI/CD pipelines, and regulated environments.
 
-- **Read-only by design** - No deletions, no tag modifications, no resource changes
-- **Policy-safe** - Conservative signals with explicit confidence levels
-- **Privacy-first** - Zero telemetry, no phone-home, no data collection
+- **Read-only by design** — No deletions, no tag modifications, no resource changes
+- **Conservative detection** — Multiple signals with explicit confidence levels (LOW/MEDIUM/HIGH)
+- **Zero telemetry** — No phone-home, no data collection, no analytics
+
+```bash
+pip install cleancloud
+
+# AWS
+cleancloud doctor --provider aws
+cleancloud scan --provider aws --region us-east-1
+
+# Azure
+cleancloud doctor --provider azure
+cleancloud scan --provider azure
+```
+
 ---
 
 ## Table of Contents
 
-- [Security & Trust](#security--trust)
-- [Who This Is For](#who-cleancloud-is-and-is-not-for)
-- [Enterprise & Production Use](#built-for-production--enterprise-use)
+- [See It In Action](#see-it-in-action)
 - [Quick Start](#quick-start)
 - [What CleanCloud Detects](#what-cleancloud-detects)
-- [Policy Enforcement](#policy-enforcement)
+- [Who This Is For](#who-cleancloud-is-and-is-not-for)
+- [Security & Trust](#security--trust)
+- [Enterprise & Production Use](#built-for-production--enterprise-use)
+- [CI/CD Pipelines](#running-in-cicd-pipelines)
 - [Configuration](#configuration)
 - [Why Teams Choose CleanCloud](#why-teams-choose-cleancloud)
 - [Design Philosophy](#design-philosophy)
 - [Documentation](#documentation)
+
+---
+
+## See It In Action
+
+### `cleancloud doctor --provider aws` — Validate your environment in seconds
+
+```
+======================================================================
+AWS ENVIRONMENT VALIDATION
+======================================================================
+
+Step 1: AWS Credential Resolution
+----------------------------------------------------------------------
+[OK] AWS session created successfully
+
+Step 2: Authentication Method Detection
+----------------------------------------------------------------------
+Authentication Method: OIDC (AssumeRoleWithWebIdentity)
+  Boto3 Provider: assume-role-with-web-identity
+  Credential Type: Temporary
+  Lifetime: 1 hour (temporary)
+  Rotation Required: No (auto-rotated)
+
+[OK] Security Grade: EXCELLENT
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+[OK]   - No secret storage required
+
+[OK] CI/CD Ready: YES
+
+Step 3: Identity Verification
+----------------------------------------------------------------------
+[OK] Account ID: 123456789012
+[OK] ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudCIReadOnly/github-actions
+
+Step 4: Read-Only Permission Validation
+----------------------------------------------------------------------
+[OK] ec2:DescribeVolumes
+[OK] ec2:DescribeSnapshots
+[OK] ec2:DescribeRegions
+[OK] ec2:DescribeAddresses
+[OK] ec2:DescribeNetworkInterfaces
+[OK] ec2:DescribeImages
+[OK] ec2:DescribeNatGateways
+[OK] logs:DescribeLogGroups
+[OK] cloudwatch:GetMetricStatistics
+[OK] s3:ListAllMyBuckets
+[OK] s3:GetBucketTagging
+
+======================================================================
+VALIDATION SUMMARY
+======================================================================
+Authentication: OIDC (AssumeRoleWithWebIdentity)
+Security Grade: EXCELLENT
+Permissions Tested: 11/11 passed
+
+[OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
+======================================================================
+```
+
+### `cleancloud scan --provider aws --all-regions` — Find what's costing you money
+
+```
+Found 6 hygiene issues:
+
+1. [AWS] Unattached EBS Volume
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Region     : us-east-1
+   Rule       : aws.ebs.volume.unattached
+   Reason     : Volume has been unattached for 47 days
+   Detected   : 2026-02-08T14:32:01+00:00
+   Details:
+     - size_gb: 500
+     - availability_zone: us-east-1a
+     - state: available
+     - tags: {"Project": "legacy-api", "Owner": "platform"}
+
+2. [AWS] Idle NAT Gateway
+   Risk       : Medium
+   Confidence : Medium
+   Resource   : aws.ec2.nat_gateway → nat-0abcdef1234567890
+   Region     : us-west-2
+   Rule       : aws.ec2.nat_gateway.idle
+   Reason     : No traffic detected for 21 days
+   Detected   : 2026-02-08T14:32:04+00:00
+   Details:
+     - name: staging-nat
+     - state: available
+     - vpc_id: vpc-0abc123
+     - total_bytes_out: 0
+     - total_bytes_in: 0
+     - estimated_monthly_cost_usd: 32.40
+     - idle_threshold_days: 14
+
+3. [AWS] Old AMI
+   Risk       : Low
+   Confidence : Medium
+   Resource   : aws.ec2.ami → ami-0fedcba9876543210
+   Region     : us-east-1
+   Rule       : aws.ec2.ami.old
+   Reason     : AMI is 243 days old with 3 associated snapshots (85.0 GB)
+   Detected   : 2026-02-08T14:32:05+00:00
+   Details:
+     - ami_name: backend-v2.3.1-2025-06-10
+     - age_days: 243
+     - snapshot_count: 3
+     - total_size_gb: 85.0
+     - estimated_monthly_cost_usd: 4.25
+
+4. [AWS] Unattached Elastic IP
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
+   Region     : eu-west-1
+   Rule       : aws.ec2.elastic_ip.unattached
+   Reason     : Elastic IP not associated with any instance or ENI (age: 92 days)
+   Detected   : 2026-02-08T14:32:06+00:00
+   Details:
+     - public_ip: 52.18.xxx.xxx
+     - domain: vpc
+     - age_days: 92
+
+5. [AWS] CloudWatch Log Group with Infinite Retention
+   Risk       : Low
+   Confidence : Medium
+   Resource   : aws.cloudwatch.log_group → /aws/lambda/legacy-processor
+   Region     : us-east-1
+   Rule       : aws.cloudwatch.logs.infinite_retention
+   Reason     : Log group has no retention policy (never expires)
+   Detected   : 2026-02-08T14:32:07+00:00
+   Details:
+     - stored_bytes: 8745213952
+     - retention_days: Never expires
+
+6. [AWS] Untagged Resource
+   Risk       : Low
+   Confidence : Medium
+   Resource   : aws.s3.bucket → company-temp-uploads-2024
+   Region     : global
+   Rule       : aws.resource.untagged
+   Reason     : S3 bucket has no tags
+   Detected   : 2026-02-08T14:32:08+00:00
+
+--- Scan Summary ---
+Total findings: 6
+
+By risk:
+  low: 5
+  medium: 1
+
+By confidence:
+  high: 2
+  medium: 4
+
+Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
+Scanned at: 2026-02-08T14:32:08+00:00
+```
+
+### `cleancloud doctor --provider azure` — Azure validation
+
+```
+======================================================================
+AZURE ENVIRONMENT VALIDATION
+======================================================================
+
+Step 1: Azure Credential Resolution
+----------------------------------------------------------------------
+Authentication Method: OIDC (Workload Identity Federation)
+  Lifetime: 1 hour (temporary)
+  Rotation Required: No
+[OK] Uses Secret: No (secretless)
+
+[OK] Security Grade: EXCELLENT
+[OK]   - No client secrets stored
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+
+[OK] CI/CD Ready: YES
+[OK]   Suitable for production CI/CD pipelines
+
+[OK] Compliance: SOC2/ISO27001 Compatible
+
+Step 2: Credential Acquisition
+----------------------------------------------------------------------
+[OK] Azure credentials acquired successfully
+  Token expires in: ~58 minutes
+
+Step 3: Subscription Access Validation
+----------------------------------------------------------------------
+[OK] Accessible subscriptions: 2
+  • Production (a1b2c3d4-e5f6-7890-abcd-ef1234567890)
+  • Staging (f9e8d7c6-b5a4-3210-fedc-ba0987654321)
+
+Step 4: Permission Validation
+----------------------------------------------------------------------
+[OK] Subscription read access confirmed
+  Reader role provides all required permissions:
+    - Microsoft.Compute/disks/read
+    - Microsoft.Compute/snapshots/read
+    - Microsoft.Network/publicIPAddresses/read
+    - Microsoft.Web/serverfarms/read
+    - Microsoft.Network/loadBalancers/read
+    - Microsoft.Network/applicationGateways/read
+    - Microsoft.Network/virtualNetworkGateways/read
+    - Microsoft.Network/connections/read
+
+======================================================================
+VALIDATION SUMMARY
+======================================================================
+Authentication: OIDC (Workload Identity Federation)
+Security Grade: EXCELLENT
+Subscriptions: 2 accessible
+
+[OK] AZURE ENVIRONMENT READY FOR CLEANCLOUD
+======================================================================
+```
+
+### `cleancloud scan --provider azure` — Azure scan output
+
+```
+Found 5 hygiene issues:
+
+1. [AZURE] Unattached Managed Disk
+   Risk       : Low
+   Confidence : Medium
+   Resource   : azure.compute.disk → data-disk-legacy-api
+   Region     : eastus
+   Rule       : azure.unattached_disk
+   Reason     : Managed disk not attached to any VM (age: 34 days)
+   Detected   : 2026-02-08T14:45:12+00:00
+   Details:
+     - size_gb: 256
+     - disk_state: Unattached
+     - subscription: Production
+
+2. [AZURE] Unused Public IP
+   Risk       : Low
+   Confidence : High
+   Resource   : azure.network.public_ip → pip-old-gateway
+   Region     : westeurope
+   Rule       : azure.public_ip_unused
+   Reason     : Public IP not associated with any resource
+   Detected   : 2026-02-08T14:45:13+00:00
+   Details:
+     - ip_address: 20.82.xxx.xxx
+     - allocation_method: Static
+     - subscription: Staging
+
+3. [AZURE] Load Balancer with No Backends
+   Risk       : Medium
+   Confidence : High
+   Resource   : azure.network.load_balancer → lb-deprecated-service
+   Region     : eastus
+   Rule       : azure.lb_no_backends
+   Reason     : Load balancer has no backend pools configured
+   Detected   : 2026-02-08T14:45:14+00:00
+   Details:
+     - sku: Standard
+     - subscription: Production
+
+4. [AZURE] Empty App Service Plan
+   Risk       : Low
+   Confidence : High
+   Resource   : azure.web.app_service_plan → plan-old-staging
+   Region     : eastus2
+   Rule       : azure.app_service_plan_empty
+   Reason     : App Service Plan has no associated web apps
+   Detected   : 2026-02-08T14:45:15+00:00
+   Details:
+     - sku: P1v3
+     - subscription: Staging
+
+5. [AZURE] Untagged Resource
+   Risk       : Low
+   Confidence : Medium
+   Resource   : azure.compute.disk → temp-migration-disk
+   Region     : eastus
+   Rule       : azure.resource.untagged
+   Reason     : Resource has no tags
+   Detected   : 2026-02-08T14:45:16+00:00
+
+--- Scan Summary ---
+Total findings: 5
+
+By risk:
+  low: 4
+  medium: 1
+
+By confidence:
+  high: 3
+  medium: 2
+
+Subscriptions scanned: Production, Staging (all accessible)
+Scanned at: 2026-02-08T14:45:16+00:00
+```
+
+> Every finding includes confidence levels and evidence so your team reviews with context — not guesswork.
 
 ---
 
@@ -96,22 +410,22 @@ CleanCloud is designed for enterprise environments where security review and app
 
 ## Who CleanCloud Is (and Is Not) For
 
-**CleanCloud is for:**
-- Teams optimizing cloud costs in production and staging environments
-- SRE / Platform teams who need safe, read-only hygiene evaluation
-- Security-reviewed and regulated environments where mutations are prohibited
-- CI/CD pipelines that enforce cost hygiene without infrastructure changes
-- Organizations using IaC and ephemeral resources
+**Built for teams who operate at scale:**
+- **Cloud Architects** designing cost-governance frameworks across accounts and subscriptions
+- **SRE / Platform teams** who need safe, scheduled hygiene evaluation in production
+- **FinOps teams** building resource accountability without tooling risk
+- **Security-reviewed environments** where mutations are prohibited and tooling must pass InfoSec review
+- **CI/CD pipelines** enforcing cost hygiene as a gate — without infrastructure changes
 
 **CleanCloud is NOT:**
-- An automated cleanup or deletion service (one-click account nuking)
-- A replacement for Trusted Advisor or Config
+- An automated cleanup or deletion service
+- A replacement for Trusted Advisor, Azure Advisor, or Config
 - A cost dashboard with rightsizing recommendations
 - A tool that modifies, tags, or deletes resources
 
 CleanCloud exists to answer one question safely:
 
-> What orphaned resources are costing us money — without risking production?
+> **What orphaned resources are costing us money — without risking production?**
 
 
 ## Built for Production & Enterprise Use
@@ -271,99 +585,42 @@ CSV is a simplified format containing core fields (11 columns) for spreadsheet r
 
 ## Running in CI/CD Pipelines
 
-CleanCloud is designed for CI/CD environments with OIDC authentication (no secrets required).
+CleanCloud is built for CI/CD with OIDC authentication, stable exit codes, and JSON/CSV output. Safe by default — exits `0` even with findings unless you opt into enforcement.
 
-### Requirements for CI/CD
-
-**Python:** 3.9 or later (usually pre-installed in GitHub Actions runners)
-
-**Authentication:**
-- **AWS**: IAM Role with OIDC trust relationship (GitHub Actions recommended)
-- **Azure**: Workload Identity Federation (Microsoft Entra ID recommended)
-
-**Key Differences from Local Usage:**
-- Uses OIDC (OpenID Connect) instead of CLI credentials
-- No long-lived secrets stored in CI
-- Safe by default: exits 0 even with findings (won't block deployments)
-- Opt-in strict mode with `--fail-on-confidence` or `--fail-on-findings` flags
-
-### Quick Example: GitHub Actions with AWS
-
-```yaml
-permissions:
-  id-token: write  # Required for OIDC
-  contents: read
-
-jobs:
-  cleancloud:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/CleanCloudCIReadOnly
-          aws-region: us-east-1
-
-      - name: Run CleanCloud scan
-        run: |
-          pip install cleancloud
-          cleancloud scan \
-            --provider aws \
-            --region us-east-1 \
-            --output json \
-            --output-file scan.json
-            # Default: Reports findings, exits 0 (safe, won't fail deployment)
-            # Add --fail-on-confidence HIGH to enforce strict policy
+```bash
+# In your pipeline — no secrets required with OIDC
+pip install cleancloud
+cleancloud scan --provider aws --all-regions --output json --output-file scan.json --fail-on-confidence HIGH
 ```
 
-### Quick Example: GitHub Actions with Azure
-
-```yaml
-permissions:
-  id-token: write  # Required for OIDC
-  contents: read
-
-jobs:
-  cleancloud:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Azure Login (OIDC)
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Run CleanCloud scan
-        run: |
-          pip install cleancloud
-          cleancloud scan \
-            --provider azure \
-            --output json \
-            --output-file scan.json
-            # Default: Reports findings, exits 0 (safe, won't fail deployment)
-            # Add --fail-on-confidence HIGH to enforce strict policy
-```
-
-**Complete CI/CD documentation:** See [`docs/ci.md`](docs/ci.md) for detailed setup instructions.
+**Complete CI/CD guide:** [`docs/ci.md`](docs/ci.md) — GitHub Actions examples (AWS, Azure, multi-cloud), enforcement patterns, output formats, tag filtering, and troubleshooting.
 
 ---
 
 ## What CleanCloud Detects
 
-CleanCloud intentionally starts with **a small number of high-signal rules**.
+16 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
 
-Each rule:
-- Is read-only
-- Uses multiple conservative signals
-- Avoids false positives in IaC environments
-- Includes explicit confidence levels
+| Provider | Rule | What It Finds | Confidence |
+|----------|------|---------------|------------|
+| AWS | Unattached EBS Volumes | Volumes not attached to any instance | HIGH |
+| AWS | Old EBS Snapshots | Snapshots older than 90 days | MEDIUM |
+| AWS | Infinite Retention Logs | CloudWatch log groups that never expire | MEDIUM |
+| AWS | Unattached Elastic IPs | EIPs not associated with any resource (30+ days) | HIGH |
+| AWS | Detached ENIs | Network interfaces detached for 60+ days | MEDIUM |
+| AWS | Untagged Resources | EBS volumes, S3 buckets, log groups with no tags | MEDIUM |
+| AWS | Old AMIs | AMIs older than 180 days with snapshot storage costs | MEDIUM |
+| AWS | Idle NAT Gateways | NAT Gateways with zero traffic for 14+ days (~$32/mo each) | MEDIUM |
+| Azure | Unattached Managed Disks | Disks not attached to any VM | MEDIUM |
+| Azure | Old Snapshots | Snapshots exceeding age threshold | MEDIUM |
+| Azure | Unused Public IPs | Public IPs with no configuration attached | HIGH |
+| Azure | Empty Load Balancers | Load balancers with no backend pools | HIGH |
+| Azure | Empty App Gateways | Application gateways with no backends | HIGH |
+| Azure | Empty App Service Plans | App Service Plans with no web apps | HIGH |
+| Azure | Idle VNet Gateways | Virtual Network Gateways with no active connections | MEDIUM |
+| Azure | Untagged Resources | Resources with no tags attached | MEDIUM |
 
-**See [`docs/rules.md`](docs/rules.md) for full details.**
+**See [`docs/rules.md`](docs/rules.md) for full details, signals used, and evidence documentation.**
 
 ---
 
@@ -562,23 +819,23 @@ It is **not intended** for per-resource exceptions or lifecycle management.
 
 ### Cost Optimization Without Compromising Safety
 
-**Cost dashboards** show you spending trends and rightsizing recommendations.
+Most cost tools require write access, agent installation, or SaaS data sharing. CleanCloud takes a different approach: **read-only evaluation that your InfoSec team can approve in an afternoon.**
 
-**CleanCloud** helps you **reduce costs** by safely identifying waste — orphaned resources, unattached volumes, and inactive assets — without mutations or automation risk.
+| Need | Cost Dashboards | Cleanup Automation | CleanCloud |
+|------|-----------------|-------------------|------------|
+| **Spending trends** | Excellent | Not a goal | Not a goal |
+| **Orphaned resource detection** | Limited or noisy | Aggressive | Conservative, high-signal |
+| **Safe for production** | Varies | Risk of deletion | Read-only always |
+| **CI/CD cost enforcement** | Not designed for it | Risky | Purpose-built |
+| **Confidence scoring** | Binary yes/no | Binary yes/no | LOW/MEDIUM/HIGH |
+| **InfoSec approval** | Varies | Difficult | Designed for it |
+| **Telemetry / data sharing** | Usually required | Usually required | Zero — fully private |
 
-| Need | Cost Dashboards | CleanCloud |
-|------|-----------------|------------|
-| **Spending trends & analysis** | Excellent | Not a goal |
-| **Orphaned resource detection** | Limited or noisy | Conservative, high-signal |
-| **Safe for production** | Varies | Read-only always |
-| **CI/CD cost enforcement** | Not designed for it | Purpose-built |
-| **Confidence scoring** | Binary yes/no | LOW/MEDIUM/HIGH |
-| **No mutations required** | Often needs write access | Read-only by design |
+### CleanCloud Complements Your Existing Stack
 
-### CleanCloud Complements Your Cost Tools
-
-- Use **cost dashboards** to track spending and identify trends
-- Use **CleanCloud** to find and review orphaned resources that are costing money
+- Use **AWS Cost Explorer / Azure Cost Management** to track spending trends
+- Use **Trusted Advisor / Azure Advisor** for rightsizing recommendations
+- Use **CleanCloud** to find orphaned resources your other tools miss — safely
 
 > **Cost dashboards show you what you're spending.**
 > **CleanCloud shows you what you can safely stop spending.**
@@ -607,9 +864,10 @@ CleanCloud is built on three core principles:
 
 ### Coming Soon
 - GCP support (read-only, parity with existing trust guarantees)
-- Additional AWS rules (unused Elastic IPs, old AMIs, empty security groups)
+- Additional AWS rules (empty security groups, idle RDS instances)
 - Additional Azure rules (unused NICs, old images)
 - Rule filtering (`--rules` flag)
+- Multi-account scanning (AWS Organizations support)
 
 ### Not Planned
 These are intentional non-goals to preserve safety and trust.

@@ -2,8 +2,8 @@
 
 **CleanCloud Security Assessment for Enterprise Information Security Teams**
 
-**Version:** 1.0
-**Last Updated:** 2026-01-10
+**Version:** 1.1
+**Last Updated:** 2026-02-08
 **Classification:** Public
 
 ---
@@ -108,7 +108,7 @@ tcpdump -r cleancloud-traffic.pcap -n | grep -v 'amazonaws.com\|pypi.org'
 4. Verify all HTTPS destinations are AWS/Azure API endpoints
 
 **Expected DNS queries:**
-- AWS: `ec2.us-east-1.amazonaws.com`, `logs.us-east-1.amazonaws.com`, `s3.amazonaws.com`, `sts.amazonaws.com`
+- AWS: `ec2.us-east-1.amazonaws.com`, `logs.us-east-1.amazonaws.com`, `monitoring.us-east-1.amazonaws.com`, `s3.amazonaws.com`, `sts.amazonaws.com`
 - Azure: `management.azure.com`, `login.microsoftonline.com`
 
 **Unacceptable DNS queries (should never appear):**
@@ -218,7 +218,7 @@ grep -r "bugsnag" cleancloud/
 # Check pyproject.toml or requirements.txt
 cat pyproject.toml | grep dependencies
 
-# Expected: Only boto3, azure-sdk, click, pyyaml
+# Expected: Only click, pyyaml, boto3, azure-sdk packages
 # NOT expected: requests, httpx, analytics SDKs
 ```
 
@@ -270,7 +270,7 @@ The IAM Proof Pack includes:
 
 **File:** `security/aws-readonly-policy.json`
 
-**Location in repo:** [`cleancloud/security/aws-readonly-policy.json`](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json)
+**Location in repo:** [`security/aws-readonly-policy.json`](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json)
 
 **Policy:**
 
@@ -284,18 +284,20 @@ The IAM Proof Pack includes:
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
-        "ec2:DescribeInstances",
-        "ec2:DescribeRegions",
-        "ec2:DescribeTags"
+        "ec2:DescribeImages",
+        "ec2:DescribeAddresses",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeRegions"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogsReadOnly",
+      "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams"
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
     },
@@ -489,11 +491,18 @@ aws cloudtrail lookup-events \
  --output json | jq '.Events[].CloudTrailEvent | fromjson | .eventName' | sort | uniq
 
 # Expected output (read-only events only):
-# "DescribeInstances"
+# "DescribeAddresses"
+# "DescribeImages"
+# "DescribeLogGroups"
+# "DescribeNatGateways"
+# "DescribeNetworkInterfaces"
 # "DescribeRegions"
 # "DescribeSnapshots"
 # "DescribeVolumes"
+# "GetBucketTagging"
 # "GetCallerIdentity"
+# "GetMetricStatistics"
+# "ListBuckets"
 ```
 
 ---
@@ -511,21 +520,23 @@ cd cleancloud
 pip install -e ".[dev]"
 
 # Run all safety tests
-pytest cleancloud/safety/ -v --tb=short
+pytest tests/cleancloud/safety/ -v --tb=short
 
 # Expected output:
-# cleancloud/safety/aws/test_static_readonly.py::test_no_write_operations PASSED
-# cleancloud/safety/aws/test_iam_policy_readonly.py::test_iam_policy_readonly PASSED
-# cleancloud/safety/azure/test_static_readonly.py::test_no_write_operations PASSED
-# cleancloud/safety/azure/test_role_definition_readonly.py::test_role_definition_readonly PASSED
-# ==================== 4 passed in 2.3s ====================
+# tests/cleancloud/safety/aws/test_aws_static_readonly.py::test_no_write_operations PASSED
+# tests/cleancloud/safety/aws/test_aws_runtime_readonly.py::test_runtime_guard PASSED
+# tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py::test_iam_policy_readonly PASSED
+# tests/cleancloud/safety/azure/test_azure_static_readonly.py::test_no_write_operations PASSED
+# tests/cleancloud/safety/azure/test_azure_runtime_readonly.py::test_runtime_guard PASSED
+# tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py::test_role_definition_readonly PASSED
+# ==================== 6 passed in 2.3s ====================
 ```
 
 **Generate HTML Report (for auditors):**
 
 ```bash
 # Run tests with HTML output
-pytest cleancloud/safety/ -v --html=safety-test-report.html --self-contained-html
+pytest tests/cleancloud/safety/ -v --html=safety-test-report.html --self-contained-html
 
 # Open report
 open safety-test-report.html # macOS
@@ -537,14 +548,16 @@ xdg-open safety-test-report.html # Linux
 ```
 ======================== test session starts =========================
 platform darwin -- Python 3.12.0, pytest-7.4.0
-collected 4 items
+collected 6 items
 
-cleancloud/safety/aws/test_static_readonly.py::test_no_write_operations PASSED [ 25%]
-cleancloud/safety/aws/test_iam_policy_readonly.py::test_iam_policy_readonly PASSED [ 50%]
-cleancloud/safety/azure/test_static_readonly.py::test_no_write_operations PASSED [ 75%]
-cleancloud/safety/azure/test_role_definition_readonly.py::test_role_definition_readonly PASSED [100%]
+tests/cleancloud/safety/aws/test_aws_static_readonly.py::test_no_write_operations PASSED [ 16%]
+tests/cleancloud/safety/aws/test_aws_runtime_readonly.py::test_runtime_guard PASSED [ 33%]
+tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py::test_iam_policy_readonly PASSED [ 50%]
+tests/cleancloud/safety/azure/test_azure_static_readonly.py::test_no_write_operations PASSED [ 66%]
+tests/cleancloud/safety/azure/test_azure_runtime_readonly.py::test_runtime_guard PASSED [ 83%]
+tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py::test_role_definition_readonly PASSED [100%]
 
-========================= 4 passed in 2.13s ==========================
+========================= 6 passed in 2.13s ==========================
 ```
 
 ---
@@ -586,7 +599,7 @@ cd cleancloud
 # IAM Proof Pack files:
 # - security/aws-readonly-policy.json (AWS IAM policy)
 # - docs/infosec-readiness.md (this document)
-# - cleancloud/safety/ (automated safety tests)
+# - tests/cleancloud/safety/ (automated safety tests)
 ```
 
 **Quick Download (AWS IAM Policy):**
@@ -903,8 +916,8 @@ pip install pip-audit
 pip-audit
 
 # Check for unexpected dependencies
-pip freeze | grep -v -E '(boto3|azure|click|pyyaml|cleancloud)'
-# Expected: Only known dependencies (botocore, urllib3, etc.)
+pip freeze | grep -v -iE '(boto3|botocore|azure|click|pyyaml|cleancloud|urllib3|jmespath|certifi|charset|idna|s])'
+# Expected: Only known transitive dependencies
 ```
 
 **Response (If Dependency Compromised):**
@@ -1110,18 +1123,20 @@ The minimum required permissions are **read-only**:
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
-        "ec2:DescribeInstances",
-        "ec2:DescribeRegions",
-        "ec2:DescribeTags"
+        "ec2:DescribeImages",
+        "ec2:DescribeAddresses",
+        "ec2:DescribeNetworkInterfaces",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeRegions"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogsReadOnly",
+      "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
-        "logs:DescribeLogStreams"
+        "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
     },
@@ -1318,12 +1333,15 @@ cd cleancloud
 pip install -e ".[dev]"
 
 # Run safety regression tests
-pytest cleancloud/safety/ -v
+pytest tests/cleancloud/safety/ -v
 
-# Expected: All tests pass
-# test_static_readonly (AST checks)
-# test_runtime_guard (runtime interception)
-# test_iam_policy_readonly (policy validation)
+# Expected: All 6 tests pass
+# test_aws_static_readonly (AST checks - AWS)
+# test_aws_runtime_readonly (runtime interception - AWS)
+# test_aws_iam_policy_readonly (policy validation - AWS)
+# test_azure_static_readonly (AST checks - Azure)
+# test_azure_runtime_readonly (runtime interception - Azure)
+# test_azure_role_definition_readonly (role validation - Azure)
 ```
 
 See: [`docs/safety.md`](safety.md) for full details
@@ -1350,10 +1368,18 @@ aws cloudtrail lookup-events \
 
 **Expected output (read-only events only):**
 ```
-"DescribeInstances"
+"DescribeAddresses"
+"DescribeImages"
+"DescribeLogGroups"
+"DescribeNatGateways"
+"DescribeNetworkInterfaces"
+"DescribeRegions"
 "DescribeSnapshots"
 "DescribeVolumes"
+"GetBucketTagging"
 "GetCallerIdentity"
+"GetMetricStatistics"
+"ListBuckets"
 ```
 
 ---
@@ -1447,8 +1473,8 @@ CleanCloud includes three layers of automated safety tests:
 **Purpose:** Detect forbidden API calls in code before execution
 
 **Files:**
-- `cleancloud/safety/aws/test_static_readonly.py`
-- `cleancloud/safety/azure/test_static_readonly.py`
+- `tests/cleancloud/safety/aws/test_aws_static_readonly.py`
+- `tests/cleancloud/safety/azure/test_azure_static_readonly.py`
 
 **Checks:**
 - Scans all provider code for `Delete*`, `Put*`, `Update*`, `Create*` methods
@@ -1457,8 +1483,8 @@ CleanCloud includes three layers of automated safety tests:
 
 **Run:**
 ```bash
-pytest cleancloud/safety/aws/test_static_readonly.py -v
-pytest cleancloud/safety/azure/test_static_readonly.py -v
+pytest tests/cleancloud/safety/aws/test_aws_static_readonly.py -v
+pytest tests/cleancloud/safety/azure/test_azure_static_readonly.py -v
 ```
 
 #### 2. Runtime SDK Guards
@@ -1466,8 +1492,8 @@ pytest cleancloud/safety/azure/test_static_readonly.py -v
 **Purpose:** Intercept forbidden API calls during test execution
 
 **Files:**
-- `cleancloud/safety/aws/runtime_guard.py`
-- `cleancloud/safety/azure/runtime_guard.py`
+- `tests/cleancloud/safety/aws/test_aws_runtime_readonly.py`
+- `tests/cleancloud/safety/azure/test_azure_runtime_readonly.py`
 
 **Mechanism:**
 - pytest autouse fixture wraps boto3/Azure SDK clients
@@ -1476,7 +1502,7 @@ pytest cleancloud/safety/azure/test_static_readonly.py -v
 
 **Run:**
 ```bash
-pytest cleancloud/safety/ -v
+pytest tests/cleancloud/safety/ -v
 ```
 
 #### 3. IAM/RBAC Policy Validation
@@ -1484,8 +1510,8 @@ pytest cleancloud/safety/ -v
 **Purpose:** Ensure IAM policies and RBAC roles grant read-only permissions only
 
 **Files:**
-- `cleancloud/safety/aws/test_iam_policy_readonly.py`
-- `cleancloud/safety/azure/test_role_definition_readonly.py`
+- `tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py`
+- `tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py`
 
 **Checks:**
 - Parses IAM policy JSON and Azure role definitions
@@ -1494,8 +1520,8 @@ pytest cleancloud/safety/ -v
 
 **Run:**
 ```bash
-pytest cleancloud/safety/aws/test_iam_policy_readonly.py -v
-pytest cleancloud/safety/azure/test_role_definition_readonly.py -v
+pytest tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py -v
+pytest tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py -v
 ```
 
 ### Penetration Testing Guidance
@@ -1541,16 +1567,27 @@ We aim to acknowledge reports within 48 hours and provide a resolution timeline 
 CleanCloud has **minimal dependencies**:
 
 ```
-boto3 >= 1.26.0 # AWS SDK (maintained by AWS)
-azure-identity >= 1.12.0 # Azure Auth (maintained by Microsoft)
-azure-mgmt-compute >= 30.0.0 # Azure Compute SDK
-azure-mgmt-storage >= 21.0.0 # Azure Storage SDK
-click >= 8.0.0 # CLI framework
+# Core
+click >= 8.0.0 # CLI framework (maintained by Pallets)
 pyyaml >= 6.0 # Config parsing
+
+# AWS (optional)
+boto3 >= 1.26.0 # AWS SDK (maintained by AWS)
+botocore >= 1.29.0 # AWS SDK core (maintained by AWS)
+
+# Azure (optional)
+azure-identity >= 1.15.0 # Azure Auth (maintained by Microsoft)
+azure-mgmt-compute >= 30.0.0 # Azure Compute SDK
+azure-mgmt-network >= 25.0.0 # Azure Network SDK
+azure-mgmt-web >= 8.0.0 # Azure Web Apps SDK
+azure-mgmt-resource >= 23.0.0 # Azure Resource SDK
+azure-mgmt-subscription >= 3.0.0 # Azure Subscription SDK
+azure-core >= 1.38.0 # Azure SDK core
 ```
 
 **Dependency Security:**
-- All dependencies are from well-known, actively maintained projects
+- All dependencies are from well-known, actively maintained projects (AWS, Microsoft, Pallets)
+- AWS and Azure dependencies are optional — install only what you need (`pip install cleancloud[aws]` or `cleancloud[azure]`)
 - Minimum version pinning (allows security updates)
 - No transitive dependencies from untrusted sources
 - Dependencies scanned with `pip-audit` in CI
@@ -1578,7 +1615,7 @@ curl -s https://pypi.org/pypi/cleancloud/json | jq '.urls[].digests.sha256'
 **Source Code Integrity:**
 
 All releases are tagged in GitHub:
-- Tags: `v0.5.0`, `v0.4.0`, etc.
+- Tags: `v1.2.0`, `v1.1.0`, etc.
 - Signed commits (planned for future releases)
 - Release notes with changelogs
 
@@ -1588,16 +1625,20 @@ Generate an SBOM for compliance:
 
 ```bash
 pip install cleancloud
-pip freeze | grep -E "(cleancloud|boto3|azure)" > cleancloud-sbom.txt
+pip freeze | grep -iE "(cleancloud|boto3|azure|click|pyyaml)" > cleancloud-sbom.txt
 ```
 
 **Example SBOM:**
 ```
-cleancloud==0.5.0
+cleancloud==1.2.0
 boto3==1.34.0
 azure-identity==1.15.0
 azure-mgmt-compute==30.5.0
-azure-mgmt-storage==21.1.0
+azure-mgmt-network==25.0.0
+azure-mgmt-web==8.0.0
+azure-mgmt-resource==23.0.0
+azure-mgmt-subscription==3.0.0
+azure-core==1.38.0
 click==8.1.7
 pyyaml==6.0.1
 ```
@@ -1733,7 +1774,7 @@ A: Provide:
 1. This document (Information Security Readiness Guide)
 2. IAM/RBAC policy (read-only permissions)
 3. CloudTrail/Activity Log samples (showing read-only operations)
-4. Safety regression test results (from `pytest cleancloud/safety/`)
+4. Safety regression test results (from `pytest tests/cleancloud/safety/`)
 
 ### Operational
 
@@ -1776,7 +1817,7 @@ For information security teams evaluating CleanCloud, we recommend:
 - Start with non-production accounts
 - Use OIDC authentication
 - Enable CloudTrail/Activity Log monitoring
-- Run safety regression tests (`pytest cleancloud/safety/ -v`)
+- Run safety regression tests (`pytest tests/cleancloud/safety/ -v`)
 - Review scan output before trusting findings
 - Gradually expand to production after validation period
 
@@ -1791,4 +1832,5 @@ Documentation: https://github.com/cleancloud-io/cleancloud/tree/main/docs
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1 | 2026-02-08 | Updated IAM policy (12 permissions), fixed safety test paths, updated dependencies, updated SBOM |
 | 1.0 | 2026-01-10 | Initial release |
