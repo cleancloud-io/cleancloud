@@ -17,6 +17,7 @@ from cleancloud.providers.aws.rules.elastic_ip_unattached import (
 )
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
+from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -32,6 +33,7 @@ AWS_RULES: List[Callable] = [
     find_aws_untagged_resources,
     find_old_amis,
     find_idle_nat_gateways,
+    find_idle_rds_instances,
 ]
 
 
@@ -55,7 +57,9 @@ def scan_aws_with_region_selection(
         if regions_to_scan:
             click.echo(f"Found {len(regions_to_scan)} active regions:")
             click.echo(f"   {', '.join(regions_to_scan)}")
-            click.echo("   (Regions with EBS volumes, snapshots, logs, Elastic IPs, or ENIs)")
+            click.echo(
+                "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, or NAT Gateways)"
+            )
         else:
             click.echo("No active regions detected")
             click.echo("   Falling back to us-east-1")
@@ -149,6 +153,17 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
         # 5. Check Network Interfaces (ENIs)
         enis = ec2.describe_network_interfaces(MaxResults=5)
         if enis["NetworkInterfaces"]:
+            return True, None
+
+        # 6. Check RDS instances
+        rds = session.client("rds", region_name=region)
+        instances = rds.describe_db_instances(MaxRecords=20)
+        if instances["DBInstances"]:
+            return True, None
+
+        # 7. Check NAT Gateways
+        nat_gws = ec2.describe_nat_gateways(MaxResults=5)
+        if nat_gws["NatGateways"]:
             return True, None
 
         # No resources found - this is OK, just an empty region

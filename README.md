@@ -8,7 +8,9 @@
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-CleanCloud helps SRE and platform teams **safely identify orphaned, untagged, and inactive cloud resources** — using conservative, read-only checks designed for trust, not auto-cleanup. Built for AWS and Azure, safe to run in production, CI/CD pipelines, and regulated environments.
+CleanCloud helps SRE and platform teams **safely identify orphaned, untagged, and inactive cloud resources** with the ownership context and risk confidence to **act today, not next month** using conservative, read-only checks designed for trust, not auto-cleanup. 
+
+Built for AWS and Azure, safe to run in production, CI/CD pipelines, and regulated environments.
 
 - **Read-only by design** — No deletions, no tag modifications, no resource changes
 - **Conservative detection** — Multiple signals with explicit confidence levels (LOW/MEDIUM/HIGH)

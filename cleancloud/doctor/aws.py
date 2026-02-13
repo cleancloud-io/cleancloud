@@ -403,6 +403,16 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             permissions_failed.append(("ec2:DescribeNatGateways", str(e)))
             warn(f"ec2:DescribeNatGateways - {e}")
 
+        # Test RDS permissions
+        try:
+            rds = session.client("rds", region_name=region)
+            rds.describe_db_instances(MaxRecords=20)
+            permissions_tested.append("rds:DescribeDBInstances")
+            success("rds:DescribeDBInstances")
+        except Exception as e:
+            permissions_failed.append(("rds:DescribeDBInstances", str(e)))
+            warn(f"rds:DescribeDBInstances - {e}")
+
         # Test CloudWatch Logs permissions
         try:
             logs = session.client("logs", region_name=region)

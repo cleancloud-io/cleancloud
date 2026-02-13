@@ -117,6 +117,14 @@ Attach this policy to your IAM role or user:
       "Resource": "*"
     },
     {
+      "Sid": "RDSReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
