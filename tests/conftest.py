@@ -11,6 +11,8 @@ def mock_boto3_session():
     s3 = MagicMock()
     logs = MagicMock()
     rds = MagicMock()
+    elbv2 = MagicMock()
+    elb = MagicMock()
 
     def client_side_effect(service_name, *args, **kwargs):
         if service_name == "ec2":
@@ -21,6 +23,10 @@ def mock_boto3_session():
             return logs
         if service_name == "rds":
             return rds
+        if service_name == "elbv2":
+            return elbv2
+        if service_name == "elb":
+            return elb
         raise ValueError(f"Unexpected service: {service_name}")
 
     session.client.side_effect = client_side_effect
@@ -30,5 +36,7 @@ def mock_boto3_session():
     session._s3 = s3
     session._logs = logs
     session._rds = rds
+    session._elbv2 = elbv2
+    session._elb = elb
 
     return session

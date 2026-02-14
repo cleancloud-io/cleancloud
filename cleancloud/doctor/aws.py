@@ -413,6 +413,24 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             permissions_failed.append(("rds:DescribeDBInstances", str(e)))
             warn(f"rds:DescribeDBInstances - {e}")
 
+        # Test ELB permissions
+        try:
+            elbv2 = session.client("elbv2", region_name=region)
+            elbv2.describe_load_balancers(PageSize=1)
+            permissions_tested.append("elasticloadbalancing:DescribeLoadBalancers")
+            success("elasticloadbalancing:DescribeLoadBalancers")
+        except Exception as e:
+            permissions_failed.append(("elasticloadbalancing:DescribeLoadBalancers", str(e)))
+            warn(f"elasticloadbalancing:DescribeLoadBalancers - {e}")
+
+        try:
+            elbv2.describe_target_groups(PageSize=1)
+            permissions_tested.append("elasticloadbalancing:DescribeTargetGroups")
+            success("elasticloadbalancing:DescribeTargetGroups")
+        except Exception as e:
+            permissions_failed.append(("elasticloadbalancing:DescribeTargetGroups", str(e)))
+            warn(f"elasticloadbalancing:DescribeTargetGroups - {e}")
+
         # Test CloudWatch Logs permissions
         try:
             logs = session.client("logs", region_name=region)

@@ -27,7 +27,6 @@ def find_idle_rds_instances(
     - CloudWatch DatabaseConnections metric sum is 0 over `days_idle` period
     - Not a read replica (ReadReplicaSourceDBInstanceIdentifier is empty)
     - Not an Aurora cluster member (DBClusterIdentifier is empty)
-    - Not tagged with 'keep' or 'do-not-delete'
 
     IAM permissions:
     - rds:DescribeDBInstances
@@ -61,11 +60,7 @@ def find_idle_rds_instances(
                 if instance.get("DBClusterIdentifier"):
                     continue
 
-                # Skip instances tagged with 'keep' or 'do-not-delete'
                 tags = instance.get("TagList", [])
-                tag_keys_lower = {t["Key"].lower() for t in tags}
-                if "keep" in tag_keys_lower or "do-not-delete" in tag_keys_lower:
-                    continue
 
                 # Calculate age
                 create_time = instance.get("InstanceCreateTime")

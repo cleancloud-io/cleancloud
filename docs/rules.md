@@ -31,7 +31,7 @@ Every finding includes a confidence level:
 
 ---
 
-## AWS Rules (9 Total)
+## AWS Rules (10 Total)
 
 ### 1. Unattached EBS Volumes
 
@@ -391,11 +391,10 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 for instance in describe_db_instances():
     if instance.status == "available" and age >= idle_threshold_days:
         if not instance.read_replica_source:  # Skip read replicas
-            if no_excluded_tags(instance):  # Skip 'keep' / 'do-not-delete'
-                connections = get_metric(DatabaseConnections, period=idle_threshold_days)
-                if connections == 0:
-                    confidence = "HIGH"
-                    risk = "HIGH"
+            connections = get_metric(DatabaseConnections, period=idle_threshold_days)
+            if connections == 0:
+                confidence = "HIGH"
+                risk = "HIGH"
 ```
 
 **CloudWatch metrics checked:**
@@ -404,7 +403,6 @@ for instance in describe_db_instances():
 **Exclusions:**
 - Aurora cluster members (`DBClusterIdentifier` set) — Aurora instances are managed at cluster level and may show zero connections individually even when the cluster is active
 - Read replicas (`ReadReplicaSourceDBInstanceIdentifier` set)
-- Instances tagged `keep` or `do-not-delete`
 - Instances younger than the idle threshold
 
 **Common causes:**
@@ -415,6 +413,73 @@ for instance in describe_db_instances():
 
 **Required permissions:**
 - `rds:DescribeDBInstances`
+- `cloudwatch:GetMetricStatistics`
+
+---
+
+### 10. Idle Elastic Load Balancers (ALB/CLB/NLB)
+
+**Rule IDs:**
+- `aws.elbv2.alb.idle` — Application Load Balancer
+- `aws.elbv2.nlb.idle` — Network Load Balancer
+- `aws.elb.clb.idle` — Classic Load Balancer
+
+**What it detects:** Load balancers with zero traffic for 14+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero traffic AND no registered targets/instances
+- **MEDIUM:** Zero traffic only (targets/instances may still be registered)
+
+**Risk:** MEDIUM
+
+**Why this matters:**
+- ELBs incur base hourly charges regardless of traffic (~$16-22/month)
+- Idle load balancers are a clear cost optimization signal
+- Common after service migrations or decommissions
+
+**Detection logic:**
+```python
+# ALB/NLB (elbv2)
+for lb in describe_load_balancers():
+    if age >= idle_threshold_days:
+        traffic = get_metric(RequestCount or NewFlowCount, period=idle_threshold_days)
+        has_targets = check_target_groups(lb)
+        if traffic == 0:
+            confidence = "HIGH" if not has_targets else "MEDIUM"
+
+# CLB (elb)
+for lb in describe_load_balancers():
+    if age >= idle_threshold_days:
+        traffic = get_metric(RequestCount, period=idle_threshold_days)
+        has_instances = len(lb.instances) > 0
+        if traffic == 0:
+            confidence = "HIGH" if not has_instances else "MEDIUM"
+```
+
+**CloudWatch metrics checked:**
+- `AWS/ApplicationELB` → `RequestCount` (ALB, daily sum)
+- `AWS/NetworkELB` → `NewFlowCount` (NLB, daily sum)
+- `AWS/ELB` → `RequestCount` (CLB, daily sum)
+
+**Exclusions:**
+- LBs younger than the idle threshold
+
+**Common causes:**
+- Service migrations leaving orphaned load balancers
+- Dev/staging environments with no active workloads
+- Decommissioned applications with retained infrastructure
+- Blue/green deployments with stale LBs
+
+**Cost estimates:**
+- ~$16-22/month base cost per idle load balancer (region dependent)
+
+**Required permissions:**
+- `elasticloadbalancing:DescribeLoadBalancers`
+- `elasticloadbalancing:DescribeTargetGroups`
+- `elasticloadbalancing:DescribeTargetHealth`
 - `cloudwatch:GetMetricStatistics`
 
 ---
