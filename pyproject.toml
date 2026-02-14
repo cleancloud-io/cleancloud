@@ -53,6 +53,8 @@ azure = [
     "azure-mgmt-compute>=30.0.0",
     "azure-mgmt-network>=25.0.0",
     "azure-mgmt-web>=8.0.0",
+    "azure-mgmt-sql>=3.0.0",
+    "azure-mgmt-monitor>=6.0.0",
     "azure-core>=1.38.0",
 ]
 

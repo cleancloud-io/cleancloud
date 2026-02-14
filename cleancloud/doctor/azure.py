@@ -256,6 +256,9 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Network/virtualNetworkGateways/read")
     info("    - Microsoft.Network/connections/read")
     info("    - Microsoft.Compute/virtualMachines/read")
+    info("    - Microsoft.Sql/servers/read")
+    info("    - Microsoft.Sql/servers/databases/read")
+    info("    - Microsoft.Insights/metrics/read")
 
     # Summary
     info("")

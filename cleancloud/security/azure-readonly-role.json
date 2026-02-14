@@ -19,7 +19,10 @@
         "Microsoft.Network/loadBalancers/read",
         "Microsoft.Network/applicationGateways/read",
         "Microsoft.Network/virtualNetworkGateways/read",
-        "Microsoft.Network/connections/read"
+        "Microsoft.Network/connections/read",
+        "Microsoft.Sql/servers/read",
+        "Microsoft.Sql/servers/databases/read",
+        "Microsoft.Insights/metrics/read"
       ],
       "NotActions": [],
       "DataActions": [],

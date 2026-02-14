@@ -167,6 +167,9 @@ az role assignment create \
 - `Microsoft.Network/virtualNetworkGateways/read`
 - `Microsoft.Compute/virtualMachines/read`
 - `Microsoft.Network/connections/read`
+- `Microsoft.Sql/servers/read`
+- `Microsoft.Sql/servers/databases/read`
+- `Microsoft.Insights/metrics/read`
 - `Microsoft.Resources/subscriptions/read`
 
 **What Reader does NOT allow:**
@@ -191,6 +194,9 @@ az role assignment create \
     "Microsoft.Network/virtualNetworkGateways/read",
     "Microsoft.Compute/virtualMachines/read",
     "Microsoft.Network/connections/read",
+    "Microsoft.Sql/servers/read",
+    "Microsoft.Sql/servers/databases/read",
+    "Microsoft.Insights/metrics/read",
     "Microsoft.Resources/subscriptions/read"
   ],
   "NotActions": [],
@@ -344,6 +350,9 @@ Step 4: Permission Validation
     - Microsoft.Network/virtualNetworkGateways/read
     - Microsoft.Network/connections/read
     - Microsoft.Compute/virtualMachines/read
+    - Microsoft.Sql/servers/read
+    - Microsoft.Sql/servers/databases/read
+    - Microsoft.Insights/metrics/read
 
 ======================================================================
 VALIDATION SUMMARY

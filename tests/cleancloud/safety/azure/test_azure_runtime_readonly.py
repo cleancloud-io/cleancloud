@@ -32,6 +32,7 @@ def guard_azure_clients(monkeypatch):
         "azure.mgmt.storage.StorageManagementClient",
         "azure.mgmt.resource.resources.ResourceManagementClient",
         "azure.mgmt.monitor.MonitorManagementClient",
+        "azure.mgmt.sql.SqlManagementClient",
     ]
 
     for client_path in clients_to_patch:

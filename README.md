@@ -252,6 +252,9 @@ Step 4: Permission Validation
     - Microsoft.Network/virtualNetworkGateways/read
     - Microsoft.Network/connections/read
     - Microsoft.Compute/virtualMachines/read
+    - Microsoft.Sql/servers/read
+    - Microsoft.Sql/servers/databases/read
+    - Microsoft.Insights/metrics/read
 
 ======================================================================
 VALIDATION SUMMARY
@@ -602,7 +605,7 @@ cleancloud scan --provider aws --all-regions --output json --output-file scan.js
 
 ## What CleanCloud Detects
 
-19 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
+20 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
 
 | Provider | Rule | What It Finds | Confidence |
 |----------|------|---------------|------------|
@@ -624,6 +627,7 @@ cleancloud scan --provider aws --all-regions --output json --output-file scan.js
 | Azure | Empty App Service Plans | App Service Plans with no web apps | HIGH |
 | Azure | Idle VNet Gateways | Virtual Network Gateways with no active connections | MEDIUM |
 | Azure | Stopped (Not Deallocated) VMs | VMs stopped but still incurring full compute charges | HIGH |
+| Azure | Idle SQL Databases | SQL databases with zero connections for 14+ days | HIGH |
 | Azure | Untagged Resources | Resources with no tags attached | MEDIUM |
 
 **See [`docs/rules.md`](docs/rules.md) for full details, signals used, and evidence documentation.**

@@ -84,6 +84,7 @@ Many rules use time as one input signal. Thresholds vary by rule and resource ty
 | Azure Unattached Disks | 14+ days | HIGH |
 | Azure Old Snapshots | 30+ days | MEDIUM |
 | Azure Old Snapshots | 90+ days | HIGH |
+| Azure Idle SQL Databases | 14+ days idle | HIGH |
 
 Resources below these thresholds are not flagged — this prevents false positives on recently created or temporarily detached resources.
 
