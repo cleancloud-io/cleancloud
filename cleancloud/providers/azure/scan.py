@@ -21,6 +21,9 @@ from cleancloud.providers.azure.rules.unattached_managed_disks import (
 from cleancloud.providers.azure.rules.untagged_resources import (
     find_untagged_resources as find_azure_untagged_resources,
 )
+from cleancloud.providers.azure.rules.vm_stopped_not_deallocated import (
+    find_stopped_not_deallocated_vms,
+)
 from cleancloud.providers.azure.rules.vnet_gateway_idle import find_idle_vnet_gateways
 from cleancloud.providers.azure.session import create_azure_session
 from cleancloud.providers.azure.validate import (
@@ -103,6 +106,7 @@ AZURE_RULES: List[Callable] = [
     find_lb_no_backends,
     find_app_gateway_no_backends,
     find_idle_vnet_gateways,
+    find_stopped_not_deallocated_vms,
 ]
 
 

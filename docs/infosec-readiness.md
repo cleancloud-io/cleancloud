@@ -2,8 +2,8 @@
 
 **CleanCloud Security Assessment for Enterprise Information Security Teams**
 
-**Version:** 1.1
-**Last Updated:** 2026-02-08
+**Version:** 1.2
+**Last Updated:** 2026-02-14
 **Classification:** Public
 
 ---
@@ -108,7 +108,7 @@ tcpdump -r cleancloud-traffic.pcap -n | grep -v 'amazonaws.com\|pypi.org'
 4. Verify all HTTPS destinations are AWS/Azure API endpoints
 
 **Expected DNS queries:**
-- AWS: `ec2.us-east-1.amazonaws.com`, `logs.us-east-1.amazonaws.com`, `monitoring.us-east-1.amazonaws.com`, `s3.amazonaws.com`, `sts.amazonaws.com`
+- AWS: `ec2.us-east-1.amazonaws.com`, `elasticloadbalancing.us-east-1.amazonaws.com`, `rds.us-east-1.amazonaws.com`, `logs.us-east-1.amazonaws.com`, `monitoring.us-east-1.amazonaws.com`, `s3.amazonaws.com`, `sts.amazonaws.com`
 - Azure: `management.azure.com`, `login.microsoftonline.com`
 
 **Unacceptable DNS queries (should never appear):**
@@ -289,6 +289,24 @@ The IAM Proof Pack includes:
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
         "ec2:DescribeRegions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ELBReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances"
       ],
       "Resource": "*"
     },
@@ -492,12 +510,16 @@ aws cloudtrail lookup-events \
 
 # Expected output (read-only events only):
 # "DescribeAddresses"
+# "DescribeDBInstances"
 # "DescribeImages"
+# "DescribeLoadBalancers"
 # "DescribeLogGroups"
 # "DescribeNatGateways"
 # "DescribeNetworkInterfaces"
 # "DescribeRegions"
 # "DescribeSnapshots"
+# "DescribeTargetGroups"
+# "DescribeTargetHealth"
 # "DescribeVolumes"
 # "GetBucketTagging"
 # "GetCallerIdentity"
@@ -1132,6 +1154,24 @@ The minimum required permissions are **read-only**:
       "Resource": "*"
     },
     {
+      "Sid": "ELBReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
@@ -1369,12 +1409,16 @@ aws cloudtrail lookup-events \
 **Expected output (read-only events only):**
 ```
 "DescribeAddresses"
+"DescribeDBInstances"
 "DescribeImages"
+"DescribeLoadBalancers"
 "DescribeLogGroups"
 "DescribeNatGateways"
 "DescribeNetworkInterfaces"
 "DescribeRegions"
 "DescribeSnapshots"
+"DescribeTargetGroups"
+"DescribeTargetHealth"
 "DescribeVolumes"
 "GetBucketTagging"
 "GetCallerIdentity"
@@ -1832,5 +1876,6 @@ Documentation: https://github.com/cleancloud-io/cleancloud/tree/main/docs
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2 | 2026-02-14 | Updated IAM policy (15 permissions: added ELB, RDS), updated CloudTrail expected events, added Azure VM rule |
 | 1.1 | 2026-02-08 | Updated IAM policy (12 permissions), fixed safety test paths, updated dependencies, updated SBOM |
 | 1.0 | 2026-01-10 | Initial release |

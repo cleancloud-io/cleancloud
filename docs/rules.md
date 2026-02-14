@@ -484,7 +484,7 @@ for lb in describe_load_balancers():
 
 ---
 
-## Azure Rules (8 Total)
+## Azure Rules (9 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -792,6 +792,56 @@ for gw in virtual_network_gateways:
 **Required permissions:**
 - `Microsoft.Network/virtualNetworkGateways/read`
 - `Microsoft.Network/connections/read`
+
+---
+
+### 9. Stopped (Not Deallocated) VMs
+
+**Rule ID:** `azure.vm.stopped_not_deallocated`
+
+**What it detects:** VMs in 'Stopped' state (OS-level shutdown) that are not deallocated, still incurring full compute charges
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Power state is 'Stopped' (deterministic state check, zero false positives)
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- Stopped-but-not-deallocated VMs incur full compute charges ($30-500+/month depending on SKU)
+- Users often believe their VM is "off" but are paying full price
+- Classic Azure cost trap with significant financial impact
+
+**Why this matters:**
+- Azure distinguishes between 'Stopped' (OS shutdown) and 'Deallocated' (compute released)
+- Only deallocated VMs stop incurring compute charges
+- 100% deterministic state check with zero false positives
+
+**Detection logic:**
+```python
+for vm in virtual_machines.list_all():
+    instance_view = virtual_machines.instance_view(resource_group, vm.name)
+    power_state = get_power_state(instance_view.statuses)  # PowerState/* code
+    if power_state == "PowerState/stopped":
+        confidence = "HIGH"  # Deterministic: stopped but not deallocated
+        risk = "HIGH"  # Full compute charges still applied
+```
+
+**Power states:**
+- `PowerState/running` — active, skip
+- `PowerState/deallocated` — properly stopped, skip
+- `PowerState/stopped` — **FLAGGED** (still incurring compute charges)
+- `PowerState/starting`, `PowerState/stopping`, `PowerState/deallocating` — transitional, skip
+
+**Common causes:**
+- Shutting down the VM from inside the OS (instead of Azure portal/CLI)
+- Using `Stop-AzVM` without `-StayProvisioned false`
+- RDP/SSH shutdown commands
+- Automated scripts that stop but don't deallocate
+
+**Required permission:** `Microsoft.Compute/virtualMachines/read`
 
 ---
 

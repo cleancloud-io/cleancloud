@@ -77,9 +77,29 @@ Many rules use time as one input signal. Thresholds vary by rule and resource ty
 | AWS Old EBS Snapshots | 90+ days | MEDIUM |
 | AWS Old AMIs | 180+ days | MEDIUM |
 | AWS Idle NAT Gateways | 14+ days idle | MEDIUM |
+| AWS Idle RDS Instances | 14+ days idle | HIGH |
+| AWS Idle ELBs (no targets) | 14+ days idle | HIGH |
+| AWS Idle ELBs (has targets) | 14+ days idle | MEDIUM |
 | Azure Unattached Disks | 7+ days | MEDIUM |
+| Azure Unattached Disks | 14+ days | HIGH |
+| Azure Old Snapshots | 30+ days | MEDIUM |
+| Azure Old Snapshots | 90+ days | HIGH |
 
 Resources below these thresholds are not flagged — this prevents false positives on recently created or temporarily detached resources.
+
+## State-Based Confidence (Deterministic)
+
+Some rules use a single deterministic state check — no age threshold needed. These are binary signals with zero false positives:
+
+| Rule | Signal | Confidence |
+|------|--------|------------|
+| AWS Infinite Retention Logs | No retention policy set | MEDIUM |
+| Azure Unused Public IPs | IP not attached to any resource | MEDIUM |
+| Azure Empty App Service Plans | Paid plan with zero apps | HIGH |
+| Azure Empty Load Balancers | Standard LB with zero backend members | HIGH |
+| Azure Empty App Gateways | All backend pools have zero targets | HIGH |
+| Azure Idle VNet Gateways | No active connections | MEDIUM |
+| Azure Stopped (Not Deallocated) VMs | Power state is 'Stopped' (not 'Deallocated') | HIGH |
 
 ## Using Confidence in CI/CD
 
