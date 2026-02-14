@@ -165,6 +165,7 @@ az role assignment create \
 - `Microsoft.Network/loadBalancers/read`
 - `Microsoft.Network/applicationGateways/read`
 - `Microsoft.Network/virtualNetworkGateways/read`
+- `Microsoft.Compute/virtualMachines/read`
 - `Microsoft.Network/connections/read`
 - `Microsoft.Resources/subscriptions/read`
 
@@ -188,6 +189,7 @@ az role assignment create \
     "Microsoft.Network/loadBalancers/read",
     "Microsoft.Network/applicationGateways/read",
     "Microsoft.Network/virtualNetworkGateways/read",
+    "Microsoft.Compute/virtualMachines/read",
     "Microsoft.Network/connections/read",
     "Microsoft.Resources/subscriptions/read"
   ],
@@ -341,6 +343,7 @@ Step 4: Permission Validation
     - Microsoft.Network/applicationGateways/read
     - Microsoft.Network/virtualNetworkGateways/read
     - Microsoft.Network/connections/read
+    - Microsoft.Compute/virtualMachines/read
 
 ======================================================================
 VALIDATION SUMMARY

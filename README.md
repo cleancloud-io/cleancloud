@@ -251,6 +251,7 @@ Step 4: Permission Validation
     - Microsoft.Network/applicationGateways/read
     - Microsoft.Network/virtualNetworkGateways/read
     - Microsoft.Network/connections/read
+    - Microsoft.Compute/virtualMachines/read
 
 ======================================================================
 VALIDATION SUMMARY
@@ -601,7 +602,7 @@ cleancloud scan --provider aws --all-regions --output json --output-file scan.js
 
 ## What CleanCloud Detects
 
-16 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
+19 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
 
 | Provider | Rule | What It Finds | Confidence |
 |----------|------|---------------|------------|
@@ -613,6 +614,8 @@ cleancloud scan --provider aws --all-regions --output json --output-file scan.js
 | AWS | Untagged Resources | EBS volumes, S3 buckets, log groups with no tags | MEDIUM |
 | AWS | Old AMIs | AMIs older than 180 days with snapshot storage costs | MEDIUM |
 | AWS | Idle NAT Gateways | NAT Gateways with zero traffic for 14+ days (~$32/mo each) | MEDIUM |
+| AWS | Idle RDS Instances | RDS instances with zero connections for 14+ days | HIGH |
+| AWS | Idle Elastic Load Balancers | ALB/NLB/CLB with zero traffic for 14+ days | HIGH |
 | Azure | Unattached Managed Disks | Disks not attached to any VM | MEDIUM |
 | Azure | Old Snapshots | Snapshots exceeding age threshold | MEDIUM |
 | Azure | Unused Public IPs | Public IPs with no configuration attached | HIGH |
@@ -620,6 +623,7 @@ cleancloud scan --provider aws --all-regions --output json --output-file scan.js
 | Azure | Empty App Gateways | Application gateways with no backends | HIGH |
 | Azure | Empty App Service Plans | App Service Plans with no web apps | HIGH |
 | Azure | Idle VNet Gateways | Virtual Network Gateways with no active connections | MEDIUM |
+| Azure | Stopped (Not Deallocated) VMs | VMs stopped but still incurring full compute charges | HIGH |
 | Azure | Untagged Resources | Resources with no tags attached | MEDIUM |
 
 **See [`docs/rules.md`](docs/rules.md) for full details, signals used, and evidence documentation.**
@@ -866,7 +870,7 @@ CleanCloud is built on three core principles:
 
 ### Coming Soon
 - GCP support (read-only, parity with existing trust guarantees)
-- Additional AWS rules (empty security groups, idle RDS instances)
+- Additional AWS rules (empty security groups)
 - Additional Azure rules (unused NICs, old images)
 - Rule filtering (`--rules` flag)
 - Multi-account scanning (AWS Organizations support)

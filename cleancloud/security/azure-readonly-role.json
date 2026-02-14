@@ -8,6 +8,8 @@
       "Actions": [
         "Microsoft.Compute/virtualMachines/read",
         "Microsoft.Compute/disks/read",
+        "Microsoft.Compute/snapshots/read",
+        "Microsoft.Network/publicIPAddresses/read",
         "Microsoft.Storage/storageAccounts/read",
         "Microsoft.Storage/storageAccounts/blobServices/containers/read",
         "Microsoft.Insights/diagnosticSettings/read",
