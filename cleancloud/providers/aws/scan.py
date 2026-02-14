@@ -15,6 +15,7 @@ from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_vo
 from cleancloud.providers.aws.rules.elastic_ip_unattached import (
     find_unattached_elastic_ips,
 )
+from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
@@ -34,6 +35,7 @@ AWS_RULES: List[Callable] = [
     find_old_amis,
     find_idle_nat_gateways,
     find_idle_rds_instances,
+    find_idle_load_balancers,
 ]
 
 
@@ -58,7 +60,7 @@ def scan_aws_with_region_selection(
             click.echo(f"Found {len(regions_to_scan)} active regions:")
             click.echo(f"   {', '.join(regions_to_scan)}")
             click.echo(
-                "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, or NAT Gateways)"
+                "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, NAT Gateways, or ELBs)"
             )
         else:
             click.echo("No active regions detected")
@@ -164,6 +166,12 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
         # 7. Check NAT Gateways
         nat_gws = ec2.describe_nat_gateways(MaxResults=5)
         if nat_gws["NatGateways"]:
+            return True, None
+
+        # 8. Check Elastic Load Balancers (ALB/NLB)
+        elbv2 = session.client("elbv2", region_name=region)
+        lbs = elbv2.describe_load_balancers(PageSize=1)
+        if lbs.get("LoadBalancers"):
             return True, None
 
         # No resources found - this is OK, just an empty region

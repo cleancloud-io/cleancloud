@@ -9,6 +9,7 @@ from cleancloud.providers.aws.rules.cloudwatch_inactive import find_inactive_clo
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
 from cleancloud.providers.aws.rules.elastic_ip_unattached import find_unattached_elastic_ips
+from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
@@ -21,24 +22,31 @@ def test_aws_rules_run_without_error():
     session = boto3.Session()
     region = "us-east-1"  # default test region
 
-    all_rules = [
-        find_unattached_ebs_volumes(session, region),
-        find_old_ebs_snapshots(session, region),
-        find_inactive_cloudwatch_logs(session, region),
-        find_unattached_elastic_ips(session, region),
-        find_detached_enis(session, region),
-        find_untagged_resources(session, region),
-        find_old_amis(session, region),
-        find_idle_nat_gateways(session, region),
-        find_idle_rds_instances(session, region),
+    rules = [
+        find_unattached_ebs_volumes,
+        find_old_ebs_snapshots,
+        find_inactive_cloudwatch_logs,
+        find_unattached_elastic_ips,
+        find_detached_enis,
+        find_untagged_resources,
+        find_old_amis,
+        find_idle_nat_gateways,
+        find_idle_rds_instances,
+        find_idle_load_balancers,
     ]
 
-    for rule_results in all_rules:
-        assert isinstance(rule_results, list), f"Rule returned {type(rule_results)} instead of list"
-        for f in rule_results:
-            assert isinstance(f, Finding)
-            assert f.provider == "aws"
-            assert f.rule_id.startswith("aws.")
-            assert f.resource_id
-            assert f.region
-            assert f.detected_at and isinstance(f.detected_at, datetime)
+    all_results = []
+    for rule in rules:
+        rule_results = rule(session, region)
+        assert isinstance(
+            rule_results, list
+        ), f"{rule.__name__} returned {type(rule_results)} instead of list"
+        all_results.extend(rule_results)
+
+    for f in all_results:
+        assert isinstance(f, Finding)
+        assert f.provider == "aws"
+        assert f.rule_id.startswith("aws.")
+        assert f.resource_id
+        assert f.region
+        assert f.detected_at and isinstance(f.detected_at, datetime)

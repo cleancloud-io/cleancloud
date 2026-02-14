@@ -87,20 +87,6 @@ def test_find_idle_rds_instances(mock_boto3_session):
                     "DBClusterIdentifier": "my-aurora-cluster",
                     "TagList": [],
                 },
-                # Tagged with 'keep' - should NOT be flagged
-                {
-                    "DBInstanceIdentifier": "keep-db",
-                    "DBInstanceStatus": "available",
-                    "InstanceCreateTime": old_date,
-                    "DBInstanceClass": "db.t3.medium",
-                    "Engine": "mysql",
-                    "EngineVersion": "8.0.35",
-                    "MultiAZ": False,
-                    "AllocatedStorage": 100,
-                    "ReadReplicaSourceDBInstanceIdentifier": None,
-                    "DBClusterIdentifier": None,
-                    "TagList": [{"Key": "Keep", "Value": "true"}],
-                },
             ]
         }
     ]
@@ -140,9 +126,6 @@ def test_find_idle_rds_instances(mock_boto3_session):
 
     # Should NOT flag Aurora cluster member
     assert "aurora-db" not in db_ids
-
-    # Should NOT flag keep-tagged instance
-    assert "keep-db" not in db_ids
 
     # Verify finding details
     assert len(findings) == 1

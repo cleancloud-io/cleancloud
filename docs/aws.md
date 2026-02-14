@@ -117,6 +117,16 @@ Attach this policy to your IAM role or user:
       "Resource": "*"
     },
     {
+      "Sid": "ELBReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "RDSReadOnly",
       "Effect": "Allow",
       "Action": [
@@ -233,7 +243,7 @@ cleancloud doctor --provider aws --region us-east-1
 - Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
 - CI/CD readiness and compliance compatibility
 - Account ID, User ID, and ARN
-- All 10 required read-only permissions
+- All 14 required read-only permissions
 
 **Example output:**
 ```
@@ -280,6 +290,9 @@ Step 4: Read-Only Permission Validation
 [OK] ec2:DescribeNetworkInterfaces
 [OK] ec2:DescribeImages
 [OK] ec2:DescribeNatGateways
+[OK] rds:DescribeDBInstances
+[OK] elasticloadbalancing:DescribeLoadBalancers
+[OK] elasticloadbalancing:DescribeTargetGroups
 [OK] logs:DescribeLogGroups
 [OK] cloudwatch:GetMetricStatistics
 [OK] s3:ListAllMyBuckets
@@ -290,7 +303,7 @@ VALIDATION SUMMARY
 ======================================================================
 Authentication: OIDC (AssumeRoleWithWebIdentity)
 Security Grade: EXCELLENT
-Permissions Tested: 11/11 passed
+Permissions Tested: 14/14 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================
