@@ -1626,6 +1626,8 @@ azure-mgmt-network >= 25.0.0 # Azure Network SDK
 azure-mgmt-web >= 8.0.0 # Azure Web Apps SDK
 azure-mgmt-resource >= 23.0.0 # Azure Resource SDK
 azure-mgmt-subscription >= 3.0.0 # Azure Subscription SDK
+azure-mgmt-sql >= 3.0.0 # Azure SQL SDK
+azure-mgmt-monitor >= 6.0.0 # Azure Monitor SDK
 azure-core >= 1.38.0 # Azure SDK core
 ```
 
@@ -1682,6 +1684,8 @@ azure-mgmt-network==25.0.0
 azure-mgmt-web==8.0.0
 azure-mgmt-resource==23.0.0
 azure-mgmt-subscription==3.0.0
+azure-mgmt-sql==3.0.0
+azure-mgmt-monitor==6.0.0
 azure-core==1.38.0
 click==8.1.7
 pyyaml==6.0.1

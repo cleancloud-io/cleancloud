@@ -484,7 +484,7 @@ for lb in describe_load_balancers():
 
 ---
 
-## Azure Rules (9 Total)
+## Azure Rules (10 Total)
 
 ### 1. Unattached Managed Disks
 
@@ -842,6 +842,70 @@ for vm in virtual_machines.list_all():
 - Automated scripts that stop but don't deallocate
 
 **Required permission:** `Microsoft.Compute/virtualMachines/read`
+
+---
+
+### 10. Idle Azure SQL Databases
+
+**Rule ID:** `azure.sql_database.idle`
+
+**What it detects:** Azure SQL databases with zero connections for 14+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero connections for 14+ days (Azure Monitor metrics checked, strong idle signal)
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- Azure SQL databases in Standard/Premium tiers cost $15-$7,500+/month
+- Idle databases with no connections are a clear cost optimization signal
+
+**Why this matters:**
+- Azure SQL databases incur charges regardless of usage
+- Standard and Premium tiers have significant hourly costs
+- Idle databases are a major cost optimization opportunity
+
+**Detection logic:**
+```python
+for server in sql_servers:
+    for db in databases.list_by_server(rg, server.name):
+        if db.name == "master":  # Skip system databases
+            continue
+        if db.sku.tier == "Basic":  # Skip Basic tier (< $5/month)
+            continue
+        connections = get_metric(connection_successful, period=14_days)
+        if connections == 0:
+            confidence = "HIGH"
+            risk = "HIGH"
+```
+
+**Azure Monitor metrics checked:**
+- `connection_successful` (daily total over 14-day window)
+
+**Exclusions:**
+- System databases (`master`)
+- Basic tier databases (< $5/month, not worth flagging)
+
+**Common causes:**
+- Applications migrated to different databases
+- Dev/staging databases left running
+- Decommissioned services with retained databases
+- Test databases no longer needed
+
+**Cost estimates by SKU:**
+- Standard S0: ~$15/month
+- Standard S3: ~$150/month
+- Premium P1: ~$465/month
+- Premium P6: ~$3,720/month
+- Premium P15: ~$7,446/month
+
+**Required permissions:**
+- `Microsoft.Sql/servers/read`
+- `Microsoft.Sql/servers/databases/read`
+- `Microsoft.Insights/metrics/read`
 
 ---
 

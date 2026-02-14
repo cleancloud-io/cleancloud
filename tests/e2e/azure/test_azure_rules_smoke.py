@@ -8,6 +8,7 @@ from cleancloud.providers.azure.rules.app_service_plan_empty import find_empty_a
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
+from cleancloud.providers.azure.rules.sql_database_idle import find_idle_sql_databases
 from cleancloud.providers.azure.rules.unattached_managed_disks import find_unattached_managed_disks
 from cleancloud.providers.azure.rules.untagged_resources import find_untagged_resources
 from cleancloud.providers.azure.rules.vm_stopped_not_deallocated import (
@@ -55,6 +56,9 @@ def test_azure_rules_run_without_error():
             subscription_id=sub_id, credential=credential, region_filter=region_filter
         ),
         find_stopped_not_deallocated_vms(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        ),
+        find_idle_sql_databases(
             subscription_id=sub_id, credential=credential, region_filter=region_filter
         ),
     ]
