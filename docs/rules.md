@@ -31,7 +31,7 @@ Every finding includes a confidence level:
 
 ---
 
-## AWS Rules (8 Total)
+## AWS Rules (9 Total)
 
 ### 1. Unattached EBS Volumes
 
@@ -354,6 +354,67 @@ for gw in describe_nat_gateways():
 
 **Required permissions:**
 - `ec2:DescribeNatGateways`
+- `cloudwatch:GetMetricStatistics`
+
+---
+
+### 9. Idle RDS Instances
+
+**Rule ID:** `aws.rds.instance.idle`
+
+**What it detects:** RDS instances with zero database connections for 14+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero connections for 14+ days (CloudWatch metrics checked, strong idle signal)
+
+**Why HIGH confidence:**
+- Zero database connections is a very strong signal of non-use
+- Combined with age check and tag exclusions, false positive rate is low
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- RDS instances are among the more expensive AWS resources
+- Even small instances cost $12-50+/month
+- Production-class instances can cost $100-700+/month
+
+**Why this matters:**
+- RDS instances incur hourly charges regardless of usage
+- Idle instances with no connections are a clear cost optimization signal
+- Common after application migrations or decommissions
+
+**Detection logic:**
+```python
+for instance in describe_db_instances():
+    if instance.status == "available" and age >= idle_threshold_days:
+        if not instance.read_replica_source:  # Skip read replicas
+            if no_excluded_tags(instance):  # Skip 'keep' / 'do-not-delete'
+                connections = get_metric(DatabaseConnections, period=idle_threshold_days)
+                if connections == 0:
+                    confidence = "HIGH"
+                    risk = "HIGH"
+```
+
+**CloudWatch metrics checked:**
+- `AWS/RDS` -> `DatabaseConnections` (daily sum)
+
+**Exclusions:**
+- Aurora cluster members (`DBClusterIdentifier` set) — Aurora instances are managed at cluster level and may show zero connections individually even when the cluster is active
+- Read replicas (`ReadReplicaSourceDBInstanceIdentifier` set)
+- Instances tagged `keep` or `do-not-delete`
+- Instances younger than the idle threshold
+
+**Common causes:**
+- Applications migrated to different databases
+- Dev/staging instances left running
+- Decommissioned services with retained databases
+- Test databases no longer needed
+
+**Required permissions:**
+- `rds:DescribeDBInstances`
 - `cloudwatch:GetMetricStatistics`
 
 ---
@@ -685,7 +746,6 @@ This guarantees trust for long-running CI/CD integrations.
 
 **AWS:**
 - Empty security groups
-- Idle RDS instances
 
 **Azure:**
 - Unused NICs
