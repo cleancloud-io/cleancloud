@@ -16,8 +16,18 @@ CleanCloud supports multiple AWS authentication methods:
 
 **No long-lived credentials, temporary tokens only, SOC2 compliant.**
 
-#### IAM Role Trust Policy
+#### Setup Steps
 
+**Step 1: Create the OIDC Identity Provider** (one-time per AWS account)
+```bash
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com
+```
+
+> **Note:** A `--thumbprint-list` parameter is no longer required. AWS validates GitHub's OIDC tokens directly without certificate pinning. See [aws-actions/configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials) for details.
+
+**Step 2: Create the trust policy file** (`cleancloud-trust-policy.json`)
 ```json
 {
   "Version": "2012-10-17",
@@ -38,8 +48,31 @@ CleanCloud supports multiple AWS authentication methods:
 ```
 
 Replace:
-- `<ACCOUNT_ID>` - Your AWS account ID
-- `<YOUR_ORG>/<YOUR_REPO>` - Your GitHub organization and repository
+- `<ACCOUNT_ID>` — Your AWS account ID
+- `<YOUR_ORG>/<YOUR_REPO>` — Your GitHub organization and repository
+
+**Step 3: Create the IAM role**
+```bash
+aws iam create-role \
+  --role-name CleanCloudCIReadOnly \
+  --assume-role-policy-document file://cleancloud-trust-policy.json
+```
+
+**Step 4: Attach the read-only policy** (see [IAM Policy](#iam-policy-minimum-required-permissions) below)
+```bash
+aws iam put-role-policy \
+  --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudReadOnly \
+  --policy-document file://cleancloud-policy.json
+```
+
+**Step 5: Add your AWS account ID as a GitHub repository variable**
+
+Go to your repo → Settings → Secrets and variables → Actions → Variables tab → New repository variable:
+- Name: `AWS_ACCOUNT_ID`
+- Value: Your 12-digit AWS account ID
+
+> Use `vars` (not `secrets`) for account ID — it's not sensitive and makes debugging easier.
 
 #### GitHub Actions Workflow
 
@@ -57,14 +90,23 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/CleanCloudCIReadOnly
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
           aws-region: us-east-1
 
-      - name: Run CleanCloud
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate AWS permissions
+        run: cleancloud doctor --provider aws --region us-east-1
+
+      - name: Scan and enforce
         run: |
-          pip install cleancloud
-          cleancloud scan --provider aws --region us-east-1
+          cleancloud scan --provider aws --region us-east-1 \
+            --output json --output-file scan.json \
+            --fail-on-confidence HIGH
 ```
+
+> Use `--all-regions` instead of `--region us-east-1` to scan all regions with active resources.
 
 ---
 

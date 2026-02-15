@@ -1,45 +1,180 @@
 # CleanCloud
 
-**Safe, read-only cloud hygiene for teams that can't afford to break production.**
-
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-CleanCloud helps SRE and platform teams **safely identify orphaned, untagged, and inactive cloud resources** with the ownership context and risk confidence to **act today, not next month** using conservative, read-only checks designed for trust, not auto-cleanup. 
+**CleanCloud is a safe, read-only cloud hygiene tool for teams that can't afford to break production.**
 
-Built for AWS and Azure, safe to run in production, CI/CD pipelines, and regulated environments.
+CleanCloud helps SRE and platform teams **safely identify orphaned, untagged, and inactive cloud resources** — and **enforce cost hygiene as a CI/CD gate** so findings don't sit in a report no one acts on. Built for AWS and Azure, safe to run in production, CI/CD pipelines, and regulated environments.
 
 - **Read-only by design** — No deletions, no tag modifications, no resource changes
 - **Conservative detection** — Multiple signals with explicit confidence levels (LOW/MEDIUM/HIGH)
+- **CI/CD enforcement** — Fail builds on findings with `--fail-on-confidence HIGH` (safe by default, opt-in strict)
 - **Zero telemetry** — No phone-home, no data collection, no analytics
+
+### Why CleanCloud exists
+
+Most cost tools require write access, send data to SaaS platforms, and generate reports no one acts on. CleanCloud is different:
+- **Read-only** — your cloud provider enforces it, not us
+- **Runs in your environment** — no data leaves your account
+- **Enforces in CI/CD** — findings become gates, not backlog
 
 ```bash
 pip install cleancloud
 
 # AWS
-cleancloud doctor --provider aws
-cleancloud scan --provider aws --region us-east-1
+cleancloud scan --provider aws --all-regions
 
 # Azure
-cleancloud doctor --provider azure
 cleancloud scan --provider azure
+```
+
+### How it works
+
+```
+Your Cloud Account          CleanCloud (pip install)         Your CI/CD Pipeline
+(AWS / Azure)               (read-only scan)                 (GitHub Actions, etc.)
+
+IAM Role       ──────────►   cleancloud scan    ──────────►  Findings (JSON/CSV/human)
+(Reader only)               - 20 detection rules                      │
+No write access             - Confidence scoring                      ▼
+OIDC temporary tokens       - Evidence per finding           --fail-on-confidence HIGH
+                                                             Exit 0 = pass
+                                                             Exit 2 = policy violation
+```
+
+### Evaluating CleanCloud for enterprise use?
+
+CleanCloud is designed for production environments where 
+- Write access is prohibited, 
+- InfoSec review is mandatory,
+- CI/CD enforcement is required and
+- data cannot leave the cloud account.
+
+If your team is assessing cloud cost governance or hygiene controls, we can support:
+- Security reviews and IAM validation
+- CI/CD rollout design
+- Multi-account architecture discussions
+
+**[Start an evaluation discussion](https://www.getcleancloud.com/#contact)**
+
+---
+
+## Commands at a Glance
+
+### `doctor` — Validate credentials and permissions
+
+Checks authentication, security grade, and read-only permissions before you scan. Run this first.
+
+```bash
+# AWS — validates IAM credentials, auth method, and all required permissions
+# Defaults to us-east-1 if --region is not specified
+cleancloud doctor --provider aws
+
+# AWS — validate against a specific region
+cleancloud doctor --provider aws --region us-west-2
+
+# Azure — validates credentials, subscription access, and Reader role permissions
+# --region is not applicable for Azure doctor
+cleancloud doctor --provider azure
+```
+
+Sample output (AWS — CI/CD with OIDC):
+```
+Authentication Method: OIDC (AssumeRoleWithWebIdentity)
+[OK] Security Grade: EXCELLENT
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+Permissions Tested: 14/14 passed
+[OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
+```
+
+Sample output (Azure — CI/CD with Workload Identity):
+```
+Authentication Method: OIDC (Workload Identity Federation)
+[OK] Security Grade: EXCELLENT
+[OK]   - No client secrets stored
+[OK]   - Temporary credentials
+Subscriptions: 2 accessible
+[OK] AZURE ENVIRONMENT READY FOR CLEANCLOUD
+```
+
+> Local development uses AWS CLI profiles (ACCEPTABLE) or service principals (POOR). Doctor will recommend upgrading to OIDC. See [`docs/example-outputs.md`](docs/example-outputs.md) for full output examples.
+
+### `scan` — Find orphaned and idle resources
+
+Scans your cloud account for unattached volumes, idle gateways, untagged resources, and more. Read-only, safe for production. See all [20 rules across AWS and Azure](docs/rules.md).
+
+```bash
+# AWS — single region
+cleancloud scan --provider aws --region us-east-1
+
+# AWS — all regions with active resources (auto-detected)
+cleancloud scan --provider aws --all-regions
+
+# Azure — all accessible subscriptions (default)
+cleancloud scan --provider azure
+
+# Azure — specific subscription
+cleancloud scan --provider azure --subscription <subscription-id>
+
+# Azure — filter by location
+cleancloud scan --provider azure --region eastus
+
+# Output formats — feed into dashboards (Grafana, Datadog, etc.) or automation
+cleancloud scan --provider aws --all-regions --output json --output-file results.json
+cleancloud scan --provider azure --output csv --output-file results.csv
+
+# Exclude resources by tag
+cleancloud scan --provider aws --all-regions --ignore-tag env:production
+cleancloud scan --provider aws --all-regions --config cleancloud.yaml
+```
+
+### `scan --fail-*` — Enforce policies in CI/CD
+
+By default, scans exit `0` even with findings (safe for any pipeline). Opt in to enforcement with these flags:
+
+| Flag | Behavior | Exit code |
+|------|----------|-----------|
+| *(none)* | Report findings, never fail | `0` |
+| `--fail-on-confidence HIGH` | Fail only on HIGH confidence findings | `2` |
+| `--fail-on-confidence MEDIUM` | Fail on MEDIUM or higher | `2` |
+| `--fail-on-confidence LOW` | Fail on any confidence level | `2` |
+| `--fail-on-findings` | Fail on any finding (strict mode) | `2` |
+
+```bash
+# AWS — fail CI on HIGH confidence findings only (recommended starting point)
+cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH
+
+# Azure — fail CI on MEDIUM or higher
+cleancloud scan --provider azure --fail-on-confidence MEDIUM
+
+# Strict mode — fail on any finding
+cleancloud scan --provider aws --all-regions --fail-on-findings
+
+# Full CI/CD example: OIDC auth, JSON output, enforce HIGH confidence
+cleancloud scan --provider aws --all-regions \
+  --output json --output-file scan.json \
+  --fail-on-confidence HIGH
 ```
 
 ---
 
 ## Table of Contents
 
+- [Commands at a Glance](#commands-at-a-glance)
 - [See It In Action](#see-it-in-action)
-- [Quick Start](#quick-start)
 - [What CleanCloud Detects](#what-cleancloud-detects)
-- [Who This Is For](#who-cleancloud-is-and-is-not-for)
-- [Security & Trust](#security--trust)
-- [Enterprise & Production Use](#built-for-production--enterprise-use)
+- [Quick Start](#quick-start)
+- [Try It Locally](#try-it-locally-2-minutes)
 - [CI/CD Pipelines](#running-in-cicd-pipelines)
-- [Configuration](#configuration)
+- [Security & Trust](#security--trust)
+- [Tag-Based Filtering](#tag-based-filtering)
+- [Enterprise & Production Use](#built-for-production--enterprise-use)
+- [Who This Is For](#who-cleancloud-is-and-is-not-for)
 - [Why Teams Choose CleanCloud](#why-teams-choose-cleancloud)
 - [Design Philosophy](#design-philosophy)
 - [Documentation](#documentation)
@@ -47,62 +182,6 @@ cleancloud scan --provider azure
 ---
 
 ## See It In Action
-
-### `cleancloud doctor --provider aws` — Validate your environment in seconds
-
-```
-======================================================================
-AWS ENVIRONMENT VALIDATION
-======================================================================
-
-Step 1: AWS Credential Resolution
-----------------------------------------------------------------------
-[OK] AWS session created successfully
-
-Step 2: Authentication Method Detection
-----------------------------------------------------------------------
-Authentication Method: OIDC (AssumeRoleWithWebIdentity)
-  Boto3 Provider: assume-role-with-web-identity
-  Credential Type: Temporary
-  Lifetime: 1 hour (temporary)
-  Rotation Required: No (auto-rotated)
-
-[OK] Security Grade: EXCELLENT
-[OK]   - Temporary credentials
-[OK]   - Auto-rotated
-[OK]   - No secret storage required
-
-[OK] CI/CD Ready: YES
-
-Step 3: Identity Verification
-----------------------------------------------------------------------
-[OK] Account ID: 123456789012
-[OK] ARN: arn:aws:sts::123456789012:assumed-role/CleanCloudCIReadOnly/github-actions
-
-Step 4: Read-Only Permission Validation
-----------------------------------------------------------------------
-[OK] ec2:DescribeVolumes
-[OK] ec2:DescribeSnapshots
-[OK] ec2:DescribeRegions
-[OK] ec2:DescribeAddresses
-[OK] ec2:DescribeNetworkInterfaces
-[OK] ec2:DescribeImages
-[OK] ec2:DescribeNatGateways
-[OK] logs:DescribeLogGroups
-[OK] cloudwatch:GetMetricStatistics
-[OK] s3:ListAllMyBuckets
-[OK] s3:GetBucketTagging
-
-======================================================================
-VALIDATION SUMMARY
-======================================================================
-Authentication: OIDC (AssumeRoleWithWebIdentity)
-Security Grade: EXCELLENT
-Permissions Tested: 11/11 passed
-
-[OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
-======================================================================
-```
 
 ### `cleancloud scan --provider aws --all-regions` — Find what's costing you money
 
@@ -140,22 +219,7 @@ Found 6 hygiene issues:
      - estimated_monthly_cost_usd: 32.40
      - idle_threshold_days: 14
 
-3. [AWS] Old AMI
-   Risk       : Low
-   Confidence : Medium
-   Resource   : aws.ec2.ami → ami-0fedcba9876543210
-   Region     : us-east-1
-   Rule       : aws.ec2.ami.old
-   Reason     : AMI is 243 days old with 3 associated snapshots (85.0 GB)
-   Detected   : 2026-02-08T14:32:05+00:00
-   Details:
-     - ami_name: backend-v2.3.1-2025-06-10
-     - age_days: 243
-     - snapshot_count: 3
-     - total_size_gb: 85.0
-     - estimated_monthly_cost_usd: 4.25
-
-4. [AWS] Unattached Elastic IP
+3. [AWS] Unattached Elastic IP
    Risk       : Low
    Confidence : High
    Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
@@ -168,104 +232,15 @@ Found 6 hygiene issues:
      - domain: vpc
      - age_days: 92
 
-5. [AWS] CloudWatch Log Group with Infinite Retention
-   Risk       : Low
-   Confidence : Medium
-   Resource   : aws.cloudwatch.log_group → /aws/lambda/legacy-processor
-   Region     : us-east-1
-   Rule       : aws.cloudwatch.logs.infinite_retention
-   Reason     : Log group has no retention policy (never expires)
-   Detected   : 2026-02-08T14:32:07+00:00
-   Details:
-     - stored_bytes: 8745213952
-     - retention_days: Never expires
-
-6. [AWS] Untagged Resource
-   Risk       : Low
-   Confidence : Medium
-   Resource   : aws.s3.bucket → company-temp-uploads-2024
-   Region     : global
-   Rule       : aws.resource.untagged
-   Reason     : S3 bucket has no tags
-   Detected   : 2026-02-08T14:32:08+00:00
-
 --- Scan Summary ---
 Total findings: 6
-
-By risk:
-  low: 5
-  medium: 1
-
-By confidence:
-  high: 2
-  medium: 4
-
+By risk:    low: 5  medium: 1
+By confidence:  high: 2  medium: 4
 Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
-Scanned at: 2026-02-08T14:32:08+00:00
-```
-
-### `cleancloud doctor --provider azure` — Azure validation
 
 ```
-======================================================================
-AZURE ENVIRONMENT VALIDATION
-======================================================================
 
-Step 1: Azure Credential Resolution
-----------------------------------------------------------------------
-Authentication Method: OIDC (Workload Identity Federation)
-  Lifetime: 1 hour (temporary)
-  Rotation Required: No
-[OK] Uses Secret: No (secretless)
-
-[OK] Security Grade: EXCELLENT
-[OK]   - No client secrets stored
-[OK]   - Temporary credentials
-[OK]   - Auto-rotated
-
-[OK] CI/CD Ready: YES
-[OK]   Suitable for production CI/CD pipelines
-
-[OK] Compliance: SOC2/ISO27001 Compatible
-
-Step 2: Credential Acquisition
-----------------------------------------------------------------------
-[OK] Azure credentials acquired successfully
-  Token expires in: ~58 minutes
-
-Step 3: Subscription Access Validation
-----------------------------------------------------------------------
-[OK] Accessible subscriptions: 2
-  • Production (a1b2c3d4-e5f6-7890-abcd-ef1234567890)
-  • Staging (f9e8d7c6-b5a4-3210-fedc-ba0987654321)
-
-Step 4: Permission Validation
-----------------------------------------------------------------------
-[OK] Subscription read access confirmed
-  Reader role provides all required permissions:
-    - Microsoft.Compute/disks/read
-    - Microsoft.Compute/snapshots/read
-    - Microsoft.Network/publicIPAddresses/read
-    - Microsoft.Web/serverfarms/read
-    - Microsoft.Network/loadBalancers/read
-    - Microsoft.Network/applicationGateways/read
-    - Microsoft.Network/virtualNetworkGateways/read
-    - Microsoft.Network/connections/read
-    - Microsoft.Compute/virtualMachines/read
-    - Microsoft.Sql/servers/read
-    - Microsoft.Sql/servers/databases/read
-    - Microsoft.Insights/metrics/read
-
-======================================================================
-VALIDATION SUMMARY
-======================================================================
-Authentication: OIDC (Workload Identity Federation)
-Security Grade: EXCELLENT
-Subscriptions: 2 accessible
-
-[OK] AZURE ENVIRONMENT READY FOR CLEANCLOUD
-======================================================================
-```
+> **Coming soon:** Cost impact summaries with estimated monthly waste per finding. **[Get notified](https://getcleancloud.com)**
 
 ### `cleancloud scan --provider azure` — Azure scan output
 
@@ -310,43 +285,218 @@ Found 5 hygiene issues:
      - sku: Standard
      - subscription: Production
 
-4. [AZURE] Empty App Service Plan
-   Risk       : Low
-   Confidence : High
-   Resource   : azure.web.app_service_plan → plan-old-staging
-   Region     : eastus2
-   Rule       : azure.app_service_plan_empty
-   Reason     : App Service Plan has no associated web apps
-   Detected   : 2026-02-08T14:45:15+00:00
-   Details:
-     - sku: P1v3
-     - subscription: Staging
-
-5. [AZURE] Untagged Resource
-   Risk       : Low
-   Confidence : Medium
-   Resource   : azure.compute.disk → temp-migration-disk
-   Region     : eastus
-   Rule       : azure.resource.untagged
-   Reason     : Resource has no tags
-   Detected   : 2026-02-08T14:45:16+00:00
-
 --- Scan Summary ---
 Total findings: 5
-
-By risk:
-  low: 4
-  medium: 1
-
-By confidence:
-  high: 3
-  medium: 2
-
+By risk:    low: 4  medium: 1
+By confidence:  high: 3  medium: 2
 Subscriptions scanned: Production, Staging (all accessible)
-Scanned at: 2026-02-08T14:45:16+00:00
 ```
 
 > Every finding includes confidence levels and evidence so your team reviews with context — not guesswork.
+
+For full output examples including doctor validation, JSON, and CSV formats, see [`docs/example-outputs.md`](docs/example-outputs.md).
+
+---
+
+## What CleanCloud Detects
+
+20 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
+
+**Understanding confidence levels:**
+- **HIGH** — Single definitive signal with very low false-positive risk (e.g., a volume is unattached, an IP has no association)
+- **MEDIUM** — Time-based heuristics or multiple signals required (e.g., no traffic for 14+ days, snapshot age exceeds threshold)
+
+> **Disagree with a confidence level?** You control the enforcement threshold with `--fail-on-confidence`. Start with `HIGH` to only catch the most obvious waste, then tighten to `MEDIUM` as your team validates. You can also exclude specific resources using [tag-based filtering](#tag-based-filtering).
+
+| Provider | Rule | What It Finds | Confidence |
+|----------|------|---------------|------------|
+| AWS | Unattached EBS Volumes | Volumes not attached to any instance | HIGH |
+| AWS | Old EBS Snapshots | Snapshots older than 90 days | MEDIUM |
+| AWS | Infinite Retention Logs | CloudWatch log groups that never expire | MEDIUM |
+| AWS | Unattached Elastic IPs | EIPs not associated with any resource (30+ days) | HIGH |
+| AWS | Detached ENIs | Network interfaces detached for 60+ days | MEDIUM |
+| AWS | Untagged Resources | EBS volumes, S3 buckets, log groups with no tags | MEDIUM |
+| AWS | Old AMIs | AMIs older than 180 days with snapshot storage costs | MEDIUM |
+| AWS | Idle NAT Gateways | NAT Gateways with zero traffic for 14+ days (~$32/mo each) | MEDIUM |
+| AWS | Idle RDS Instances | RDS instances with zero connections for 14+ days | HIGH |
+| AWS | Idle Elastic Load Balancers | ALB/NLB/CLB with zero traffic for 14+ days | HIGH |
+| Azure | Unattached Managed Disks | Disks not attached to any VM | MEDIUM |
+| Azure | Old Snapshots | Snapshots exceeding age threshold | MEDIUM |
+| Azure | Unused Public IPs | Public IPs with no configuration attached | HIGH |
+| Azure | Empty Load Balancers | Load balancers with no backend pools | HIGH |
+| Azure | Empty App Gateways | Application gateways with no backends | HIGH |
+| Azure | Empty App Service Plans | App Service Plans with no web apps | HIGH |
+| Azure | Idle VNet Gateways | Virtual Network Gateways with no active connections | MEDIUM |
+| Azure | Stopped (Not Deallocated) VMs | VMs stopped but still incurring full compute charges | HIGH |
+| Azure | Idle SQL Databases | SQL databases with zero connections for 14+ days | HIGH |
+| Azure | Untagged Resources | Resources with no tags attached | MEDIUM |
+
+**See [`docs/rules.md`](docs/rules.md) for full details, signals used, and evidence documentation.**
+
+### Enforce these findings in CI/CD
+
+Every rule above produces findings with a confidence level (LOW/MEDIUM/HIGH). Use that to set your enforcement threshold:
+
+```bash
+# Fail only on HIGH confidence findings (recommended starting point)
+cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH
+
+# Tighten over time — fail on MEDIUM or higher
+cleancloud scan --provider azure --fail-on-confidence MEDIUM
+
+# Strictest — fail on any finding regardless of confidence
+cleancloud scan --provider aws --all-regions --fail-on-findings
+```
+
+Start with `HIGH` to catch the obvious waste (unattached EBS volumes, unused public IPs, empty load balancers), then tighten to `MEDIUM` as your team cleans up. See [all enforcement options](#scan---fail----enforce-policies-in-cicd) for the full flag reference.
+
+---
+
+## Quick Start
+
+**Python:** 3.9 or later
+
+```bash
+pip install cleancloud
+```
+
+---
+
+## Try It Locally (2 minutes)
+
+Start here. No OIDC or CI/CD setup needed — just your existing cloud credentials.
+
+### AWS
+
+**Option A: AWS CLI** (if you already have `aws configure` set up)
+```bash
+# Your existing AWS CLI credentials work — no extra setup
+cleancloud doctor --provider aws
+cleancloud scan --provider aws --region us-east-1
+```
+
+**Option B: Environment variables**
+```bash
+export AWS_ACCESS_KEY_ID=<your-access-key>
+export AWS_SECRET_ACCESS_KEY=<your-secret-key>
+export AWS_DEFAULT_REGION=us-east-1
+
+cleancloud doctor --provider aws
+cleancloud scan --provider aws --region us-east-1
+```
+
+**Permissions required:** Your IAM user/role needs 14 read-only permissions (`ec2:Describe*`, `rds:Describe*`, `s3:List*`, etc.). The `doctor` command will tell you exactly which permissions are missing. Full IAM policy: [`docs/aws.md`](docs/aws.md)
+
+### Azure
+
+**Option A: Azure CLI** (if you already have `az login` set up)
+```bash
+# Your existing Azure CLI session works — no extra setup
+cleancloud doctor --provider azure
+cleancloud scan --provider azure
+```
+
+**Option B: Service principal**
+```bash
+export AZURE_CLIENT_ID=<your-client-id>
+export AZURE_TENANT_ID=<your-tenant-id>
+export AZURE_CLIENT_SECRET=<your-client-secret>
+export AZURE_SUBSCRIPTION_ID=<your-subscription-id>
+
+cleancloud doctor --provider azure
+cleancloud scan --provider azure
+```
+
+**Permissions required:** `Reader` role at subscription scope (built-in, no custom definition needed). Full RBAC setup: [`docs/azure.md`](docs/azure.md)
+
+### View Results
+
+```bash
+# Human-readable (default)
+cleancloud scan --provider aws --all-regions
+
+# JSON — feed into dashboards or automation
+cleancloud scan --provider aws --all-regions --output json --output-file results.json
+
+# CSV — for spreadsheet review
+cleancloud scan --provider azure --output csv --output-file results.csv
+```
+
+**JSON Output Schema:** Versioned (`1.0.0`) with backward compatibility. See [`docs/example-outputs.md`](docs/example-outputs.md) for complete examples.
+
+> **Ready to enforce in CI/CD?** Once local scans look right, set up OIDC and add enforcement flags. See the next section.
+
+---
+
+## Running in CI/CD Pipelines
+
+Graduate from local scans to automated enforcement. This requires a one-time OIDC setup (~5 minutes) so your pipeline can authenticate without long-lived secrets.
+
+### Prerequisites
+
+Follow the step-by-step setup guide for your provider:
+
+- **AWS**: [`docs/aws.md`](docs/aws.md) — Create IAM role with OIDC trust, attach read-only policy, add GitHub variable
+- **Azure**: [`docs/azure.md`](docs/azure.md) — Create app registration with Workload Identity Federation, assign Reader role, add GitHub secrets
+
+> No long-lived secrets needed — OIDC provides temporary credentials that auto-rotate every run.
+
+### AWS — GitHub Actions with OIDC
+
+```yaml
+# .github/workflows/cleancloud.yml
+- name: Configure AWS credentials (OIDC)
+  uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+    aws-region: us-east-1
+
+- name: Install CleanCloud
+  run: pip install cleancloud
+
+- name: Validate AWS permissions
+  run: cleancloud doctor --provider aws --region us-east-1
+
+- name: Scan and enforce
+  run: |
+    cleancloud scan --provider aws --region us-east-1 \
+      --output json --output-file scan.json \
+      --fail-on-confidence HIGH
+```
+
+> Use `--all-regions` instead of `--region us-east-1` to scan all regions with active resources.
+
+### Azure — GitHub Actions with Workload Identity
+
+```yaml
+# .github/workflows/cleancloud.yml
+- name: Azure Login (OIDC)
+  uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+- name: Install CleanCloud
+  run: pip install cleancloud
+
+- name: Validate Azure permissions
+  run: cleancloud doctor --provider azure
+
+- name: Scan and enforce
+  run: |
+    cleancloud scan --provider azure \
+      --output json --output-file scan.json \
+      --fail-on-confidence MEDIUM
+```
+
+### What enforcement looks like
+
+- **No findings or below threshold** — exit `0`, pipeline continues
+- **Findings at or above threshold** — exit `2`, pipeline fails with a summary of violations
+- **No flags** — exit `0` always (safe for scheduled scans and exploratory runs)
+
+**Complete CI/CD guide:** [`docs/ci.md`](docs/ci.md) — GitHub Actions workflow examples (AWS, Azure, multi-cloud), OIDC setup, enforcement patterns, output formats, tag filtering, and troubleshooting.
 
 ---
 
@@ -357,7 +507,7 @@ CleanCloud is designed for enterprise environments where security review and app
 ### Why InfoSec Teams Trust CleanCloud
 
 **Verifiable Read-Only Design:**
-- **IAM Proof Pack**: Audit a 30-line JSON policy, not our code
+- **IAM Proof Pack**: Audit a concise JSON policy, not our code
 - **OIDC-First**: Temporary credentials, no secrets stored
 - **Cloud-Enforced**: AWS/Azure guarantees read-only, not us
 - **Conservative Detection**: MEDIUM confidence by default, age thresholds, explicit evidence
@@ -369,7 +519,7 @@ CleanCloud is designed for enterprise environments where security review and app
 4. Results are yours - we never see your data
 
 **The Trust Model:**
-> "By requiring a separate, verifiable Read-Only IAM role, CleanCloud shifts trust from our code to your Cloud Provider's enforcement. InfoSec teams don't need to audit our Python code line-by-line—they audit a 30-line JSON policy and verify it's read-only."
+> "By requiring a separate, verifiable Read-Only IAM role, CleanCloud shifts trust from our code to your Cloud Provider's enforcement. InfoSec teams don't need to audit our Python code line-by-line—they audit a concise JSON policy and verify it's read-only."
 
 ### Read-Only by Design
 
@@ -414,29 +564,63 @@ CleanCloud is designed for enterprise environments where security review and app
 
 ---
 
-## Who CleanCloud Is (and Is Not) For
+## Tag-Based Filtering
 
-**Built for teams who operate at scale:**
-- **Cloud Architects** designing cost-governance frameworks across accounts and subscriptions
-- **SRE / Platform teams** who need safe, scheduled hygiene evaluation in production
-- **FinOps teams** building resource accountability without tooling risk
-- **Security-reviewed environments** where mutations are prohibited and tooling must pass InfoSec review
-- **CI/CD pipelines** enforcing cost hygiene as a gate — without infrastructure changes
+CleanCloud supports tag-based filtering to reduce noise by ignoring findings for resources you explicitly mark. Useful when certain environments, teams, or services should be out of scope for hygiene review.
 
-**CleanCloud is NOT:**
-- An automated cleanup or deletion service
-- A replacement for Trusted Advisor, Azure Advisor, or Config
-- A cost dashboard with rightsizing recommendations
-- A tool that modifies, tags, or deletes resources
+> **Note:** Tag filtering is **ignore-only** — it does not disable rules, modify resources, or protect them from deletion. CleanCloud remains read-only.
 
-CleanCloud exists to answer one question safely:
+### Config file (`cleancloud.yaml`)
 
-> **What orphaned resources are costing us money — without risking production?**
+Create a `cleancloud.yaml` file in your project root (or specify a custom path with `--config`):
 
+```yaml
+version: 1
+
+tag_filtering:
+  enabled: true
+  ignore:
+    - key: env
+      value: production
+    - key: team
+      value: platform
+    - key: keep   # key-only match (any value)
+```
+
+```bash
+cleancloud scan --provider aws --region us-east-1 --config cleancloud.yaml
+```
+
+### CLI overrides (highest priority)
+
+```bash
+cleancloud scan --provider aws --region us-east-1 \
+  --ignore-tag env:production \
+  --ignore-tag team:platform
+```
+
+**Important:** CLI `--ignore-tag` replaces YAML configuration — they are not merged. This ensures CI/CD runs are explicit and predictable.
+
+### Behavior
+
+- If a resource has any matching tag, its finding is ignored
+- Matching is exact (no regex, no partial matches)
+- Multiple ignore rules are OR'ed (any match ignores)
+- Ignored findings are counted and reported in the summary for auditability
+
+```
+Ignored by tag policy: 7 findings
+```
+
+Tag filtering works best with broad ownership or scope tags (`env`, `team`, `service`) — not per-resource exceptions.
+
+---
 
 ## Built for Production & Enterprise Use
 
 CleanCloud is designed to be approved by security teams, not bypassed.
+
+> **Most FinOps tools generate reports that no one acts on.** CleanCloud closes the loop with `--fail-on-confidence HIGH` — turning findings into CI/CD gates that block deployment until the waste is resolved. Detection *and* enforcement, without touching your infrastructure.
 
 ### Enterprise Features
 - **Read-only by design** - No Delete*, Modify*, or Tag* permissions required
@@ -462,366 +646,24 @@ CleanCloud is designed to be approved by security teams, not bypassed.
 | `2` | Policy violation (only when using `--fail-on-findings` or `--fail-on-confidence`) |
 | `3` | Missing permissions or invalid credentials |
 
-**Examples:**
-
-```bash
-# Default: Reports findings, exits 0 (safe for any pipeline)
-cleancloud scan --provider aws --region us-east-1
-
-# Fail on HIGH confidence findings only
-cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH
-
-# Fail on MEDIUM or higher confidence
-cleancloud scan --provider aws --region us-east-1 --fail-on-confidence MEDIUM
-
-# Fail on ANY findings (strict mode)
-cleancloud scan --provider aws --region us-east-1 --fail-on-findings
-```
-
-## Quick Start
-
-### Requirements
-
-**Python:** 3.9 or later
-
-**Cloud Access:**
-- **AWS**: AWS CLI configured, or IAM role (for CI/CD), or environment variables
-- **Azure**: Azure CLI authenticated, or Workload Identity (for CI/CD)
+See [Commands at a Glance — Enforce policies in CI/CD](#scan---fail----enforce-policies-in-cicd) for usage examples.
 
 ---
 
-## Running Locally
-
-Use CleanCloud locally for development, testing, and ad-hoc hygiene reviews.
-
-### 1. Installation
-
-```bash
-pip install cleancloud
-```
-
-### 2. Set Up Credentials
-
-**AWS:**
-```bash
-export AWS_ACCESS_KEY_ID=<your-access-key>
-export AWS_SECRET_ACCESS_KEY=<your-secret-key>
-export AWS_DEFAULT_REGION=us-east-1
-```
-
-**Azure:**
-```bash
-export AZURE_CLIENT_ID=<your-client-id>
-export AZURE_TENANT_ID=<your-tenant-id>
-export AZURE_CLIENT_SECRET=<your-client-secret>
-export AZURE_SUBSCRIPTION_ID=<your-subscription-id>
-```
-
-> **Alternative methods:** AWS CLI profiles and Azure CLI are also supported. See [Configuration](#configuration) for details.
-
-### 3. Validate Credentials
-
-```bash
-# AWS - validate credentials and permissions
-# Defaults to us-east-1 if --region not specified
-cleancloud doctor --provider aws
-cleancloud doctor --provider aws --region us-west-2
-
-# Azure - validate credentials and subscription access
-# Note: --region parameter is not applicable for Azure doctor
-cleancloud doctor --provider azure
-```
-
-### 4. Run a Scan
-
-```bash
-# AWS - single region
-cleancloud scan --provider aws --region us-east-1
-
-# AWS - all active regions (auto-detects regions with resources)
-cleancloud scan --provider aws --all-regions
-
-# Azure - all subscriptions (default)
-cleancloud scan --provider azure
-
-# Azure - specific subscription
-cleancloud scan --provider azure --subscription <subscription-id>
-
-# Azure - multiple subscriptions
-cleancloud scan --provider azure --subscription <sub-id-1> --subscription <sub-id-2>
-
-# Azure - filter by location
-cleancloud scan --provider azure --region eastus
-
-# Azure - specific subscription and location
-cleancloud scan --provider azure --subscription <subscription-id> --region eastus
-```
-
-### 5. View Results
-
-```bash
-# Human-readable output (default)
-cleancloud scan --provider aws --region us-east-1
-
-# JSON output (AWS)
-cleancloud scan --provider aws --region us-east-1 --output json --output-file results.json
-
-# JSON output (Azure)
-cleancloud scan --provider azure --output json --output-file results.json
-
-# CSV output
-cleancloud scan --provider aws --region us-east-1 --output csv --output-file results.csv
-```
-
-**JSON Output Schema:**
-
-CleanCloud uses a versioned JSON schema (current: `1.0.0`). All JSON output includes a `schema_version` field for backward compatibility.
-
-- **Schema Definition**: [`schemas/output-v1.0.0.json`](schemas/output-v1.0.0.json)
-- **Complete Examples**: [`docs/ci.md#json-output-machine-readable`](docs/ci.md#json-output-machine-readable)
-
-AWS and Azure have slightly different summary structures:
-- **AWS**: Uses `region_selection_mode` with values `"explicit"` or `"all-regions"`
-- **Azure**: Uses `subscription_selection_mode` with values `"explicit"` or `"all"`, plus `subscriptions_scanned` array
-
-**CSV Output:**
-CSV is a simplified format containing core fields (11 columns) for spreadsheet review. Use JSON for complete data including evidence and diagnostic details.
-
----
-
-## Running in CI/CD Pipelines
-
-CleanCloud is built for CI/CD with OIDC authentication, stable exit codes, and JSON/CSV output. Safe by default — exits `0` even with findings unless you opt into enforcement.
-
-```bash
-# In your pipeline — no secrets required with OIDC
-pip install cleancloud
-cleancloud scan --provider aws --all-regions --output json --output-file scan.json --fail-on-confidence HIGH
-```
-
-**Complete CI/CD guide:** [`docs/ci.md`](docs/ci.md) — GitHub Actions examples (AWS, Azure, multi-cloud), enforcement patterns, output formats, tag filtering, and troubleshooting.
-
----
-
-## What CleanCloud Detects
-
-20 high-signal rules across AWS and Azure — each read-only, conservative, and designed to avoid false positives in IaC environments.
-
-| Provider | Rule | What It Finds | Confidence |
-|----------|------|---------------|------------|
-| AWS | Unattached EBS Volumes | Volumes not attached to any instance | HIGH |
-| AWS | Old EBS Snapshots | Snapshots older than 90 days | MEDIUM |
-| AWS | Infinite Retention Logs | CloudWatch log groups that never expire | MEDIUM |
-| AWS | Unattached Elastic IPs | EIPs not associated with any resource (30+ days) | HIGH |
-| AWS | Detached ENIs | Network interfaces detached for 60+ days | MEDIUM |
-| AWS | Untagged Resources | EBS volumes, S3 buckets, log groups with no tags | MEDIUM |
-| AWS | Old AMIs | AMIs older than 180 days with snapshot storage costs | MEDIUM |
-| AWS | Idle NAT Gateways | NAT Gateways with zero traffic for 14+ days (~$32/mo each) | MEDIUM |
-| AWS | Idle RDS Instances | RDS instances with zero connections for 14+ days | HIGH |
-| AWS | Idle Elastic Load Balancers | ALB/NLB/CLB with zero traffic for 14+ days | HIGH |
-| Azure | Unattached Managed Disks | Disks not attached to any VM | MEDIUM |
-| Azure | Old Snapshots | Snapshots exceeding age threshold | MEDIUM |
-| Azure | Unused Public IPs | Public IPs with no configuration attached | HIGH |
-| Azure | Empty Load Balancers | Load balancers with no backend pools | HIGH |
-| Azure | Empty App Gateways | Application gateways with no backends | HIGH |
-| Azure | Empty App Service Plans | App Service Plans with no web apps | HIGH |
-| Azure | Idle VNet Gateways | Virtual Network Gateways with no active connections | MEDIUM |
-| Azure | Stopped (Not Deallocated) VMs | VMs stopped but still incurring full compute charges | HIGH |
-| Azure | Idle SQL Databases | SQL databases with zero connections for 14+ days | HIGH |
-| Azure | Untagged Resources | Resources with no tags attached | MEDIUM |
-
-**See [`docs/rules.md`](docs/rules.md) for full details, signals used, and evidence documentation.**
-
----
-
-### Policy Enforcement
-
-**Default Behavior:** CleanCloud reports findings but **does not fail builds** (exits 0). This makes it safe for scheduled scans, CI/CD pipelines, and exploratory runs.
-
-**Opt-in strict mode with explicit flags:**
-
-```bash
-# Default: Report findings, don't fail builds (exit 0)
-cleancloud scan --provider aws --region us-east-1
-
-# Fail on HIGH confidence findings
-cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH
-
-# Fail on MEDIUM or higher confidence
-cleancloud scan --provider aws --region us-east-1 --fail-on-confidence MEDIUM
-
-# Fail on LOW or higher (all findings by confidence)
-cleancloud scan --provider aws --region us-east-1 --fail-on-confidence LOW
-
-# Fail on ANY findings (strict mode, ignores confidence levels)
-cleancloud scan --provider aws --region us-east-1 --fail-on-findings
-```
-
-**Azure Examples:**
-
-```bash
-# Default: Report findings, don't fail builds (exit 0)
-cleancloud scan --provider azure
-
-# Fail on HIGH confidence findings
-cleancloud scan --provider azure --fail-on-confidence HIGH
-
-# Fail on MEDIUM or higher confidence
-cleancloud scan --provider azure --fail-on-confidence MEDIUM
-
-# Fail on LOW or higher (all findings by confidence)
-cleancloud scan --provider azure --fail-on-confidence LOW
-
-# Fail on ANY findings (strict mode, ignores confidence)
-cleancloud scan --provider azure --fail-on-findings
-
-# With specific subscription
-cleancloud scan --provider azure --subscription <subscription-id>
-```
-
-**Note:** Policy enforcement works identically for both AWS and Azure providers.
-
----
-
-## Configuration
-
-### AWS Authentication
-
-**Local Development:**
-```bash
-export AWS_ACCESS_KEY_ID=<your-access-key>
-export AWS_SECRET_ACCESS_KEY=<your-secret-key>
-export AWS_DEFAULT_REGION=us-east-1
-
-cleancloud scan --provider aws --region us-east-1
-```
-
-**CI/CD:**
-- Use GitHub Actions OIDC (see [Running in CI/CD Pipelines](#running-in-cicd-pipelines))
-- Requires IAM role with read-only permissions
-
-**IAM Permissions:**
-- Only `List*`, `Describe*`, `Get*` operations required
-- No `Delete*`, `Modify*`, or `Tag*` permissions
-- Full policy and alternative auth methods: [`docs/aws.md`](docs/aws.md)
-
----
-
-### Azure Authentication
-
-**Local Development:**
-```bash
-export AZURE_CLIENT_ID=<your-client-id>
-export AZURE_TENANT_ID=<your-tenant-id>
-export AZURE_CLIENT_SECRET=<your-client-secret>
-export AZURE_SUBSCRIPTION_ID=<your-subscription-id>
-
-cleancloud scan --provider azure
-```
-
-**CI/CD:**
-- Use Azure Workload Identity Federation (see [Running in CI/CD Pipelines](#running-in-cicd-pipelines))
-- Requires `Reader` role at subscription scope
-
-**Permissions:**
-- Only read-only access required
-- No write, delete, or tag permissions
-- Full setup guide and alternative auth methods: [`docs/azure.md`](docs/azure.md)
-
-**Subscription Filtering:**
-```bash
-# Default: scan all accessible subscriptions
-cleancloud scan --provider azure
-
-# Scan specific subscriptions
-cleancloud scan --provider azure --subscription <sub-id-1> --subscription <sub-id-2>
-```
-
----
-
-### Tag-Based Filtering (Ignore Only)
-
-CleanCloud supports tag-based filtering to reduce noise by ignoring findings for resources you explicitly mark.
-
-This is useful when certain environments, teams, or services should be out of scope for hygiene review (for example: production or shared platform resources).
-
-> **Note:** Tag filtering is **ignore-only**
->
-> It does **not** disable rules, modify resources, or protect them from deletion.  
-> CleanCloud remains **read-only and review-only**.
-
-### Configuration File (cleancloud.yaml)
-
-Create a `cleancloud.yaml` file in your project root (or specify a custom path with `--config`):
-
-```yaml
-version: 1
-
-tag_filtering:
-  enabled: true
-  ignore:
-    - key: env
-      value: production
-    - key: team
-      value: platform
-    - key: keep   # key-only match (any value)
-```
-
-**Usage:**
-
-```bash
-# With config file in repository root
-cleancloud scan --provider aws --region us-east-1 --config cleancloud.yaml
-
-# Or specify full path
-cleancloud scan --provider aws --region us-east-1 --config /path/to/cleancloud.yaml
-```
-
-**Behavior:**
-* If a resource has any matching tag, its finding is ignored
-* Matching is exact (no regex, no partial matches)
-* Multiple ignore rules are OR'ed (any match ignores)
-
-
-### Command Line Overrides (Highest Priority)
-You can pass ignore tags directly via CLI:
-```
-cleancloud scan \
-  --provider aws \
-  --region us-east-1 \
-  --ignore-tag env:production \
-  --ignore-tag team:platform
-
-```
-
-**Important:**
-* CLI --ignore-tag replaces YAML configuration
-* YAML and CLI tags are not merged
-* This ensures CI/CD runs are explicit and predictable
-
-
-#### Scan Output & Transparency
-
-Ignored findings are:
-
-- Not included in scan results
-- Counted and reported in the summary
-- Preserved internally for auditability
-
-Example summary output:
-```
-Ignored by tag policy: 7 findings
-```
-
-#### Recommended Usage
-
-Tag filtering works best with **broad ownership or scope tags**, such as:
-
-* env: production
-* team: platform
-* service: core-infra
-
-It is **not intended** for per-resource exceptions or lifecycle management.
+## Who CleanCloud Is (and Is Not) For
+
+**Built for teams who operate at scale:**
+- **Cloud Architects** designing cost-governance frameworks across accounts and subscriptions
+- **SRE / Platform teams** who need safe, scheduled hygiene evaluation in production
+- **FinOps teams** building resource accountability without tooling risk
+- **Security-reviewed environments** where mutations are prohibited and tooling must pass InfoSec review
+- **CI/CD pipelines** enforcing cost hygiene as a gate — without infrastructure changes
+
+**CleanCloud is NOT:**
+- An automated cleanup or deletion service
+- A replacement for Trusted Advisor, Azure Advisor, or Config
+- A cost dashboard with rightsizing recommendations
+- A tool that modifies, tags, or deletes resources
 
 ---
 
@@ -845,10 +687,10 @@ Most cost tools require write access, agent installation, or SaaS data sharing. 
 
 - Use **AWS Cost Explorer / Azure Cost Management** to track spending trends
 - Use **Trusted Advisor / Azure Advisor** for rightsizing recommendations
-- Use **CleanCloud** to find orphaned resources your other tools miss — safely
+- Use **CleanCloud** to find orphaned resources your other tools miss — safely — and enforce it as a CI/CD gate
 
 > **Cost dashboards show you what you're spending.**
-> **CleanCloud shows you what you can safely stop spending.**
+> **CleanCloud shows you what you can safely stop spending — and blocks deploys until you do.**
 
 **Learn more:** [Where CleanCloud Fits (design diagram)](docs/design.md#where-cleancloud-fits)
 
@@ -856,13 +698,15 @@ Most cost tools require write access, agent installation, or SaaS data sharing. 
 
 ## Design Philosophy
 
-CleanCloud is built on three core principles:
+CleanCloud is built on four core principles:
 
 **1. Conservative by Default** - Multiple signals with explicit confidence levels (LOW/MEDIUM/HIGH) reduce false positives
 
 **2. Read-Only Always** - No Delete*, Tag*, or Modify* permissions; safe for production
 
-**3. Review-Only Recommendations** - Findings are candidates for review, not automated action
+**3. Enforce, Don't Just Report** - CI/CD gates with `--fail-on-confidence` turn findings into action, not backlog
+
+**4. Review-Ready Findings** - Every finding includes evidence and confidence so teams can act with context, not guesswork
 
 **Learn more:** [Confidence logic documentation](docs/confidence.md)
 
@@ -887,7 +731,7 @@ These are intentional non-goals to preserve safety and trust.
 - Billing data access or spending analysis
 - Resource tagging or mutations
 
-CleanCloud will remain focused on **safe cost optimization through hygiene detection**, not automation or infrastructure changes.
+CleanCloud will remain focused on **safe cost optimization through hygiene detection and CI/CD enforcement**, not automation or infrastructure changes.
 
 ---
 
@@ -900,7 +744,20 @@ CleanCloud will remain focused on **safe cost optimization through hygiene detec
 - [`docs/aws.md`](docs/aws.md) - AWS setup and IAM policy
 - [`docs/azure.md`](docs/azure.md) - Azure setup and RBAC configuration
 - [`docs/ci.md`](docs/ci.md) - CI/CD integration examples
+- [`docs/example-outputs.md`](docs/example-outputs.md) - Full output examples (doctor, scan, JSON) for AWS and Azure
 
+---
+
+## Early Adopters
+
+CleanCloud is currently being evaluated by:
+
+- Platform teams in regulated environments
+- Financial services companies
+- Government cloud workloads
+
+**Want to evaluate CleanCloud in your environment?**  
+Start a conversation: https://www.getcleancloud.com/#contact
 ---
 
 ## Questions or Feedback?

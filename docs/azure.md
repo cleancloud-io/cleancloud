@@ -51,6 +51,15 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
+**Step 5: Add GitHub secrets**
+
+Go to your repo → Settings → Secrets and variables → Actions → New repository secret:
+- `AZURE_CLIENT_ID` — App registration application ID
+- `AZURE_TENANT_ID` — Azure tenant ID
+- `AZURE_SUBSCRIPTION_ID` — Subscription to scan
+
+> No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
+
 #### GitHub Actions Workflow
 
 ```yaml
@@ -63,26 +72,27 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Azure Login (OIDC)
         uses: azure/login@v2
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      
-      - name: Run CleanCloud
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate Azure permissions
+        run: cleancloud doctor --provider azure
+
+      - name: Scan and enforce
         run: |
-          pip install cleancloud
-          cleancloud scan --provider azure
+          cleancloud scan --provider azure \
+            --output json --output-file scan.json \
+            --fail-on-confidence MEDIUM
 ```
 
-**Required GitHub Secrets:**
-- `AZURE_CLIENT_ID` - App registration application ID
-- `AZURE_TENANT_ID` - Azure tenant ID
-- `AZURE_SUBSCRIPTION_ID` - Subscription to scan
-
-**No secret needed:** `AZURE_CLIENT_SECRET`
 
 ---
 
@@ -157,20 +167,21 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
-**What Reader allows:**
-- `Microsoft.Compute/disks/read`
-- `Microsoft.Compute/snapshots/read`
-- `Microsoft.Network/publicIPAddresses/read`
-- `Microsoft.Web/serverfarms/read`
-- `Microsoft.Network/loadBalancers/read`
-- `Microsoft.Network/applicationGateways/read`
-- `Microsoft.Network/virtualNetworkGateways/read`
-- `Microsoft.Compute/virtualMachines/read`
-- `Microsoft.Network/connections/read`
-- `Microsoft.Sql/servers/read`
-- `Microsoft.Sql/servers/databases/read`
-- `Microsoft.Insights/metrics/read`
-- `Microsoft.Resources/subscriptions/read`
+**What Reader allows (all 14 permissions CleanCloud uses):**
+- `Microsoft.Compute/disks/read` — Unattached managed disks
+- `Microsoft.Compute/snapshots/read` — Old snapshots
+- `Microsoft.Compute/virtualMachines/read` — Stopped (not deallocated) VMs
+- `Microsoft.Network/publicIPAddresses/read` — Unused public IPs
+- `Microsoft.Network/loadBalancers/read` — Empty load balancers
+- `Microsoft.Network/applicationGateways/read` — Empty app gateways
+- `Microsoft.Network/virtualNetworkGateways/read` — Idle VNet gateways
+- `Microsoft.Network/connections/read` — Gateway connection status
+- `Microsoft.Web/serverfarms/read` — Empty App Service Plans
+- `Microsoft.Sql/servers/read` — SQL server discovery
+- `Microsoft.Sql/servers/databases/read` — Idle SQL databases
+- `Microsoft.Insights/metrics/read` — CloudWatch-style metrics (SQL connections)
+- `Microsoft.Resources/subscriptions/read` — Subscription discovery
+- `Microsoft.Resources/resources/read` — Resource discovery (VNet gateways)
 
 **What Reader does NOT allow:**
 - Delete operations (`*/delete`)
@@ -197,7 +208,8 @@ az role assignment create \
     "Microsoft.Sql/servers/read",
     "Microsoft.Sql/servers/databases/read",
     "Microsoft.Insights/metrics/read",
-    "Microsoft.Resources/subscriptions/read"
+    "Microsoft.Resources/subscriptions/read",
+    "Microsoft.Resources/resources/read"
   ],
   "NotActions": [],
   "AssignableScopes": [
