@@ -129,17 +129,14 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
           aws-region: us-east-1
 
       - name: Install CleanCloud
         run: pip install cleancloud
 
       - name: Validate credentials
-        run: |
-          # Validates credentials and permissions
-          # Uses us-east-1 by default, or specify --region
-          cleancloud doctor --provider aws
+        run: cleancloud doctor --provider aws
 
       - name: Run hygiene scan
         run: |
@@ -242,7 +239,7 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
           aws-region: us-east-1
 
       - name: Install CleanCloud
