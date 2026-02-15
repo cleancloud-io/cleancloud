@@ -133,7 +133,7 @@ cleancloud scan --provider aws --all-regions --ignore-tag env:production
 cleancloud scan --provider aws --all-regions --config cleancloud.yaml
 ```
 
-### `scan --fail-*` — Enforce policies in CI/CD
+### Enforce policies in CI/CD
 
 By default, scans exit `0` even with findings (safe for any pipeline). Opt in to enforcement with these flags:
 
@@ -348,7 +348,7 @@ cleancloud scan --provider azure --fail-on-confidence MEDIUM
 cleancloud scan --provider aws --all-regions --fail-on-findings
 ```
 
-Start with `HIGH` to catch the obvious waste (unattached EBS volumes, unused public IPs, empty load balancers), then tighten to `MEDIUM` as your team cleans up. See [all enforcement options](#scan---fail----enforce-policies-in-cicd) for the full flag reference.
+Start with `HIGH` to catch the obvious waste (unattached EBS volumes, unused public IPs, empty load balancers), then tighten to `MEDIUM` as your team cleans up. See [all enforcement options](#enforce-policies-in-cicd) for the full flag reference.
 
 ---
 
@@ -646,7 +646,7 @@ CleanCloud is designed to be approved by security teams, not bypassed.
 | `2` | Policy violation (only when using `--fail-on-findings` or `--fail-on-confidence`) |
 | `3` | Missing permissions or invalid credentials |
 
-See [Commands at a Glance — Enforce policies in CI/CD](#scan---fail----enforce-policies-in-cicd) for usage examples.
+See [Enforce policies in CI/CD](#enforce-policies-in-cicd) for usage examples.
 
 ---
 
