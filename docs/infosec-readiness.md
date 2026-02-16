@@ -1661,7 +1661,7 @@ curl -s https://pypi.org/pypi/cleancloud/json | jq '.urls[].digests.sha256'
 **Source Code Integrity:**
 
 All releases are tagged in GitHub:
-- Tags: `v1.2.0`, `v1.1.0`, etc.
+- Tags: `v1.3.0`, `v1.2.0`, `v1.1.0`, etc.
 - Signed commits (planned for future releases)
 - Release notes with changelogs
 
@@ -1676,7 +1676,7 @@ pip freeze | grep -iE "(cleancloud|boto3|azure|click|pyyaml)" > cleancloud-sbom.
 
 **Example SBOM:**
 ```
-cleancloud==1.2.0
+cleancloud==1.3.0
 boto3==1.34.0
 azure-identity==1.15.0
 azure-mgmt-compute==30.5.0
