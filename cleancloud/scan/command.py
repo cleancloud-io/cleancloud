@@ -22,7 +22,6 @@ from cleancloud.filtering.tags import (
     filter_findings_by_tags,
 )
 from cleancloud.output.csv import write_csv
-from cleancloud.output.feedback import should_show_feedback, show_feedback_prompt
 from cleancloud.output.human import print_human
 from cleancloud.output.json import write_json
 from cleancloud.output.summary import _print_summary, build_summary
@@ -224,8 +223,13 @@ def scan(
             print_human(findings)
             _print_summary(summary, region_selection_mode)
 
-            if should_show_feedback(no_feedback):
-                show_feedback_prompt()
+        # Community prompt (all output modes)
+        click.echo(
+            "Help us improve — share what CleanCloud found in your environment: "
+            "https://github.com/cleancloud-io/cleancloud/issues/new?"
+            "template=share_findings.md"
+        )
+        click.echo()
 
         # ========================
         # Exit policy
