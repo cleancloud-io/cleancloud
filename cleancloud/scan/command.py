@@ -224,10 +224,14 @@ def scan(
             _print_summary(summary, region_selection_mode)
 
         # Community prompt (all output modes)
+        click.echo()
         click.echo(
-            "Help us improve — share what CleanCloud found in your environment: "
-            "https://github.com/cleancloud-io/cleancloud/issues/new?"
-            "template=share_findings.md"
+            "Share your findings: "
+            "https://github.com/cleancloud-io/cleancloud/issues/new?template=share_findings.md"
+        )
+        click.echo(
+            "Report a bug: "
+            "https://github.com/cleancloud-io/cleancloud/issues/new?template=bug_report.md"
         )
         click.echo()
 
