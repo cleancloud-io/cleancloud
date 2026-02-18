@@ -89,7 +89,7 @@ jobs:
             const pypiUrl = `https://pypi.org/project/cleancloud/${tag.replace('v', '')}/`;
             const currentBody = context.payload.release.body || '';
 
-            const pypiInfo = `\n\n---\n\n✅ **Published to PyPI**\n\n📦 Install: \`pip install cleancloud==${tag.replace('v', '')}\`\n🔗 PyPI: ${pypiUrl}`;
+            const pypiInfo = `\n\n---\n\n✅ **Published to PyPI**\n\n📦 Install: \`pipx install cleancloud==${tag.replace('v', '')}\`\n🔗 PyPI: ${pypiUrl}`;
 
             await github.rest.repos.updateRelease({
               owner: context.repo.owner,

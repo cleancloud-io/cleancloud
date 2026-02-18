@@ -23,7 +23,7 @@ Most cost tools require write access, send data to SaaS platforms, and generate 
 - **Enforces in CI/CD** — findings become gates, not backlog
 
 ```bash
-pip install cleancloud
+pipx install cleancloud
 
 # AWS
 cleancloud scan --provider aws --all-regions
@@ -168,7 +168,7 @@ cleancloud scan --provider aws --all-regions \
 - [Commands at a Glance](#commands-at-a-glance)
 - [See It In Action](#see-it-in-action)
 - [What CleanCloud Detects](#what-cleancloud-detects)
-- [Quick Start](#quick-start)
+- [Installation](#installation)
 - [Try It Locally](#try-it-locally-2-minutes)
 - [CI/CD Pipelines](#running-in-cicd-pipelines)
 - [Security & Trust](#security--trust)
@@ -352,12 +352,85 @@ Start with `HIGH` to catch the obvious waste (unattached EBS volumes, unused pub
 
 ---
 
-## Quick Start
+## Installation
 
-**Python:** 3.9 or later
+### Quick Install
+```bash
+pipx install cleancloud
+```
 
+### Don't have pipx?
+
+**macOS:**
+```bash
+brew install pipx
+pipx install cleancloud
+```
+
+**Linux:**
+```bash
+sudo apt install pipx  # Ubuntu/Debian
+pipx install cleancloud
+```
+
+**Windows:**
+```powershell
+python3 -m pip install --user pipx
+python3 -m pipx ensurepath
+pipx install cleancloud
+```
+
+### CI/CD Environments
 ```bash
 pip install cleancloud
+```
+
+### Troubleshooting
+
+<details>
+<summary>Command not found: pip</summary>
+
+```bash
+pip3 install cleancloud
+# or
+python3 -m pip install cleancloud
+```
+</details>
+
+<details>
+<summary>externally-managed-environment error</summary>
+
+Use `pipx` (see above) — this is the modern way to install Python CLI tools.
+</details>
+
+<details>
+<summary>Command not found: cleancloud (after pipx install)</summary>
+
+pipx installs to `~/.local/bin` which may not be on your PATH:
+```bash
+pipx ensurepath
+source ~/.zshrc   # macOS (zsh)
+source ~/.bashrc  # Linux (bash)
+```
+
+Then verify:
+```bash
+cleancloud --version
+```
+</details>
+
+<details>
+<summary>'cleancloud' already seems to be installed</summary>
+
+If you previously installed an older version, reinstall with `--force`:
+```bash
+pipx install cleancloud --force
+```
+</details>
+
+### Verify Installation
+```bash
+cleancloud --version
 ```
 
 ---
