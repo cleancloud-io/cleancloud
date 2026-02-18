@@ -1633,7 +1633,7 @@ azure-core >= 1.38.0 # Azure SDK core
 
 **Dependency Security:**
 - All dependencies are from well-known, actively maintained projects (AWS, Microsoft, Pallets)
-- AWS and Azure dependencies are optional — install only what you need (`pip install cleancloud[aws]` or `cleancloud[azure]`)
+- AWS and Azure dependencies are included by default (`pip install cleancloud`)
 - Minimum version pinning (allows security updates)
 - No transitive dependencies from untrusted sources
 - Dependencies scanned with `pip-audit` in CI

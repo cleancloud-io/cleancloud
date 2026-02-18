@@ -38,15 +38,8 @@ dependencies = [
     "urllib3>=2.6.3",
     "jaraco-context>=6.1.0",
     "pyasn1>=0.6.2",
-]
-
-[project.optional-dependencies]
-aws = [
     "boto3>=1.26.0",
     "botocore>=1.29.0",
-]
-
-azure = [
     "azure-identity>=1.15.0",
     "azure-mgmt-resource>=23.0.0",
     "azure-mgmt-subscription>=3.0.0",
@@ -58,9 +51,7 @@ azure = [
     "azure-core>=1.38.0",
 ]
 
-all = [
-    "cleancloud[aws,azure]",
-]
+[project.optional-dependencies]
 
 dev = [
     "pytest>=8.0.0",
