@@ -125,6 +125,7 @@ def find_idle_nat_gateways(
                         resource_type="aws.ec2.nat_gateway",
                         resource_id=nat_gw_id,
                         region=region,
+                        estimated_monthly_cost_usd=32.40,
                         title=f"Idle NAT Gateway (No Traffic for {days_idle}+ Days)",
                         summary=(
                             f"NAT Gateway '{name_tag or nat_gw_id}' has had no traffic for "

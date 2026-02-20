@@ -86,6 +86,7 @@ def test_find_old_amis(mock_boto3_session):
     assert finding.details["age_days"] >= 200
     assert finding.details["total_size_gb"] == 50
     assert "snap-abc123" in finding.details["snapshot_ids"]
+    assert finding.estimated_monthly_cost_usd == 2.5  # 50 GB * $0.05
 
 
 def test_find_old_amis_empty_account(mock_boto3_session):
@@ -193,3 +194,4 @@ def test_find_old_amis_cost_estimate(mock_boto3_session):
     finding = findings[0]
     assert finding.details["total_size_gb"] == 600
     assert "$30.00/month" in finding.details["estimated_monthly_cost"]
+    assert finding.estimated_monthly_cost_usd == 30.0  # 600 GB * $0.05

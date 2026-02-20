@@ -101,7 +101,9 @@ def find_old_amis(
 
             # Estimate monthly storage cost (~$0.05/GB-month for EBS snapshots)
             estimated_monthly_cost = None
+            cost_usd = None
             if total_size_gb > 0:
+                cost_usd = round(total_size_gb * 0.05, 2)
                 estimated_monthly_cost = f"~${total_size_gb * 0.05:.2f}/month (snapshot storage)"
 
             findings.append(
@@ -111,6 +113,7 @@ def find_old_amis(
                     resource_type="aws.ec2.ami",
                     resource_id=ami_id,
                     region=region,
+                    estimated_monthly_cost_usd=cost_usd,
                     title=f"AMI Older Than {days_old} Days",
                     summary=(
                         f"AMI '{ami_name}' is {age_days} days old and may be "

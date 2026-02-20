@@ -59,6 +59,7 @@ def find_unused_public_ips(
                 resource_type="azure.public_ip",
                 resource_id=pip.id,
                 region=pip.location,
+                estimated_monthly_cost_usd=3.60,
                 title="Unused Azure Public IP",
                 summary="Public IP is not attached to any resource",
                 reason="IP configuration is None (not attached)",

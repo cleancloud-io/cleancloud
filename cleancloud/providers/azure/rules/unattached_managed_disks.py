@@ -74,6 +74,10 @@ def find_unattached_managed_disks(
             time_window=f"{MIN_AGE_DAYS_MEDIUM}-{MIN_AGE_DAYS_HIGH}+ days",
         )
 
+        # ~$0.10/GB-month average across Standard/Premium tiers
+        disk_size = disk.disk_size_gb or 0
+        cost_usd = round(disk_size * 0.10, 2) if disk_size > 0 else None
+
         findings.append(
             Finding(
                 provider="azure",
@@ -81,6 +85,7 @@ def find_unattached_managed_disks(
                 resource_type="azure.managed_disk",
                 resource_id=disk.id,
                 region=disk.location,
+                estimated_monthly_cost_usd=cost_usd,
                 title="Unattached Azure managed disk",
                 summary=f"Disk not attached to any VM for {disk_age_days} days",
                 reason="Disk has no VM attachment and exceeds age threshold",

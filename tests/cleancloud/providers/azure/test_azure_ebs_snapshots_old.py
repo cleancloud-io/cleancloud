@@ -54,3 +54,7 @@ def test_find_old_snapshots(monkeypatch):
 
     assert "snap-1" in snapshot_ids
     assert "snap-2" not in snapshot_ids
+
+    # Verify cost estimate (10 GB * $0.05/GB)
+    finding = [f for f in findings if f.resource_id == "snap-1"][0]
+    assert finding.estimated_monthly_cost_usd == 0.5

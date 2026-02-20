@@ -339,6 +339,8 @@ By confidence:
   high: 2
   medium: 4
 
+Minimum estimated waste: ~$147/month
+(4 of 6 findings costed)
 Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
 Scanned at: 2026-02-08T14:32:08+00:00
 ```
@@ -422,6 +424,8 @@ By confidence:
   high: 3
   medium: 2
 
+Minimum estimated waste: ~$72/month
+(3 of 5 findings costed)
 Subscriptions scanned: Production, Staging (all accessible)
 Scanned at: 2026-02-08T14:45:16+00:00
 ```
@@ -440,6 +444,8 @@ Scanned at: 2026-02-08T14:45:16+00:00
     "by_provider": { "aws": 6 },
     "by_risk": { "low": 5, "medium": 1 },
     "by_confidence": { "high": 2, "medium": 4 },
+    "minimum_estimated_monthly_waste_usd": 147.15,
+    "findings_with_cost_estimate": 4,
     "highest_confidence": "high",
     "high_conf_findings": 2,
     "regions_scanned": ["us-east-1", "us-west-2", "eu-west-1"],
@@ -643,6 +649,8 @@ Scanned at: 2026-02-08T14:45:16+00:00
     "by_provider": { "azure": 5 },
     "by_risk": { "low": 4, "medium": 1 },
     "by_confidence": { "high": 3, "medium": 2 },
+    "minimum_estimated_monthly_waste_usd": 71.60,
+    "findings_with_cost_estimate": 3,
     "highest_confidence": "high",
     "high_conf_findings": 3,
     "regions_scanned": ["eastus", "eastus2", "westeurope"],

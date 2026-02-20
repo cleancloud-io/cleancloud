@@ -94,10 +94,13 @@ def find_app_gateway_no_backends(
 
         # Estimate monthly cost based on SKU
         cost_estimate = None
+        cost_usd = None
         if sku_tier in ("Standard_v2", "WAF_v2"):
             cost_estimate = "$150-300+/month (v2 SKU)"
+            cost_usd = 225.0
         elif sku_tier in ("Standard", "WAF"):
             cost_estimate = "$20-50/month (v1 SKU)"
+            cost_usd = 35.0
 
         findings.append(
             Finding(
@@ -106,6 +109,7 @@ def find_app_gateway_no_backends(
                 resource_type="azure.application_gateway",
                 resource_id=gw.id,
                 region=gw.location,
+                estimated_monthly_cost_usd=cost_usd,
                 title="Application Gateway Has No Backend Targets",
                 summary=(
                     f"Application Gateway '{gw.name}' appears to have no backend targets configured "

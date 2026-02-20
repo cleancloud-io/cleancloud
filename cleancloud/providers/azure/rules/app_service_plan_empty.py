@@ -10,6 +10,17 @@ from cleancloud.core.risk import RiskLevel
 
 SKIP_TIERS = {"Free", "Shared"}
 
+# Approximate monthly costs by tier (single instance)
+_TIER_COST_USD = {
+    "Basic": 55.0,
+    "Standard": 73.0,
+    "Premium": 146.0,
+    "PremiumV2": 146.0,
+    "PremiumV3": 146.0,
+    "Isolated": 298.0,
+    "IsolatedV2": 298.0,
+}
+
 
 def find_empty_app_service_plans(
     *,
@@ -72,6 +83,8 @@ def find_empty_app_service_plans(
                 time_window=None,
             )
 
+            cost_usd = _TIER_COST_USD.get(sku_tier)
+
             findings.append(
                 Finding(
                     provider="azure",
@@ -79,6 +92,7 @@ def find_empty_app_service_plans(
                     resource_type="azure.app_service_plan",
                     resource_id=plan.id,
                     region=location,
+                    estimated_monthly_cost_usd=cost_usd,
                     title=f"Empty App Service Plan ({sku_tier})",
                     summary=(f"Paid App Service Plan '{plan.name}' has no hosted apps"),
                     reason=f"number_of_sites is 0 on a {sku_tier} tier plan",

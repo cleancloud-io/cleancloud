@@ -112,6 +112,7 @@ def test_find_idle_nat_gateways(mock_boto3_session):
     assert finding.details["name"] == "idle-nat-gateway"
     assert finding.details["vpc_id"] == "vpc-123"
     assert "~$32/month" in finding.details["estimated_monthly_cost"]
+    assert finding.estimated_monthly_cost_usd == 32.40
 
 
 def test_find_idle_nat_gateways_empty_account(mock_boto3_session):

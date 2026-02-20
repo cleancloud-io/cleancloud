@@ -66,6 +66,7 @@ def test_find_empty_app_service_plans(mock_web_client):
     assert finding.risk.value == "low"
     assert finding.details["sku_tier"] == "Standard"
     assert finding.details["number_of_sites"] == 0
+    assert finding.estimated_monthly_cost_usd == 73.0  # Standard tier
 
 
 def test_find_empty_app_service_plans_empty_subscription(mocker):

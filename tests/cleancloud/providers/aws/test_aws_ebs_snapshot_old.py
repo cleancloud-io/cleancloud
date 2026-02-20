@@ -41,3 +41,7 @@ def test_find_old_ebs_snapshots(mock_boto3_session):
 
     # Negative
     assert "snap-2" not in snapshot_ids
+
+    # Verify cost estimate (10 GB * $0.05/GB)
+    finding = [f for f in findings if f.resource_id == "snap-1"][0]
+    assert finding.estimated_monthly_cost_usd == 0.5

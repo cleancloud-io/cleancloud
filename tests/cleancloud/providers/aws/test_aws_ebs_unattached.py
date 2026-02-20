@@ -44,3 +44,7 @@ def test_find_unattached_ebs_volumes(mock_boto3_session):
 
     # Negative
     assert "vol-2" not in volume_ids
+
+    # Verify cost estimate (10 GB * $0.10/GB)
+    finding = [f for f in findings if f.resource_id == "vol-1"][0]
+    assert finding.estimated_monthly_cost_usd == 1.0

@@ -39,3 +39,7 @@ def test_find_unused_public_ips(mock_network_client):
     resource_ids = [f.resource_id for f in findings]
     assert "pip-1" in resource_ids
     assert "pip-2" not in resource_ids
+
+    # Verify cost estimate ($3.60/month for Standard SKU)
+    finding = [f for f in findings if f.resource_id == "pip-1"][0]
+    assert finding.estimated_monthly_cost_usd == 3.60

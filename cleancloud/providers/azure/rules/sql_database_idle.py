@@ -153,6 +153,7 @@ def find_idle_sql_databases(
 
             # Estimate monthly cost from SKU
             estimated_monthly_cost = _estimate_monthly_cost(sku_name)
+            cost_usd = _estimate_monthly_cost_usd(sku_name)
 
             signals = [
                 f"Zero successful connections for {days_idle} days (Azure Monitor metrics)",
@@ -181,6 +182,7 @@ def find_idle_sql_databases(
                     resource_type="azure.sql_database",
                     resource_id=db.id,
                     region=db.location,
+                    estimated_monthly_cost_usd=cost_usd,
                     title=f"Idle Azure SQL Database (No Connections for {days_idle}+ Days)",
                     summary=(
                         f"Azure SQL database '{db.name}' on server '{server.name}' "
@@ -216,3 +218,11 @@ def _estimate_monthly_cost(sku_name: str) -> str:
     if cost:
         return f"~${cost}/month (region dependent)"
     return "Cost varies by SKU (region dependent)"
+
+
+def _estimate_monthly_cost_usd(sku_name: str) -> float | None:
+    """Numeric monthly cost estimate for aggregation."""
+    if not sku_name:
+        return None
+    cost = _SKU_COST_MAP.get(sku_name.upper())
+    return float(cost) if cost else None

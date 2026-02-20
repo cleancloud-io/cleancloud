@@ -33,6 +33,27 @@ SKU_COSTS = {
     "ErGwScale": "Usage-based",
 }
 
+# Numeric costs for aggregation
+_SKU_COST_USD = {
+    "Basic": 27,
+    "VpnGw1": 140,
+    "VpnGw1AZ": 195,
+    "VpnGw2": 360,
+    "VpnGw2AZ": 505,
+    "VpnGw3": 930,
+    "VpnGw3AZ": 1115,
+    "VpnGw4": 1680,
+    "VpnGw4AZ": 1845,
+    "VpnGw5": 3360,
+    "VpnGw5AZ": 3525,
+    "Standard": 125,
+    "HighPerformance": 335,
+    "UltraPerformance": 670,
+    "ErGw1AZ": 195,
+    "ErGw2AZ": 505,
+    "ErGw3AZ": 1115,
+}
+
 
 def _extract_resource_group(resource_id: str) -> Optional[str]:
     """Extract resource group name from Azure resource ID."""
@@ -170,6 +191,7 @@ def find_idle_vnet_gateways(
         )
 
         cost_estimate = SKU_COSTS.get(sku_name, "Unknown")
+        cost_usd = float(_SKU_COST_USD[sku_name]) if sku_name in _SKU_COST_USD else None
 
         title = (
             "VPN Gateway Has No Active Connections"
@@ -184,6 +206,7 @@ def find_idle_vnet_gateways(
                 resource_type="azure.virtual_network_gateway",
                 resource_id=gw.id,
                 region=gw.location,
+                estimated_monthly_cost_usd=cost_usd,
                 title=title,
                 summary=(
                     f"{gateway_type} Gateway '{gw.name}' appears to have no active connections "

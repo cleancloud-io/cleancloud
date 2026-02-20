@@ -77,6 +77,10 @@ def test_find_unattached_elastic_ips(mock_boto3_session):
 
     assert len(findings) == 2
 
+    # Verify cost estimate ($3.75/month for each EIP)
+    for f in findings:
+        assert f.estimated_monthly_cost_usd == 3.75
+
     # Verify title includes "(Review Recommended)"
     for f in findings:
         assert f.title == "Unattached Elastic IP (Review Recommended)"
