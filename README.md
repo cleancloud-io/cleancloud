@@ -6,15 +6,15 @@
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-**Find what's costing you money — safely — and optionally fail your build until it's fixed.**
+**Shift-left cloud hygiene. Catch orphaned resources in CI before they become monthly line items.**
 
-Developer-first cloud hygiene scanner for AWS and Azure.
+Policy engine for AWS and Azure. Safe by default — report-only until you opt in to enforcement.
 
-- **Read-only by design** — no deletions, no tag changes, no resource mutations
-- **Finds orphaned & idle resources** — 20 high-signal detection rules
-- **Shows minimum estimated monthly waste** — per finding and aggregate
-- **Can fail CI on high-confidence findings** — `--fail-on-confidence HIGH`
-- **No agents. No telemetry. No SaaS.** — runs in your environment, data never leaves
+- **CI-native enforcement (opt-in)** : `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
+- **Read-only by design** : no deletions, no tag changes, no resource mutations
+- **20 high-signal detection rules** : orphaned volumes, idle databases, empty load balancers, and more
+- **Estimated monthly waste** : per finding and aggregate, so you know what's burning
+- **No agents. No telemetry. No SaaS.** : runs in your environment, data never leaves
 
 ```bash
 pipx install cleancloud
@@ -152,15 +152,17 @@ For full output examples including doctor validation, JSON, and CSV formats, see
 ## How It Works
 
 ```
-Your Cloud Account          CleanCloud (pip install)         Your CI/CD Pipeline
-(AWS / Azure)               (read-only scan)                 (GitHub Actions, etc.)
+Your CI/CD Pipeline          CleanCloud (pip install)         Your Cloud Account
+(GitHub Actions, etc.)       (read-only scan)                 (AWS / Azure)
 
-IAM Role       ──────────►   cleancloud scan    ──────────►  Findings (JSON/CSV/human)
-(Reader only)               - 20 detection rules                      │
-No write access             - Confidence scoring                      ▼
-OIDC temporary tokens       - Evidence per finding           --fail-on-confidence HIGH
-                            - Estimated waste per finding    Exit 0 = pass
-                                                             Exit 2 = policy violation
+pip install cleancloud       cleancloud scan    ◄──────────  IAM Role (Reader only)
+        │                   - 20 detection rules              No write access
+        │                   - Confidence scoring              OIDC temporary tokens
+        ▼                   - Estimated waste per finding
+--fail-on-confidence HIGH  (or)
+--fail-on-cost 100
+Exit 0 = pass
+Exit 2 = policy violation
 ```
 
 ---
@@ -249,7 +251,7 @@ Permissions Tested: 14/14 passed
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ```
 
-### `scan` — Find orphaned and idle resources
+### `scan` — Detect waste and enforce policy
 
 ```bash
 # AWS — single region or all regions
@@ -474,7 +476,7 @@ CLI `--ignore-tag` replaces YAML configuration (not merged) for predictable CI/C
 | **Confidence scoring** | Binary yes/no | Binary yes/no | LOW/MEDIUM/HIGH |
 | **Telemetry / data sharing** | Usually required | Usually required | Zero — fully private |
 
-CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure Cost Management** for spending trends. Use **Trusted Advisor / Azure Advisor** for rightsizing. Use **CleanCloud** to find orphaned resources safely and enforce it as a CI/CD gate.
+CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure Cost Management** for spending trends. Use **Trusted Advisor / Azure Advisor** for rightsizing. Use **CleanCloud** to shift cloud hygiene left — catch waste in the pipeline before it accumulates.
 
 ### vs. Azure Orphan Resources
 
@@ -484,7 +486,7 @@ CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure 
 |---|---|------------------------------------------------------------|
 | **Cloud support** | Azure only | AWS + Azure                                                |
 | **Interface** | Azure Portal workbook | CLI (`pipx install`)                                       |
-| **CI/CD enforcement** | None — manual review only | `--fail-on-confidence HIGH` gates builds                   |
+| **CI/CD enforcement** | None — manual review only | `--fail-on-confidence` or `--fail-on-cost` gates builds    |
 | **Delete capability** | Yes (requires Contributor role) | Read-only — no mutations ever                              |
 | **Detection model** | Binary: orphaned or not | Confidence scoring with evidence per finding               |
 | **Cost estimates** | Labels resources as "billable" | Per-finding `estimated_monthly_cost_usd` + aggregate waste |
@@ -537,9 +539,9 @@ CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure 
 
 ## Enterprise & Production Use
 
-CleanCloud is designed for production environments where write access is prohibited, InfoSec review is mandatory, and data cannot leave the cloud account.
+CleanCloud is designed for teams that enforce cloud hygiene in CI/CD — where write access is prohibited, InfoSec review is mandatory, and data cannot leave the cloud account.
 
-If your team is assessing cloud cost governance or hygiene controls, we can support security reviews, CI/CD rollout design, and multi-account architecture discussions.
+If your team is evaluating shift-left cost governance or hygiene policy enforcement, we can support security reviews, CI/CD rollout design, and multi-account architecture discussions.
 
 **[Start an evaluation discussion](https://www.getcleancloud.com/#contact)**
 
