@@ -95,7 +95,10 @@ Some rules use a single deterministic state check — no age threshold needed. T
 | Rule | Signal | Confidence |
 |------|--------|------------|
 | AWS Infinite Retention Logs | No retention policy set | MEDIUM |
+| AWS Untagged Resources | Zero tags on resource | MEDIUM |
 | Azure Unused Public IPs | IP not attached to any resource | MEDIUM |
+| Azure Untagged Resources (unattached disk) | Zero tags and not attached | MEDIUM |
+| Azure Untagged Resources (snapshot/attached disk) | Zero tags | LOW |
 | Azure Empty App Service Plans | Paid plan with zero apps | HIGH |
 | Azure Empty Load Balancers | Standard LB with zero backend members | HIGH |
 | Azure Empty App Gateways | All backend pools have zero targets | HIGH |

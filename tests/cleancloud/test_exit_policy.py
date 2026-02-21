@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from cleancloud.policy.exit_policy import determine_exit_code
 
@@ -6,6 +7,7 @@ from cleancloud.policy.exit_policy import determine_exit_code
 @dataclass
 class FakeResult:
     confidence: str
+    estimated_monthly_cost_usd: Optional[float] = None
 
 
 def test_exit_policy_no_issues():
@@ -68,3 +70,131 @@ def test_exit_policy_all_levels():
     assert determine_exit_code(results, fail_on_confidence="LOW") == 2
     # With fail_on_findings: fail on any finding
     assert determine_exit_code(results, fail_on_findings=True) == 2
+
+
+# --fail-on-cost tests
+
+
+def test_fail_on_cost_exceeds_threshold():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=10.0),
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=15.0),
+    ]
+    assert determine_exit_code(results, fail_on_cost=20.0) == 2
+
+
+def test_fail_on_cost_below_threshold():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=5.0),
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=3.0),
+    ]
+    assert determine_exit_code(results, fail_on_cost=20.0) == 0
+
+
+def test_fail_on_cost_exactly_at_threshold():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=10.0),
+    ]
+    # >= semantics: exactly at threshold triggers violation
+    assert determine_exit_code(results, fail_on_cost=10.0) == 2
+
+
+def test_fail_on_cost_no_cost_estimates():
+    results = [
+        FakeResult(confidence="Low"),
+        FakeResult(confidence="Medium"),
+    ]
+    # No cost data on findings → total is 0 → no violation
+    assert determine_exit_code(results, fail_on_cost=5.0) == 0
+
+
+def test_fail_on_cost_not_set():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=100.0),
+    ]
+    # Without --fail-on-cost, no violation
+    assert determine_exit_code(results) == 0
+
+
+def test_fail_on_confidence_triggers_before_cost():
+    results = [
+        FakeResult(confidence="High", estimated_monthly_cost_usd=1.0),
+    ]
+    # Confidence triggers even though cost is below threshold
+    assert determine_exit_code(results, fail_on_confidence="HIGH", fail_on_cost=999.0) == 2
+
+
+def test_fail_on_cost_triggers_when_confidence_passes():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=200.0),
+    ]
+    # Confidence check passes (LOW < HIGH threshold), but cost exceeds threshold
+    assert determine_exit_code(results, fail_on_confidence="HIGH", fail_on_cost=100.0) == 2
+
+
+def test_fail_on_findings_takes_precedence_over_cost():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=0.01),
+    ]
+    # --fail-on-findings triggers even with negligible cost
+    assert determine_exit_code(results, fail_on_findings=True, fail_on_cost=999.0) == 2
+
+
+def test_both_confidence_and_cost_pass():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=5.0),
+    ]
+    # Confidence below threshold AND cost below threshold → pass
+    assert determine_exit_code(results, fail_on_confidence="HIGH", fail_on_cost=100.0) == 0
+
+
+def test_all_three_flags_confidence_triggers():
+    results = [
+        FakeResult(confidence="High", estimated_monthly_cost_usd=1.0),
+    ]
+    # All three flags set — confidence triggers first
+    assert (
+        determine_exit_code(
+            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=999.0
+        )
+        == 2
+    )
+
+
+def test_all_three_flags_findings_triggers():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=0.01),
+    ]
+    # All three flags set — fail_on_findings triggers first
+    assert (
+        determine_exit_code(
+            results, fail_on_findings=True, fail_on_confidence="HIGH", fail_on_cost=999.0
+        )
+        == 2
+    )
+
+
+def test_all_three_flags_cost_triggers():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=500.0),
+    ]
+    # All three flags set — only cost exceeds threshold
+    assert (
+        determine_exit_code(
+            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=100.0
+        )
+        == 2
+    )
+
+
+def test_all_three_flags_all_pass():
+    results = [
+        FakeResult(confidence="Low", estimated_monthly_cost_usd=5.0),
+    ]
+    # All three flags set — none trigger
+    assert (
+        determine_exit_code(
+            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=100.0
+        )
+        == 0
+    )
