@@ -140,6 +140,8 @@ def test_find_idle_rds_instances(mock_boto3_session):
     assert finding.details["connections_14d"] == 0
     assert finding.details["allocated_storage_gb"] == 100
     assert "~$49/month" in finding.details["estimated_monthly_cost"]
+    assert finding.estimated_monthly_cost_usd is not None
+    assert finding.estimated_monthly_cost_usd > 0
     assert finding.details["tags"] == {"env": "dev"}
     assert "cluster_id" not in finding.details
 

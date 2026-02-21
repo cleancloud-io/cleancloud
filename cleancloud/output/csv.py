@@ -16,6 +16,7 @@ CSV_FIELDS = [
     "risk",
     "confidence",
     "detected_at",
+    "estimated_monthly_cost_usd",
 ]
 
 

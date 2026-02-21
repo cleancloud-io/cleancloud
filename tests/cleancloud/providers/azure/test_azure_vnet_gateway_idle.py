@@ -248,6 +248,11 @@ def test_find_idle_vnet_gateways_cost_estimates(mocker):
     assert "$930" in by_name["vpn-gw3"].details["cost_estimate"]
     assert "$670" in by_name["er-ultra"].details["cost_estimate"]
 
+    # Verify numeric cost fields
+    assert by_name["vpn-basic"].estimated_monthly_cost_usd == 27.0
+    assert by_name["vpn-gw3"].estimated_monthly_cost_usd == 930.0
+    assert by_name["er-ultra"].estimated_monthly_cost_usd == 670.0
+
 
 def test_find_idle_vnet_gateways_disconnected_connection(mocker):
     """Gateway with disconnected connection should be flagged."""

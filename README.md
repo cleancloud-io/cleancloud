@@ -236,11 +236,13 @@ Found 6 hygiene issues:
 Total findings: 6
 By risk:    low: 5  medium: 1
 By confidence:  high: 2  medium: 4
+Minimum estimated waste: ~$147/month
+(4 of 6 findings costed)
 Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
 
 ```
 
-> **Coming soon:** Cost impact summaries with estimated monthly waste per finding. **[Get notified](https://getcleancloud.com)**
+> **New in v1.5:** Cost impact summary with estimated monthly waste per finding and aggregate totals.
 
 ### `cleancloud scan --provider azure` — Azure scan output
 
@@ -289,6 +291,8 @@ Found 5 hygiene issues:
 Total findings: 5
 By risk:    low: 4  medium: 1
 By confidence:  high: 3  medium: 2
+Minimum estimated waste: ~$72/month
+(3 of 5 findings costed)
 Subscriptions scanned: Production, Staging (all accessible)
 ```
 

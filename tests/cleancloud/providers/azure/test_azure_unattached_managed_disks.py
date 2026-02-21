@@ -39,3 +39,7 @@ def test_find_unattached_managed_disks(mock_compute_client):
     assert "disk-1" in resource_ids
     assert "disk-2" not in resource_ids
     assert "disk-3" not in resource_ids
+
+    # Verify cost estimate (128 GB * $0.10/GB)
+    finding = [f for f in findings if f.resource_id == "disk-1"][0]
+    assert finding.estimated_monthly_cost_usd == 12.8

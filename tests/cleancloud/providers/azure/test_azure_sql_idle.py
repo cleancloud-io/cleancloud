@@ -84,6 +84,8 @@ def test_idle_db_detected(mock_sql_client, mock_monitor_client):
     assert finding.details["sku_tier"] == "Standard"
     assert finding.details["connections_14d"] == 0
     assert "$15/month" in finding.details["estimated_monthly_cost"]
+    assert finding.estimated_monthly_cost_usd is not None
+    assert finding.estimated_monthly_cost_usd > 0
 
 
 def test_active_db_skipped(mock_sql_client, mock_monitor_client):

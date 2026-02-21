@@ -47,6 +47,10 @@ def find_unattached_ebs_volumes(
                     time_window=None,
                 )
 
+                # ~$0.10/GB-month average for gp2/gp3
+                size_gb = volume["Size"]
+                cost_usd = round(size_gb * 0.10, 2)
+
                 findings.append(
                     Finding(
                         provider="aws",
@@ -62,12 +66,13 @@ def find_unattached_ebs_volumes(
                         detected_at=datetime.now(timezone.utc),
                         evidence=evidence,
                         details={
-                            "size_gb": volume["Size"],
+                            "size_gb": size_gb,
                             "availability_zone": volume["AvailabilityZone"],
                             "state": volume["State"],
                             "create_time": volume["CreateTime"].isoformat(),
                             "tags": volume.get("Tags", []),
                         },
+                        estimated_monthly_cost_usd=cost_usd,
                     )
                 )
 

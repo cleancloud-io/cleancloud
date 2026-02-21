@@ -120,6 +120,7 @@ def find_idle_rds_instances(
                 )
 
                 estimated_monthly_cost = _estimate_monthly_cost(instance_class, multi_az)
+                cost_usd = _estimate_monthly_cost_usd(instance_class, multi_az)
 
                 findings.append(
                     Finding(
@@ -128,6 +129,7 @@ def find_idle_rds_instances(
                         resource_type="aws.rds.instance",
                         resource_id=db_instance_id,
                         region=region,
+                        estimated_monthly_cost_usd=cost_usd,
                         title=f"Idle RDS Instance (No Connections for {days_idle}+ Days)",
                         summary=(
                             f"RDS instance '{db_instance_id}' ({engine}, {instance_class}) "
@@ -232,3 +234,30 @@ def _estimate_monthly_cost(instance_class: str, multi_az: bool) -> str:
         total = base_cost * 2 if multi_az else base_cost
         return f"~${total}/month (region dependent)"
     return "Cost varies by instance class (region dependent)"
+
+
+def _estimate_monthly_cost_usd(instance_class: str, multi_az: bool) -> float | None:
+    """Numeric monthly cost estimate for aggregation."""
+    cost_map = {
+        "db.t3.micro": 12,
+        "db.t3.small": 24,
+        "db.t3.medium": 49,
+        "db.t3.large": 97,
+        "db.t4g.micro": 11,
+        "db.t4g.small": 22,
+        "db.t4g.medium": 44,
+        "db.t4g.large": 88,
+        "db.r5.large": 172,
+        "db.r5.xlarge": 344,
+        "db.r5.2xlarge": 688,
+        "db.r6g.large": 155,
+        "db.r6g.xlarge": 310,
+        "db.m5.large": 125,
+        "db.m5.xlarge": 250,
+        "db.m6g.large": 113,
+        "db.m6g.xlarge": 225,
+    }
+    base_cost = cost_map.get(instance_class)
+    if base_cost:
+        return float(base_cost * 2 if multi_az else base_cost)
+    return None

@@ -1,0 +1,327 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://getcleancloud.com/schemas/output-v1.1.0.json",
+  "title": "CleanCloud Output Format",
+  "description": "JSON output schema for CleanCloud scan results (version 1.1.0)",
+  "type": "object",
+  "required": ["schema_version", "summary", "findings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for backward compatibility",
+      "const": "1.1.0"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Aggregated statistics about the scan",
+      "required": [
+        "total_findings",
+        "by_provider",
+        "by_risk",
+        "by_confidence",
+        "scanned_at",
+        "provider"
+      ],
+      "properties": {
+        "total_findings": {
+          "type": "integer",
+          "description": "Total number of findings detected",
+          "minimum": 0
+        },
+        "by_provider": {
+          "type": "object",
+          "description": "Count of findings grouped by cloud provider",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "by_risk": {
+          "type": "object",
+          "description": "Count of findings grouped by risk level",
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "by_confidence": {
+          "type": "object",
+          "description": "Count of findings grouped by confidence level",
+          "properties": {
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "scanned_at": {
+          "type": "string",
+          "description": "ISO 8601 timestamp when scan was performed",
+          "format": "date-time"
+        },
+        "regions_scanned": {
+          "type": "array",
+          "description": "List of cloud regions that were scanned",
+          "items": {
+            "type": "string"
+          }
+        },
+        "region_selection_mode": {
+          "type": "string",
+          "description": "How regions were selected for scanning (AWS only)",
+          "enum": ["explicit", "all-regions"]
+        },
+        "subscription_selection_mode": {
+          "type": "string",
+          "description": "How subscriptions were selected for scanning (Azure only)",
+          "enum": ["explicit", "all"]
+        },
+        "subscriptions_scanned": {
+          "type": "array",
+          "description": "List of Azure subscription IDs that were scanned (Azure only)",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provider": {
+          "type": "string",
+          "description": "Cloud provider that was scanned",
+          "enum": ["aws", "azure"]
+        },
+        "highest_confidence": {
+          "type": ["string", "null"],
+          "description": "Highest confidence level found across all findings",
+          "enum": ["low", "medium", "high", null]
+        },
+        "high_conf_findings": {
+          "type": "integer",
+          "description": "Count of HIGH confidence findings",
+          "minimum": 0
+        },
+        "ignored_by_tag_policy": {
+          "type": "integer",
+          "description": "Count of findings ignored due to tag policy (optional)",
+          "minimum": 0
+        },
+        "minimum_estimated_monthly_waste_usd": {
+          "type": "number",
+          "description": "Minimum estimated monthly cost of all detected waste (only present when > 0)",
+          "minimum": 0
+        },
+        "findings_with_cost_estimate": {
+          "type": "integer",
+          "description": "Number of findings that include a cost estimate (only present when minimum_estimated_monthly_waste_usd > 0)",
+          "minimum": 0
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "List of individual findings detected during the scan",
+      "items": {
+        "$ref": "#/definitions/finding"
+      }
+    }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "description": "A single resource hygiene finding",
+      "required": [
+        "provider",
+        "rule_id",
+        "resource_type",
+        "resource_id",
+        "region",
+        "title",
+        "summary",
+        "reason",
+        "risk",
+        "confidence",
+        "detected_at",
+        "details",
+        "evidence"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Cloud provider where the resource was found",
+          "enum": ["aws", "azure"]
+        },
+        "rule_id": {
+          "type": "string",
+          "description": "Unique identifier for the detection rule",
+          "pattern": "^(aws|azure)\\..+$",
+          "examples": [
+            "aws.ebs.unattached",
+            "aws.resource.untagged",
+            "azure.disk.unattached"
+          ]
+        },
+        "resource_type": {
+          "type": "string",
+          "description": "Type of cloud resource",
+          "pattern": "^(aws|azure)\\..+$",
+          "examples": [
+            "aws.ebs.volume",
+            "aws.s3.bucket",
+            "azure.compute.disk"
+          ]
+        },
+        "resource_id": {
+          "type": "string",
+          "description": "Unique identifier of the resource in the cloud provider",
+          "minLength": 1,
+          "examples": [
+            "vol-0123456789abcdef0",
+            "my-bucket-name",
+            "/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/disks/my-disk"
+          ]
+        },
+        "region": {
+          "type": ["string", "null"],
+          "description": "Cloud region where the resource is located (null for global resources like S3 buckets)",
+          "examples": [
+            "us-east-1",
+            "eu-west-1",
+            "eastus",
+            null
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable title for the finding",
+          "minLength": 1,
+          "examples": [
+            "Unattached EBS volume",
+            "Untagged S3 bucket"
+          ]
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line summary of the finding",
+          "minLength": 1,
+          "examples": [
+            "EBS volume has been unattached for 90+ days",
+            "S3 bucket has no tags"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Detailed explanation of why this resource was flagged",
+          "minLength": 1,
+          "examples": [
+            "Volume has been in 'available' state for 90+ days",
+            "No tags found on resource"
+          ]
+        },
+        "risk": {
+          "type": "string",
+          "description": "Risk level of leaving this resource unaddressed",
+          "enum": ["low", "medium", "high"]
+        },
+        "confidence": {
+          "type": "string",
+          "description": "Confidence level that this resource is unused/orphaned",
+          "enum": ["low", "medium", "high"]
+        },
+        "detected_at": {
+          "type": "string",
+          "description": "ISO 8601 timestamp when the finding was detected",
+          "format": "date-time"
+        },
+        "estimated_monthly_cost_usd": {
+          "type": "number",
+          "description": "Estimated monthly cost of this unused resource in USD (only present when a cost estimate is available)",
+          "minimum": 0
+        },
+        "details": {
+          "type": "object",
+          "description": "Provider-specific metadata about the resource",
+          "additionalProperties": true,
+          "examples": [
+            {
+              "size_gb": 100,
+              "availability_zone": "us-east-1a"
+            },
+            {
+              "last_ingestion_time": "2024-01-01T00:00:00Z",
+              "retention_days": null
+            }
+          ]
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Evidence explaining what signals were used to detect this finding",
+      "required": [
+        "signals_used",
+        "signals_not_checked"
+      ],
+      "properties": {
+        "signals_used": {
+          "type": "array",
+          "description": "List of signals/heuristics that triggered this finding",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "examples": [
+            [
+              "Volume state is 'available'",
+              "Volume age is 90+ days"
+            ],
+            [
+              "Volume has no tags attached"
+            ]
+          ]
+        },
+        "signals_not_checked": {
+          "type": "array",
+          "description": "List of signals that were NOT checked (limitations of detection)",
+          "items": {
+            "type": "string"
+          },
+          "examples": [
+            [
+              "Application-level usage",
+              "IaC-managed intent",
+              "Disaster recovery purpose"
+            ]
+          ]
+        },
+        "time_window": {
+          "type": ["string", "null"],
+          "description": "Time window used for age-based detection (e.g., '90 days')",
+          "examples": [
+            "90 days",
+            "365 days",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

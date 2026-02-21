@@ -26,8 +26,10 @@ class Finding:
     details: Dict[str, Any]
     evidence: Evidence
 
+    estimated_monthly_cost_usd: Optional[float] = None
+
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        d = {
             "provider": self.provider,
             "rule_id": self.rule_id,
             "resource_type": self.resource_type,
@@ -42,3 +44,6 @@ class Finding:
             "details": self.details,
             "evidence": self.evidence,
         }
+        if self.estimated_monthly_cost_usd is not None:
+            d["estimated_monthly_cost_usd"] = self.estimated_monthly_cost_usd
+        return d

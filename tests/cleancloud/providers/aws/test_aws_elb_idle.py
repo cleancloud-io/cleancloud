@@ -84,6 +84,7 @@ def test_idle_alb_detected():
     assert f.details["type"] == "application"
     assert f.details["has_targets"] is False
     assert "idle-alb" in f.resource_id
+    assert f.estimated_monthly_cost_usd == 18.0
 
 
 def test_active_alb_skipped():
@@ -198,6 +199,7 @@ def test_idle_clb_detected():
     assert f.resource_id == "idle-clb"
     assert f.confidence.value == "high"  # No instances + no traffic
     assert f.details["has_instances"] is False
+    assert f.estimated_monthly_cost_usd == 18.0
 
 
 def test_young_lb_skipped():
