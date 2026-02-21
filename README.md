@@ -211,11 +211,15 @@ By default, scans exit `0` even with findings — safe for any pipeline. Opt in 
 | `--fail-on-confidence HIGH` | Fail only on HIGH confidence findings | `2` |
 | `--fail-on-confidence MEDIUM` | Fail on MEDIUM or higher | `2` |
 | `--fail-on-confidence LOW` | Fail on any confidence level | `2` |
+| `--fail-on-cost 50` | Fail if estimated monthly waste >= $50 | `2` |
 | `--fail-on-findings` | Fail on any finding (strict mode) | `2` |
 
 ```bash
 # Recommended starting point
 cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH
+
+# Fail if estimated monthly waste exceeds $100
+cleancloud scan --provider aws --all-regions --fail-on-cost 100
 
 # Full CI/CD example: OIDC auth, JSON output, enforce HIGH confidence
 cleancloud scan --provider aws --all-regions \
@@ -494,7 +498,7 @@ CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure 
 |------|---------|
 | `0` | Scan completed (findings reported but don't fail by default) |
 | `1` | Configuration error or unexpected error |
-| `2` | Policy violation (`--fail-on-findings` or `--fail-on-confidence`) |
+| `2` | Policy violation (`--fail-on-findings`, `--fail-on-confidence`, or `--fail-on-cost`) |
 | `3` | Missing permissions or invalid credentials |
 
 ---

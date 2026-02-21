@@ -96,7 +96,16 @@ cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH
 cleancloud scan --provider aws --region us-east-1 --fail-on-confidence MEDIUM
 ```
 
-**Recommendation:** Use `--fail-on-confidence HIGH` for most pipelines.
+**Fail on cost threshold:**
+```bash
+# Fail if estimated monthly waste exceeds $100
+cleancloud scan --provider aws --region us-east-1 --fail-on-cost 100
+
+# Combine with confidence threshold
+cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH --fail-on-cost 50
+```
+
+**Recommendation:** Use `--fail-on-confidence HIGH` for most pipelines. Add `--fail-on-cost` to set a waste budget.
 
 ---
 
@@ -706,7 +715,7 @@ Check:
 
 **Issue:** Policy violation - findings detected
 
-**This is expected behavior** when using `--fail-on-findings` or `--fail-on-confidence`.
+**This is expected behavior** when using `--fail-on-findings`, `--fail-on-confidence`, or `--fail-on-cost`.
 
 **Options:**
 1. Review findings in uploaded artifacts

@@ -91,6 +91,12 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
     help="Ignore findings by tag (key or key:value). Overrides config.",
 )
 @click.option(
+    "--fail-on-cost",
+    type=float,
+    default=None,
+    help="Fail scan if estimated monthly waste exceeds this USD amount",
+)
+@click.option(
     "--no-feedback",
     is_flag=True,
     default=False,
@@ -107,6 +113,7 @@ def scan(
     output_file: Optional[str],
     fail_on_findings: bool,
     fail_on_confidence: Optional[str],
+    fail_on_cost: Optional[float],
     config: Optional[str],
     ignore_tag: List[str],
     no_feedback: bool,
@@ -242,6 +249,7 @@ def scan(
             findings,
             fail_on_findings=fail_on_findings,
             fail_on_confidence=fail_on_confidence,
+            fail_on_cost=fail_on_cost,
         )
 
         if exit_code == EXIT_POLICY_VIOLATION:
