@@ -89,7 +89,9 @@ Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
 
 ```
 
-### `cleancloud scan --provider azure`
+> **New in v1.5:** Cost impact summary with estimated monthly waste per finding and aggregate totals.
+
+### `cleancloud scan --provider azure` — Azure scan output
 
 ```
 Found 5 hygiene issues:

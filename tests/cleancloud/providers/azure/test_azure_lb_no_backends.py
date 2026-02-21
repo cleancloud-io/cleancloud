@@ -78,6 +78,7 @@ def test_find_lb_no_backends(mock_network_client):
         assert f.risk.value == "low"
         assert f.title == "Standard Load Balancer Has No Backend Members"
         assert f.details["sku_name"] == "Standard"
+        assert f.estimated_monthly_cost_usd == 18.0
 
     # Not flagged
     assert "lb-with-nic-backend" not in names

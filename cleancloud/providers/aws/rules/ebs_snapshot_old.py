@@ -49,6 +49,10 @@ def find_old_ebs_snapshots(
                     time_window=f"{days_old} days",
                 )
 
+                # ~$0.05/GB-month for EBS snapshots
+                snap_size_gb = snap.get("VolumeSize", 0)
+                cost_usd = round(snap_size_gb * 0.05, 2) if snap_size_gb else None
+
                 findings.append(
                     Finding(
                         provider="aws",
@@ -67,8 +71,10 @@ def find_old_ebs_snapshots(
                             "start_time": start_time.isoformat(),
                             "age_days": age_days,
                             "volume_id": snap.get("VolumeId"),
+                            "size_gb": snap_size_gb,
                             "tags": snap.get("Tags", []),
                         },
+                        estimated_monthly_cost_usd=cost_usd,
                     )
                 )
 

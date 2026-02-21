@@ -11,12 +11,21 @@ def build_summary(findings: List[Finding]) -> Dict[str, object]:
     by_risk = Counter(f.risk for f in findings)
     by_confidence = Counter(f.confidence for f in findings)
 
-    return {
+    costed_findings = [f for f in findings if f.estimated_monthly_cost_usd is not None]
+    total_cost = sum(f.estimated_monthly_cost_usd for f in costed_findings)
+
+    summary: Dict[str, object] = {
         "total_findings": len(findings),
         "by_provider": dict(by_provider),
         "by_risk": dict(by_risk),
         "by_confidence": dict(by_confidence),
     }
+
+    if total_cost > 0:
+        summary["minimum_estimated_monthly_waste_usd"] = round(total_cost, 2)
+        summary["findings_with_cost_estimate"] = len(costed_findings)
+
+    return summary
 
 
 def _format_enum_counts(data: dict) -> dict[str, int]:
@@ -78,6 +87,14 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
             click.echo(" (explicit)")
         else:
             click.echo()
+
+    # Estimated monthly waste
+    waste = summary.get("minimum_estimated_monthly_waste_usd")
+    if waste and waste > 0:
+        costed = summary.get("findings_with_cost_estimate", 0)
+        total = summary.get("total_findings", 0)
+        click.echo(f"\nMinimum estimated waste: ~${waste:,.0f}/month")
+        click.echo(f"({costed} of {total} findings costed)")
 
     click.echo(f"Scanned at: {summary['scanned_at']}")
 

@@ -129,6 +129,7 @@ def _scan_elbv2(
                         resource_type="aws.elbv2.load_balancer",
                         resource_id=lb_arn,
                         region=region,
+                        estimated_monthly_cost_usd=18.0,
                         title=f"Idle {type_label} (No Traffic for {days_idle}+ Days)",
                         summary=(
                             f"{type_label} '{lb_name}' has had zero traffic for "
@@ -244,6 +245,7 @@ def _scan_clb(
                         resource_type="aws.elb.load_balancer",
                         resource_id=lb_name,
                         region=region,
+                        estimated_monthly_cost_usd=18.0,
                         title=f"Idle CLB (No Traffic for {days_idle}+ Days)",
                         summary=(
                             f"CLB '{lb_name}' has had zero traffic for "

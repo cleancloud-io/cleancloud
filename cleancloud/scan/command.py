@@ -205,7 +205,7 @@ def scan(
         if output == "json":
             write_json(
                 {
-                    "schema_version": "1.0.0",
+                    "schema_version": "1.1.0",
                     "summary": summary,
                     "findings": findings,
                 },

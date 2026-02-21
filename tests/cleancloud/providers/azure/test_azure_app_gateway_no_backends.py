@@ -184,6 +184,11 @@ def test_find_app_gateway_no_backends_cost_estimate(mocker):
     assert "v2 SKU" in by_name["gw-waf-v2"].details["cost_estimate"]
     assert "v1 SKU" in by_name["gw-v1"].details["cost_estimate"]
 
+    # Verify numeric cost fields
+    assert by_name["gw-v2"].estimated_monthly_cost_usd == 225.0
+    assert by_name["gw-waf-v2"].estimated_monthly_cost_usd == 225.0
+    assert by_name["gw-v1"].estimated_monthly_cost_usd == 35.0
+
 
 def test_find_app_gateway_no_backends_nic_based_backends(mocker):
     """Gateway with NIC-based backend_ip_configurations should NOT be flagged."""

@@ -117,6 +117,7 @@ def find_unattached_elastic_ips(
                     resource_type="aws.ec2.elastic_ip",
                     resource_id=eip.get("AllocationId") or eip.get("PublicIp"),
                     region=region,
+                    estimated_monthly_cost_usd=3.75,
                     title="Unattached Elastic IP (Review Recommended)",
                     summary=(
                         f"Elastic IP allocated {age_days} days ago and currently unattached (incurs hourly charges)"

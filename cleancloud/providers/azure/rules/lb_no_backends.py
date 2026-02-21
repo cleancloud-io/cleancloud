@@ -95,6 +95,7 @@ def find_lb_no_backends(
                 resource_type="azure.load_balancer",
                 resource_id=lb.id,
                 region=lb.location,
+                estimated_monthly_cost_usd=18.0,
                 title="Standard Load Balancer Has No Backend Members",
                 summary=(
                     f"This Standard Load Balancer '{lb.name}' currently has no backend "

@@ -69,6 +69,10 @@ def find_old_snapshots(
             time_window=f"{MIN_AGE_DAYS_MEDIUM}-{MIN_AGE_DAYS_HIGH} days",
         )
 
+        # ~$0.05/GB-month for managed snapshots
+        snap_size = snapshot.disk_size_gb or 0
+        cost_usd = round(snap_size * 0.05, 2) if snap_size > 0 else None
+
         findings.append(
             Finding(
                 provider="azure",
@@ -76,6 +80,7 @@ def find_old_snapshots(
                 resource_type="azure.snapshot",
                 resource_id=snapshot.id,
                 region=snapshot.location,
+                estimated_monthly_cost_usd=cost_usd,
                 title="Old Azure managed snapshot",
                 summary=f"Snapshot has existed for {age_days} days",
                 reason="Snapshot age exceeds configured threshold",
