@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import List
+from typing import List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -236,7 +236,7 @@ def _estimate_monthly_cost(instance_class: str, multi_az: bool) -> str:
     return "Cost varies by instance class (region dependent)"
 
 
-def _estimate_monthly_cost_usd(instance_class: str, multi_az: bool) -> float | None:
+def _estimate_monthly_cost_usd(instance_class: str, multi_az: bool) -> Optional[float]:
     """Numeric monthly cost estimate for aggregation."""
     cost_map = {
         "db.t3.micro": 12,
