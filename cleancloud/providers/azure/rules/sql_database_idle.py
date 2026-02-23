@@ -220,7 +220,7 @@ def _estimate_monthly_cost(sku_name: str) -> str:
     return "Cost varies by SKU (region dependent)"
 
 
-def _estimate_monthly_cost_usd(sku_name: str) -> float | None:
+def _estimate_monthly_cost_usd(sku_name: str) -> Optional[float]:
     """Numeric monthly cost estimate for aggregation."""
     if not sku_name:
         return None
