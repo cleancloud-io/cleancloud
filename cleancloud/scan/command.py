@@ -127,6 +127,7 @@ def scan(
     try:
 
         findings: List[Finding] = []
+        skipped_rules: List[dict] = []
 
         # Provider-specific metadata
         region_selection_mode = None
@@ -135,14 +136,16 @@ def scan(
         subscriptions_scanned = []
 
         if provider == "aws":
-            region_selection_mode, findings, regions_scanned = scan_aws_with_region_selection(
-                profile=profile, region=region, all_regions=all_regions
+            region_selection_mode, findings, regions_scanned, skipped_rules = (
+                scan_aws_with_region_selection(
+                    profile=profile, region=region, all_regions=all_regions
+                )
             )
 
         elif provider == "azure":
             # Convert tuple to list for Azure
             subscription_list = list(subscription) if subscription else None
-            subscription_selection_mode, findings, subscriptions_scanned = (
+            subscription_selection_mode, findings, subscriptions_scanned, skipped_rules = (
                 scan_azure_with_region_selection(
                     region=region,
                     subscriptions=subscription_list,
@@ -181,7 +184,7 @@ def scan(
             ignored_count = len(result.ignored)
             findings = result.kept
 
-        summary = build_summary(findings)
+        summary = build_summary(findings, skipped_rules=skipped_rules)
         summary["scanned_at"] = datetime.now(timezone.utc).isoformat()
         summary["regions_scanned"] = regions_scanned
         summary["provider"] = provider

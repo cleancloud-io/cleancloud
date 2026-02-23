@@ -509,17 +509,19 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
     info(f"Security Grade: {security_grade.upper()}")
     info(f"Permissions Tested: {success_count}/{total_permissions} passed")
 
+    info("")
     if permissions_failed:
-        info("")
-        warn("Missing Permissions:")
-        for perm, error in permissions_failed:
+        warn(f"Missing Permissions: {len(permissions_failed)}/{total_permissions}")
+        for perm, _ in permissions_failed:
             warn(f"  - {perm}")
         info("")
-        info("To fix: Attach CleanCloudReadOnly policy to your IAM role/user")
-        info("See: https://docs.cleancloud.io/aws#iam-policy")
-        fail("AWS permission validation failed")
-
-    info("")
-    success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
+        info("Rules that need these permissions will be skipped during scan.")
+        info("To enable full coverage:")
+        info("  Attach the CleanCloudReadOnly policy to your IAM role/user")
+        info("  See: docs/aws.md for the full policy JSON")
+        info("")
+        warn("AWS ENVIRONMENT READY (partial coverage)")
+    else:
+        success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
     info("=" * 70)
     info("")

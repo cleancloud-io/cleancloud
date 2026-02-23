@@ -54,7 +54,7 @@ def test_cli_ignore_tag_overrides_yaml(monkeypatch, tmp_path):
     # Patch AWS scan to return fixed findings
     monkeypatch.setattr(
         "cleancloud.providers.aws.scan._scan_aws_region",
-        lambda profile, region: findings,
+        lambda profile, region: (findings, []),
     )
 
     runner = CliRunner()

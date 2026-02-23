@@ -16,8 +16,35 @@ Policy engine for AWS and Azure. Safe by default — report-only until you opt i
 - **Estimated monthly waste** : per finding and aggregate, so you know what's burning
 - **No agents. No telemetry. No SaaS.** : runs in your environment, data never leaves
 
+## Try It in 60 Seconds (No Local Setup)
+
+### AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell)
+
+```bash
+pip install cleancloud
+cleancloud scan --provider aws --all-regions
+```
+
+### Azure — [Azure Cloud Shell](https://shell.azure.com)
+
+```bash
+pip install --user cleancloud
+export PATH="$HOME/.local/bin:$PATH"
+cleancloud scan --provider azure
+```
+
+No credentials to configure. Both shells use your portal session.
+Azure Cloud Shell requires `--user` because its system Python is read-only.
+
+> If permissions are missing, CleanCloud skips those rules and tells you exactly what's needed — it won't just fail.
+
+---
+
+## Install Locally
+
 ```bash
 pipx install cleancloud
+pipx ensurepath   # adds pipx bin to PATH — restart your shell after this
 
 # AWS
 cleancloud scan --provider aws --all-regions
@@ -277,6 +304,7 @@ cleancloud scan --provider aws --all-regions --ignore-tag env:production
 ### Quick Install
 ```bash
 pipx install cleancloud
+pipx ensurepath   # adds pipx bin to PATH — restart your shell after this
 ```
 
 ### Don't have pipx?
@@ -308,6 +336,14 @@ pip install cleancloud
 <details>
 <summary>Troubleshooting</summary>
 
+**Upgrading from a previous install** — If you previously installed via `pip install cleancloud`, the old version will shadow the pipx install. Remove it first:
+```bash
+pip uninstall cleancloud
+pipx install cleancloud
+pipx ensurepath   # if not already done — open a new terminal after this
+cleancloud --version  # should show 1.6.0 or later
+```
+
 **Command not found: pip** — Use `pip3 install cleancloud` or `python3 -m pip install cleancloud`
 
 **externally-managed-environment error** — Use `pipx` (see above)
@@ -315,12 +351,17 @@ pip install cleancloud
 **Command not found: cleancloud** — Run `pipx ensurepath` then restart your shell
 
 **'cleancloud' already seems to be installed** — Run `pipx install cleancloud --force`
+
+**Wrong version after install** — An old `pip install` may be shadowing the pipx install. Run `which cleancloud` to check which binary is active. If it points to a pyenv shim or system Python path, remove the old install first (`pip uninstall cleancloud`), then run `pipx ensurepath`, open a new terminal, and verify with `cleancloud --version`.
 </details>
 
 ### Verify Installation
 ```bash
 cleancloud --version
+# Should show 1.6.0 or later — earlier versions have known issues
 ```
+
+If you see a version older than 1.6.0, run `pip uninstall cleancloud` first, then re-run `pipx install cleancloud`.
 
 ---
 
@@ -510,9 +551,9 @@ CleanCloud complements dashboards and advisors. Use **AWS Cost Explorer / Azure 
 > Roadmap items are added only after conservative signal design and safety review.
 
 ### Coming Soon
+- Additional AWS rules (S3 lifecycle, stopped EC2 instances)
 - GCP support (read-only, parity with existing trust guarantees)
-- Additional AWS rules (empty security groups)
-- Additional Azure rules (unused NICs, old images)
+- Policy-as-code in `cleancloud.yaml` — define enforcement thresholds in config
 - Rule filtering (`--rules` flag)
 - Multi-account scanning (AWS Organizations support)
 
