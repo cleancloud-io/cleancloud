@@ -1,12 +1,14 @@
 from collections import Counter
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import click
 
 from cleancloud.core.finding import Finding
 
 
-def build_summary(findings: List[Finding]) -> Dict[str, object]:
+def build_summary(
+    findings: List[Finding], skipped_rules: Optional[List[dict]] = None
+) -> Dict[str, object]:
     by_provider = Counter(f.provider for f in findings)
     by_risk = Counter(f.risk for f in findings)
     by_confidence = Counter(f.confidence for f in findings)
@@ -25,6 +27,9 @@ def build_summary(findings: List[Finding]) -> Dict[str, object]:
         summary["minimum_estimated_monthly_waste_usd"] = round(total_cost, 2)
         summary["findings_with_cost_estimate"] = len(costed_findings)
 
+    if skipped_rules:
+        summary["skipped_rules"] = skipped_rules
+
     return summary
 
 
@@ -40,6 +45,13 @@ def _format_enum_counts(data: dict) -> dict[str, int]:
 
 def _print_summary(summary: dict, region_selection_mode: str = None):
     click.echo("\n--- Scan Summary ---")
+
+    skipped_rules = summary.get("skipped_rules", [])
+    total_rules = 10  # fixed number of rules per provider
+    executed = total_rules - len(skipped_rules)
+    if skipped_rules:
+        click.echo(f"Rules executed: {executed}/{total_rules}")
+        click.echo(f"Rules skipped:  {len(skipped_rules)} (missing permissions)")
     click.echo(f"Total findings: {summary['total_findings']}")
 
     # By risk
@@ -101,6 +113,25 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
     # Tag filtering visibility
     if summary.get("ignored_by_tag_policy", 0) > 0:
         click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
+
+    # Skipped rules detail
+    if skipped_rules:
+        click.echo()
+        click.echo("Skipped (missing permissions):")
+        for skipped in skipped_rules:
+            rule_name = skipped["rule"]
+            if rule_name.startswith("find_"):
+                rule_name = rule_name[5:]
+            missing = skipped.get("missing_permissions", "")
+            # Strip verbose prefix if present
+            missing = missing.replace("Missing required IAM permissions: ", "")
+            click.echo(f"  - {rule_name}")
+            if missing:
+                click.echo(f"      needs: {missing}")
+        click.echo()
+        click.echo(
+            "Run 'cleancloud doctor --provider <aws|azure>' to see how to grant full coverage."
+        )
 
     # Success message
     if summary["total_findings"] == 0:

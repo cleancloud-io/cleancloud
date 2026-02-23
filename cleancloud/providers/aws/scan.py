@@ -41,7 +41,7 @@ AWS_RULES: List[Callable] = [
 
 def scan_aws_with_region_selection(
     *, profile: Optional[str], region: Optional[str], all_regions: bool
-) -> Tuple[str, List[Finding], List[str]]:
+) -> Tuple[str, List[Finding], List[str], List[dict]]:
 
     validate_region_params(region, all_regions)
 
@@ -71,10 +71,10 @@ def scan_aws_with_region_selection(
 
     click.echo()
 
-    findings = scan_aws_regions(profile, regions_to_scan)
+    findings, skipped_rules = scan_aws_regions(profile, regions_to_scan)
     regions_scanned = regions_to_scan
 
-    return region_selection_mode, findings, regions_scanned
+    return region_selection_mode, findings, regions_scanned, skipped_rules
 
 
 def _get_active_aws_regions(session) -> List[str]:
@@ -208,8 +208,9 @@ def _get_all_aws_regions(session) -> List[str]:
 def scan_aws_regions(
     profile: Optional[str],
     regions_to_scan: List[str],
-) -> List[Finding]:
+) -> Tuple[List[Finding], List[dict]]:
     findings: List[Finding] = []
+    all_skipped_rules: List[dict] = []
 
     with click.progressbar(
         length=len(regions_to_scan),
@@ -226,7 +227,12 @@ def scan_aws_regions(
             for future in as_completed(futures):
                 region = futures[future]
                 try:
-                    findings.extend(future.result())
+                    region_findings, region_skipped = future.result()
+                    findings.extend(region_findings)
+                    # Deduplicate skipped rules across regions
+                    for skipped in region_skipped:
+                        if not any(s["rule"] == skipped["rule"] for s in all_skipped_rules):
+                            all_skipped_rules.append(skipped)
                 except RuntimeError as e:
                     # RuntimeError indicates a complete region failure (all rules failed)
                     # This is fatal for explicitly requested regions
@@ -238,12 +244,13 @@ def scan_aws_regions(
                     click.echo(f"Region {region} failed: {e}")
                     advance(bar)
 
-    return findings
+    return findings, all_skipped_rules
 
 
-def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
+def _scan_aws_region(profile: Optional[str], region: str) -> Tuple[List[Finding], List[dict]]:
     session = create_aws_session(profile=profile, region=region)
     findings: List[Finding] = []
+    skipped_rules: List[dict] = []
     rules_succeeded = 0
     rules_failed = 0
     endpoint_errors = 0
@@ -255,35 +262,39 @@ def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
         show_percent=True,
     ) as bar:
         with ThreadPoolExecutor(max_workers=min(4, len(AWS_RULES))) as executor:
-            futures = [executor.submit(rule, session, region) for rule in AWS_RULES]
+            futures = {executor.submit(rule, session, region): rule for rule in AWS_RULES}
 
             for future in as_completed(futures):
+                rule = futures[future]
                 try:
                     rule_findings = future.result()
                     findings.extend(rule_findings)
                     rules_succeeded += 1
+                except PermissionError as e:
+                    # Graceful degradation — missing permissions skip this rule
+                    skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
                 except botocore.exceptions.EndpointConnectionError as e:
                     # Endpoint connection error - likely invalid region
                     rules_failed += 1
                     endpoint_errors += 1
                     click.echo(f"Rule failed in {region}: {e}")
                 except Exception as e:
-                    # Other errors (permissions, throttling, etc.)
+                    # Other errors (throttling, unexpected, etc.)
                     rules_failed += 1
                     click.echo(f"Rule failed in {region}: {e}")
                 finally:
                     advance(bar)
 
-    # If ALL rules failed due to endpoint errors, this is an invalid region
-    if rules_succeeded == 0 and endpoint_errors == rules_failed:
+    # If ALL rules failed due to endpoint errors (none skipped), this is an invalid region
+    if rules_succeeded == 0 and not skipped_rules and endpoint_errors == rules_failed:
         raise RuntimeError(
             f"Region '{region}' appears to be invalid or inaccessible. "
             f"All {rules_failed} rules failed with endpoint connectivity errors. "
             f"Check that the region name is correct (e.g., us-east-1, eu-west-1)."
         )
 
-    # If ALL rules failed for any reason, something is seriously wrong
-    if rules_succeeded == 0 and rules_failed > 0:
+    # If ALL rules failed for any non-permission reason, something is seriously wrong
+    if rules_succeeded == 0 and not skipped_rules and rules_failed > 0:
         raise RuntimeError(
             f"All {rules_failed} rules failed in region '{region}'. "
             f"This indicates a serious configuration or permissions issue."
@@ -293,4 +304,4 @@ def _scan_aws_region(profile: Optional[str], region: str) -> List[Finding]:
     for f in findings:
         f.region = region
 
-    return findings
+    return findings, skipped_rules

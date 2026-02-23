@@ -16,8 +16,35 @@ Policy engine for AWS and Azure. Safe by default — report-only until you opt i
 - **Estimated monthly waste** : per finding and aggregate, so you know what's burning
 - **No agents. No telemetry. No SaaS.** : runs in your environment, data never leaves
 
+## Try It in 60 Seconds (No Local Setup)
+
+### AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell)
+
+```bash
+pip install cleancloud
+cleancloud scan --provider aws --all-regions
+```
+
+### Azure — [Azure Cloud Shell](https://shell.azure.com)
+
+```bash
+pip install --user cleancloud
+export PATH="$HOME/.local/bin:$PATH"
+cleancloud scan --provider azure
+```
+
+No credentials to configure. Both shells use your portal session.
+Azure Cloud Shell requires `--user` because its system Python is read-only.
+
+> If permissions are missing, CleanCloud skips those rules and tells you exactly what's needed — it won't just fail.
+
+---
+
+## Install Locally
+
 ```bash
 pipx install cleancloud
+pipx ensurepath   # adds pipx bin to PATH — restart your shell after this
 
 # AWS
 cleancloud scan --provider aws --all-regions
