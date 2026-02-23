@@ -341,7 +341,7 @@ pip install cleancloud
 pip uninstall cleancloud
 pipx install cleancloud
 pipx ensurepath   # if not already done — open a new terminal after this
-cleancloud --version  # should show 1.5.0 or later
+cleancloud --version  # should show 1.6.0 or later
 ```
 
 **Command not found: pip** — Use `pip3 install cleancloud` or `python3 -m pip install cleancloud`
@@ -358,10 +358,10 @@ cleancloud --version  # should show 1.5.0 or later
 ### Verify Installation
 ```bash
 cleancloud --version
-# Should show 1.5.0 or later — earlier versions have known issues
+# Should show 1.6.0 or later — earlier versions have known issues
 ```
 
-If you see a version older than 1.5.0, run `pip uninstall cleancloud` first, then re-run `pipx install cleancloud`.
+If you see a version older than 1.6.0, run `pip uninstall cleancloud` first, then re-run `pipx install cleancloud`.
 
 ---
 
