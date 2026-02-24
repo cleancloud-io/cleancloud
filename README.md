@@ -16,7 +16,16 @@ Policy engine for AWS and Azure. Safe by default — report-only until you opt i
 - **Estimated monthly waste** : per finding and aggregate, so you know what's burning
 - **No agents. No telemetry. No SaaS.** : runs in your environment, data never leaves
 
-## Try It in 60 Seconds (No Local Setup)
+## Try It in 60 Seconds
+
+### No cloud account? See it instantly
+
+```bash
+pip install cleancloud
+cleancloud demo
+```
+
+Shows realistic findings for AWS and Azure — no credentials, no setup. Use `--provider aws` or `--provider azure` to see one provider at a time.
 
 ### AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell)
 
