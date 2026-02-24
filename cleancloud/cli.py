@@ -3,6 +3,7 @@ from importlib.metadata import version as pkg_version
 
 import click
 
+from cleancloud.demo.command import demo
 from cleancloud.doctor.command import doctor
 from cleancloud.scan.command import scan
 
@@ -49,6 +50,7 @@ def cli():
     pass
 
 
+cli.add_command(demo)
 cli.add_command(doctor)
 cli.add_command(scan)
 
