@@ -18,15 +18,6 @@ Policy engine for AWS and Azure. Safe by default — report-only until you opt i
 
 ## Try It in 60 Seconds
 
-### No cloud account? See it instantly
-
-```bash
-pip install cleancloud
-cleancloud demo
-```
-
-Shows realistic findings for AWS and Azure — no credentials, no setup. Use `--provider aws` or `--provider azure` to see one provider at a time.
-
 ### AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell)
 
 ```bash
@@ -54,7 +45,19 @@ Azure Cloud Shell requires `--user` because its system Python is read-only.
 ```bash
 pipx install cleancloud
 pipx ensurepath   # adds pipx bin to PATH — restart your shell after this
+```
 
+No cloud account configured yet? See sample output instantly:
+
+```bash
+cleancloud demo                  # AWS + Azure sample findings
+cleancloud demo --provider aws   # AWS only
+cleancloud demo --provider azure # Azure only
+```
+
+When you're ready to scan your real environment:
+
+```bash
 # AWS
 cleancloud scan --provider aws --all-regions
 
