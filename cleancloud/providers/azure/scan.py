@@ -197,6 +197,10 @@ def _scan_azure_subscription(
                 except PermissionError as e:
                     # Graceful degradation — missing permissions skip this rule
                     skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
+                except EnvironmentError:
+                    # Azure auth failed mid-scan (e.g. token expired) — re-raise immediately
+                    # Must come after PermissionError since it is a subclass of EnvironmentError
+                    raise
                 except HttpResponseError as e:
                     if e.status_code == 403:
                         # Treat 403 as a skipped rule (missing Azure RBAC permission)

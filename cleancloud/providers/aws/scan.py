@@ -47,6 +47,17 @@ def scan_aws_with_region_selection(
 
     base_session = create_aws_session(profile=profile, region="us-east-1")
 
+    # Pre-flight: one STS call to verify credentials before spawning threads.
+    # Cheaper than letting 10 rules fail in parallel with the same root cause.
+    try:
+        base_session.client("sts").get_caller_identity()
+    except botocore.exceptions.NoCredentialsError:
+        raise
+    except botocore.exceptions.ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("InvalidClientTokenId", "AuthFailure", "ExpiredTokenException"):
+            raise botocore.exceptions.NoCredentialsError()
+
     # Determine which regions to scan
     if region:
         regions_to_scan = [region]
@@ -270,6 +281,11 @@ def _scan_aws_region(profile: Optional[str], region: str) -> Tuple[List[Finding]
                     rule_findings = future.result()
                     findings.extend(rule_findings)
                     rules_succeeded += 1
+                except botocore.exceptions.NoCredentialsError:
+                    # Credentials missing or expired mid-scan — re-raise immediately.
+                    # The pre-flight check should have caught this; if we're here,
+                    # the token expired during the scan. Don't swallow it.
+                    raise
                 except PermissionError as e:
                     # Graceful degradation — missing permissions skip this rule
                     skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
