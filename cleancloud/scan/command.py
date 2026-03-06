@@ -264,13 +264,35 @@ def scan(
         click.echo(f"Permission error: {e}")
         sys.exit(EXIT_PERMISSION_ERROR)
 
+    except EnvironmentError as e:
+        # Raised by create_azure_session() when Azure auth fails
+        click.echo()
+        click.echo(f"Authentication failed — {e}")
+        click.echo()
+        click.echo("Run `cleancloud doctor --provider azure` to diagnose.")
+        sys.exit(EXIT_PERMISSION_ERROR)
+
     except botocore.exceptions.NoCredentialsError:
-        click.echo("No AWS credentials found")
+        click.echo()
+        click.echo("Authentication failed — no AWS credentials found.")
+        click.echo()
+        click.echo("Configure credentials using one of:")
+        click.echo("  - AWS CloudShell: credentials are injected from your portal session")
+        click.echo("  - Local AWS CLI:  run `aws configure` or set AWS_PROFILE")
+        click.echo("  - CI/CD (OIDC):   see docs/aws.md for OIDC role setup")
+        click.echo("  - Environment:    set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY")
+        click.echo()
+        click.echo("Run `cleancloud doctor --provider aws` to diagnose.")
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except Exception as e:
-        click.echo(f"Unexpected error: {e}")
-        import traceback
+        click.echo()
+        click.echo(f"Unexpected error: {type(e).__name__}: {e}")
+        click.echo()
+        click.echo("This may be a bug. Please report it:")
+        click.echo("  https://github.com/cleancloud-io/cleancloud/issues/new")
+        if __import__("os").environ.get("CLEANCLOUD_DEBUG"):
+            import traceback
 
-        traceback.print_exc()
+            traceback.print_exc()
         sys.exit(EXIT_ERROR)

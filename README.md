@@ -6,15 +6,20 @@
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
-**Shift-left cloud hygiene. Catch orphaned resources in CI before they become monthly line items.**
+**Trivy for cloud waste. A scanner that finds orphaned resources and enforces hygiene in CI.**
 
-CLI policy engine for AWS and Azure. Exits `0` by default — enforce when ready.
+Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
-- **CI-native enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
-- **Read-only by design:** no deletions, no tag changes, no mutations — ever
 - **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
 - **Estimated monthly waste:** per finding and aggregate
+- **CI-native enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
+- **Read-only by design:** no deletions, no tag changes, no mutations — ever
 - **No agents. No telemetry. No SaaS.** Runs in your environment, data never leaves
+
+**Use cases:**
+- One-time cloud waste audit — run in CloudShell, see findings in 60 seconds
+- Scheduled hygiene scans — cron job or weekly CI run to catch drift
+- CI/CD enforcement gates — fail builds when waste exceeds your threshold
 
 > Bug reports and feedback very welcome via [issues](https://github.com/cleancloud-io/cleancloud/issues).
 
@@ -221,6 +226,18 @@ Scans exit `0` by default. Opt in to enforcement:
 Setup guides: [AWS](docs/aws.md) · [Azure](docs/azure.md)
 
 > CI/CD snippets above use `pip install` — correct for ephemeral runners where pipx isolation isn't needed.
+
+---
+
+## What Users Are Saying
+
+> "Solid discovery tool that bubbles up potential savings. Easy to install and use!
+>
+> The VPN gateway showed all of mine had no active connections, but 3 of 4 show Connected
+> and have recent data. I know why the 4th one is not connected and this helps remind me
+> to pester the network team about it :)"
+>
+> — [Reddit user](https://www.reddit.com/r/AZURE/comments/1rm7an5/comment/o8zfv6a/)
 
 ---
 
