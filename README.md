@@ -41,14 +41,14 @@ Got an AWS or Azure account? Run a real scan in seconds with no local setup.
 
 **AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell):**
 ```bash
-pip install cleancloud
+pip install --upgrade cleancloud
 cleancloud doctor --provider aws   # check what permissions your session has
 cleancloud scan --provider aws --all-regions
 ```
 
 **Azure — [Azure Cloud Shell](https://shell.azure.com):**
 ```bash
-pip install --user cleancloud
+pip install --upgrade --user cleancloud
 export PATH="$HOME/.local/bin:$PATH"
 cleancloud doctor --provider azure  # check what permissions your session has
 cleancloud scan --provider azure
@@ -79,6 +79,8 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 ```
 
 **Wrong version after install** — Run `which cleancloud`; an old pip install may be shadowing pipx.
+
+**Minimum recommended version: v1.6.3** — earlier versions have setup friction. Run `cleancloud --version` to check.
 
 </details>
 
