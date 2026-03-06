@@ -293,5 +293,6 @@ def scan(
         click.echo("  https://github.com/cleancloud-io/cleancloud/issues/new")
         if __import__("os").environ.get("CLEANCLOUD_DEBUG"):
             import traceback
+
             traceback.print_exc()
         sys.exit(EXIT_ERROR)
