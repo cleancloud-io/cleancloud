@@ -16,7 +16,7 @@ CLI policy engine for AWS and Azure. Exits `0` by default — enforce when ready
 - **Estimated monthly waste:** per finding and aggregate
 - **No agents. No telemetry. No SaaS.** Runs in your environment, data never leaves
 
-> **Early stage** — actively developed. Bug reports and feedback very welcome via [issues](https://github.com/cleancloud-io/cleancloud/issues).
+> Bug reports and feedback very welcome via [issues](https://github.com/cleancloud-io/cleancloud/issues).
 
 ---
 
