@@ -202,8 +202,39 @@ def run_azure_doctor() -> None:
         expires_in_minutes = (token.expires_on - current_time) // 60
         info(f"  Token expires in: ~{expires_in_minutes} minutes")
 
-    except Exception as e:
-        fail(f"Azure authentication failed: {e}")
+    except Exception:
+        info("")
+        warn("Azure credentials not found or could not be acquired.")
+        info("")
+        info("To configure credentials, choose one of:")
+        info(
+            "  - Azure Cloud Shell:      credentials are injected automatically from your portal session"
+        )
+        info("  - Local Azure CLI:        run `az login`")
+        info("  - CI/CD (Workload ID):    see docs/azure.md for Workload Identity Federation setup")
+        info(
+            "  - Environment variables:  set AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_CLIENT_SECRET"
+        )
+        info("")
+        info("RBAC permissions required (assign to your service principal or user):")
+        info("  Built-in role: Reader  (at subscription scope)")
+        info("")
+        info("  Or the individual permissions CleanCloud uses:")
+        info("  Microsoft.Compute/disks/read")
+        info("  Microsoft.Compute/snapshots/read")
+        info("  Microsoft.Compute/virtualMachines/read")
+        info("  Microsoft.Network/publicIPAddresses/read")
+        info("  Microsoft.Network/loadBalancers/read")
+        info("  Microsoft.Network/applicationGateways/read")
+        info("  Microsoft.Network/virtualNetworkGateways/read")
+        info("  Microsoft.Web/serverfarms/read")
+        info("  Microsoft.Sql/servers/databases/read")
+        info("  Microsoft.Resources/subscriptions/resourceGroups/read")
+        info("  Microsoft.Resources/tags/read")
+        info("")
+        info("Copy the ready-to-use RBAC setup from:")
+        info("  docs/azure.md  (Workload Identity + Reader role assignment)")
+        fail("Azure authentication failed — configure credentials and re-run doctor")
 
     # Step 3: Subscription access validation
     info("")
