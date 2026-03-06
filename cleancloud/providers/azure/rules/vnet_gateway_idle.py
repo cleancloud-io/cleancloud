@@ -142,10 +142,18 @@ def find_idle_vnet_gateways(
         except Exception:
             connections = []
 
-        # Check for active connections
-        active_connections = [
-            c for c in connections if getattr(c, "connection_status", None) == "Connected"
-        ]
+        # Check for active connections.
+        # The list_connections() API returns summary entities where connection_status
+        # is often None even for live connections. Treat None/unknown status as
+        # potentially active (conservative). Only treat as inactive when explicitly
+        # NotConnected or Disconnected.
+        _inactive_statuses = {"NotConnected", "Disconnected"}
+        active_connections = []
+        for c in connections:
+            status = getattr(c, "connection_status", None)
+            # Treat unknown status as active (conservative assumption)
+            if status not in _inactive_statuses:
+                active_connections.append(c)
 
         # For VPN gateways, also check VPN client configuration (P2S)
         vpn_client_config = getattr(gw, "vpn_client_configuration", None)
@@ -181,6 +189,7 @@ def find_idle_vnet_gateways(
             signals_used=signals,
             signals_not_checked=[
                 "Active Point-to-Site VPN clients",
+                "Connection status not always populated by Azure list API (connections with unknown status treated as active)",
                 "Planned connection setup",
                 "IaC-managed intent",
                 "Migration or teardown in progress",

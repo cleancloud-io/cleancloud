@@ -254,6 +254,34 @@ def test_find_idle_vnet_gateways_cost_estimates(mocker):
     assert by_name["er-ultra"].estimated_monthly_cost_usd == 670.0
 
 
+def test_find_idle_vnet_gateways_connection_status_none_not_flagged(mocker):
+    """Gateway with connections where status is None (unpopulated by list API) should NOT be flagged."""
+    gateway_resources = [_make_gateway_resource("vpn-status-unknown")]
+
+    gateways = {
+        "vpn-status-unknown": _make_gateway("vpn-status-unknown"),
+    }
+
+    resource_client = mocker.MagicMock()
+    resource_client.resources.list.return_value = gateway_resources
+
+    network_client = mocker.MagicMock()
+    network_client.virtual_network_gateways.get.side_effect = lambda rg, name: gateways[name]
+    # Azure list_connections() often returns None status even for live connections
+    network_client.virtual_network_gateways.list_connections.return_value = [
+        _make_connection("conn1", None)
+    ]
+
+    findings = find_idle_vnet_gateways(
+        subscription_id="sub-123",
+        credential=None,
+        client=network_client,
+        resource_client=resource_client,
+    )
+
+    assert len(findings) == 0
+
+
 def test_find_idle_vnet_gateways_disconnected_connection(mocker):
     """Gateway with disconnected connection should be flagged."""
     gateway_resources = [_make_gateway_resource("vpn-disconnected")]
