@@ -224,6 +224,18 @@ Setup guides: [AWS](docs/aws.md) · [Azure](docs/azure.md)
 
 ---
 
+## What Users Are Saying
+
+> "Solid discovery tool that bubbles up potential savings. Easy to install and use!
+>
+> The VPN gateway showed all of mine had no active connections, but 3 of 4 show Connected
+> and have recent data. I know why the 4th one is not connected and this helps remind me
+> to pester the network team about it :)"
+>
+> — [Reddit user](https://www.reddit.com/r/AZURE/comments/1rm7an5/comment/o8zfv6a/)
+
+---
+
 ## Roadmap
 
 - Additional AWS rules (S3 lifecycle, stopped EC2 instances)
