@@ -187,7 +187,7 @@ Prints a grouped summary you can paste directly into a GitHub PR comment, Slack 
 
 Save to a file with `--output-file results.md`. Without `--output-file`, it prints to stdout.
 
-For full output examples including `doctor`, JSON, and CSV: [`docs/example-outputs.md`](docs/example-outputs.md)
+For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/example-outputs.md`](docs/example-outputs.md)
 
 ---
 
