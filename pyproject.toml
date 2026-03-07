@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleancloud"
-version = "1.6.5"
+version = "1.7.0"
 description = "Reduce cloud costs through safe, read-only hygiene evaluation. Built for production environments with confidence-scored signals for AWS and Azure."
 readme = "README.md"
 requires-python = ">=3.9"
