@@ -177,6 +177,7 @@ az role assignment create \
 - `Microsoft.Network/virtualNetworkGateways/read` — Idle VNet gateways
 - `Microsoft.Network/connections/read` — Gateway connection status
 - `Microsoft.Web/serverfarms/read` — Empty App Service Plans
+- `Microsoft.Web/serverfarms/sites/read` — Empty App Service Plans (confirms app count)
 - `Microsoft.Sql/servers/read` — SQL server discovery
 - `Microsoft.Sql/servers/databases/read` — Idle SQL databases
 - `Microsoft.Insights/metrics/read` — CloudWatch-style metrics (SQL connections)
@@ -200,6 +201,7 @@ az role assignment create \
     "Microsoft.Compute/snapshots/read",
     "Microsoft.Network/publicIPAddresses/read",
     "Microsoft.Web/serverfarms/read",
+    "Microsoft.Web/serverfarms/sites/read",
     "Microsoft.Network/loadBalancers/read",
     "Microsoft.Network/applicationGateways/read",
     "Microsoft.Network/virtualNetworkGateways/read",
@@ -357,6 +359,7 @@ Step 4: Permission Validation
     - Microsoft.Compute/snapshots/read
     - Microsoft.Network/publicIPAddresses/read
     - Microsoft.Web/serverfarms/read
+    - Microsoft.Web/serverfarms/sites/read
     - Microsoft.Network/loadBalancers/read
     - Microsoft.Network/applicationGateways/read
     - Microsoft.Network/virtualNetworkGateways/read

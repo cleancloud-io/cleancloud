@@ -14,6 +14,7 @@
         "Microsoft.Resources/tags/read",
         "Microsoft.Authorization/roleAssignments/read",
         "Microsoft.Web/serverfarms/read",
+        "Microsoft.Web/serverfarms/sites/read",
         "Microsoft.Network/loadBalancers/read",
         "Microsoft.Network/applicationGateways/read",
         "Microsoft.Network/virtualNetworkGateways/read",

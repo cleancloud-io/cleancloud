@@ -43,6 +43,8 @@ def mock_web_client(mocker):
     ]
     client = mocker.MagicMock()
     client.app_service_plans.list.return_value = plans
+    # Secondary API call confirms no apps
+    client.app_service_plans.list_web_apps.return_value = []
     return client
 
 
@@ -65,13 +67,14 @@ def test_find_empty_app_service_plans(mock_web_client):
     assert finding.confidence.value == "high"
     assert finding.risk.value == "low"
     assert finding.details["sku_tier"] == "Standard"
-    assert finding.details["number_of_sites"] == 0
+    assert finding.details["confirmed_web_apps"] == 0
     assert finding.estimated_monthly_cost_usd == 73.0  # Standard tier
 
 
 def test_find_empty_app_service_plans_empty_subscription(mocker):
     client = mocker.MagicMock()
     client.app_service_plans.list.return_value = []
+    client.app_service_plans.list_web_apps.return_value = []
 
     findings = find_empty_app_service_plans(
         subscription_id="sub-123",
@@ -88,6 +91,7 @@ def test_find_empty_app_service_plans_region_filter(mocker):
     ]
     client = mocker.MagicMock()
     client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.return_value = []
 
     findings = find_empty_app_service_plans(
         subscription_id="sub-123",
@@ -106,6 +110,7 @@ def test_find_empty_app_service_plans_region_filter_display_name(mocker):
     ]
     client = mocker.MagicMock()
     client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.return_value = []
 
     # Short name should match display name
     findings = find_empty_app_service_plans(
@@ -137,6 +142,7 @@ def test_find_empty_app_service_plans_premium_tiers(mocker):
     ]
     client = mocker.MagicMock()
     client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.return_value = []
 
     findings = find_empty_app_service_plans(
         subscription_id="sub-123",
@@ -148,3 +154,88 @@ def test_find_empty_app_service_plans_premium_tiers(mocker):
     assert "Basic" in tiers
     assert "PremiumV2" in tiers
     assert "Isolated" in tiers
+
+
+def test_number_of_sites_zero_but_apps_exist_not_flagged(mocker):
+    """number_of_sites=0 from list API is unreliable — must be confirmed by list_web_apps()."""
+    plans = [_make_plan("plan-has-apps", "Standard", "S1", 0)]
+    client = mocker.MagicMock()
+    client.app_service_plans.list.return_value = plans
+    # Secondary call reveals apps actually exist
+    client.app_service_plans.list_web_apps.return_value = [object()]
+
+    findings = find_empty_app_service_plans(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+    assert findings == []
+
+
+def test_number_of_sites_none_treated_as_empty(mocker):
+    """Azure can return None for number_of_sites — should be treated as potentially empty."""
+    plans = [_make_plan("plan-sites-none", "Standard", "S1", None)]
+    client = mocker.MagicMock()
+    client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.return_value = []
+
+    findings = find_empty_app_service_plans(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+    assert len(findings) == 1
+
+
+def test_dynamic_tier_skipped(mocker):
+    """Consumption/serverless plans (Dynamic tier) have no idle cost — should be skipped."""
+    plans = [_make_plan("plan-consumption", "Dynamic", "Y1", 0)]
+    client = mocker.MagicMock()
+    client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.return_value = []
+
+    findings = find_empty_app_service_plans(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+    assert findings == []
+
+
+def test_cost_multiplied_by_capacity(mocker):
+    """Cost should reflect instance count — 2x Standard = ~$146, not ~$73."""
+    plan = SimpleNamespace(
+        id="/subscriptions/sub-123/resourceGroups/rg/providers/Microsoft.Web/serverfarms/plan-scaled",
+        name="plan-scaled",
+        location="eastus",
+        sku=SimpleNamespace(name="S1", tier="Standard", capacity=2),
+        number_of_sites=0,
+        provisioning_state="Succeeded",
+        tags=None,
+    )
+    client = mocker.MagicMock()
+    client.app_service_plans.list.return_value = [plan]
+    client.app_service_plans.list_web_apps.return_value = []
+
+    findings = find_empty_app_service_plans(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+    assert len(findings) == 1
+    assert findings[0].estimated_monthly_cost_usd == 146.0  # 73.0 * 2
+
+
+def test_list_web_apps_exception_skips_conservatively(mocker):
+    """If list_web_apps() raises, skip the plan rather than risk a false positive."""
+    plans = [_make_plan("plan-api-error", "Standard", "S1", 0)]
+    client = mocker.MagicMock()
+    client.app_service_plans.list.return_value = plans
+    client.app_service_plans.list_web_apps.side_effect = Exception("API error")
+
+    findings = find_empty_app_service_plans(
+        subscription_id="sub-123",
+        credential=None,
+        client=client,
+    )
+    assert findings == []
