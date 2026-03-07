@@ -150,7 +150,7 @@ def test_confidence_breakdown_shown():
 def test_footer_present():
     output = write_markdown([], _make_summary([]))
     assert "CleanCloud" in output
-    assert "github.com" in output
+    assert "https://github.com/cleancloud-io/cleancloud" in output
 
 
 def test_writes_to_file(tmp_path):
