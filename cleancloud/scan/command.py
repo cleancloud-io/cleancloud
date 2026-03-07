@@ -24,6 +24,7 @@ from cleancloud.filtering.tags import (
 from cleancloud.output.csv import write_csv
 from cleancloud.output.human import print_human
 from cleancloud.output.json import write_json
+from cleancloud.output.markdown import write_markdown
 from cleancloud.output.summary import _print_summary, build_summary
 from cleancloud.policy.exit_policy import (
     CONFIDENCE_ORDER,
@@ -62,12 +63,12 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
 @click.option(
     "--output",
     default="human",
-    type=click.Choice(["human", "json", "csv"]),
+    type=click.Choice(["human", "json", "csv", "markdown"]),
 )
 @click.option(
     "--output-file",
     default=None,
-    help="Output file path (required for json/csv)",
+    help="Output file path (required for json/csv; optional for markdown — prints to stdout if omitted)",
 )
 @click.option(
     "--fail-on-findings",
@@ -227,6 +228,14 @@ def scan(
         elif output == "csv":
             write_csv(findings, output_path)
             click.echo(f"CSV output written to {output_path}")
+            click.echo()
+
+        elif output == "markdown":
+            result = write_markdown(findings, summary, output_path)
+            if result is not None:
+                click.echo(result)
+            else:
+                click.echo(f"Markdown output written to {output_path}")
             click.echo()
 
         else:
