@@ -623,7 +623,7 @@ if plan.number_of_sites == 0:
 - Scaling plans created but never used
 - Migration leaving old plans behind
 
-**Required permission:** `Microsoft.Web/serverfarms/read`
+**Required permissions:** `Microsoft.Web/serverfarms/read`, `Microsoft.Web/serverfarms/sites/read`
 
 ---
 

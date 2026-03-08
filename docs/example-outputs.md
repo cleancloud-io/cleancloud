@@ -197,6 +197,7 @@ Step 4: Permission Validation
     - Microsoft.Compute/snapshots/read
     - Microsoft.Network/publicIPAddresses/read
     - Microsoft.Web/serverfarms/read
+    - Microsoft.Web/serverfarms/sites/read
     - Microsoft.Network/loadBalancers/read
     - Microsoft.Network/applicationGateways/read
     - Microsoft.Network/virtualNetworkGateways/read
