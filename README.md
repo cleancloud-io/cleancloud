@@ -6,6 +6,11 @@
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
+**Languages / Langues :**
+🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
+
+---
+
 **Trivy for cloud waste. A scanner that finds orphaned resources and enforces hygiene in CI.**
 
 Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
