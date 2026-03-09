@@ -2,9 +2,9 @@
 
 Azure authentication, RBAC permissions, and configuration guide.
 
-> **Quick Start:** See [README.md](../README.md)  
-> **Rules Reference:** See [rules.md](rules.md)  
-> **CI/CD Integration:** See [ci.md](ci.md)
+- **Quick Start:** See [README.md](../README.md)
+- **Rules Reference:** See [rules.md](rules.md)
+- **CI/CD Integration:** See [ci.md](ci.md)
 
 ---
 
@@ -14,36 +14,65 @@ CleanCloud supports multiple Azure authentication methods:
 
 ### 1. Azure OIDC with Workload Identity (Recommended for CI/CD)
 
-**Microsoft Entra ID Workload Identity Federation - No client secrets, temporary tokens only.**
+Microsoft Entra ID Workload Identity Federation — no client secrets, temporary tokens only.
 
 #### Setup Steps
 
 **Step 1: Create App Registration**
+
 ```bash
 az ad app create --display-name "CleanCloudScanner"
 # Note the Application (client) ID
 ```
 
 **Step 2: Create Service Principal**
+
 ```bash
 az ad sp create --id <APP_ID>
 ```
 
 **Step 3: Configure Federated Identity Credential**
+
+Choose the subject format that matches how your GitHub Actions workflow runs:
+
+| Workflow trigger | Subject claim to use |
+|---|---|
+| Branch push (e.g. `main`) | `repo:<ORG>/<REPO>:ref:refs/heads/main` |
+| Pull request | `repo:<ORG>/<REPO>:pull_request` |
+| GitHub Environment | `repo:<ORG>/<REPO>:environment:<ENV_NAME>` |
+
+> ⚠️ **Common mistake:** If your workflow uses `environment: production`, GitHub sends the `environment` subject claim — not the `ref` one. Using the wrong format causes silent auth failures. See [OIDC subject mismatch](#oidc-subject-claim-mismatch) in Troubleshooting.
+
+**For branch-based workflows:**
+
 ```bash
 az ad app federated-credential create \
   --id <APP_ID> \
   --parameters '{
-    "name": "CleanCloudGitHub",
+    "name": "CleanCloudGitHub-Branch",
     "issuer": "https://token.actions.githubusercontent.com",
     "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
     "audiences": ["api://AzureADTokenExchange"]
   }'
 ```
 
-Replace `<YOUR_ORG>/<YOUR_REPO>` with your GitHub organization and repository.
+**For GitHub Environment workflows:**
+
+```bash
+az ad app federated-credential create \
+  --id <APP_ID> \
+  --parameters '{
+    "name": "CleanCloudGitHub-Env",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:environment:<YOUR_ENV_NAME>",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+> 💡 **Tip:** You can add multiple federated credentials to the same App Registration. If you use both branch pushes and environments, create one credential for each. Azure allows up to 20 federated credentials per App Registration.
 
 **Step 4: Assign Reader Role**
+
 ```bash
 az role assignment create \
   --assignee <APP_ID> \
@@ -51,14 +80,17 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
-**Step 5: Add GitHub secrets**
+**Step 5: Add GitHub Secrets**
 
 Go to your repo → Settings → Secrets and variables → Actions → New repository secret:
-- `AZURE_CLIENT_ID` — App registration application ID
-- `AZURE_TENANT_ID` — Azure tenant ID
-- `AZURE_SUBSCRIPTION_ID` — Subscription to scan
 
-> No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
+| Secret | Value |
+|---|---|
+| `AZURE_CLIENT_ID` | App registration application ID |
+| `AZURE_TENANT_ID` | Azure tenant ID |
+| `AZURE_SUBSCRIPTION_ID` | Subscription to scan |
+
+No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
 
 #### GitHub Actions Workflow
 
@@ -93,20 +125,21 @@ jobs:
             --fail-on-confidence MEDIUM
 ```
 
-
 ---
 
 ### 2. Service Principal with Environment Variables (Local Development)
 
-**Quick setup for local testing and evaluation.**
+Quick setup for local testing and evaluation.
 
 **Step 1: Create Service Principal**
+
 ```bash
 az ad sp create-for-rbac --name "CleanCloudLocal" --role "Reader" \
   --scopes /subscriptions/<SUBSCRIPTION_ID>
 ```
 
 This outputs:
+
 ```json
 {
   "appId": "12345678-1234-1234-1234-123456789abc",
@@ -117,6 +150,7 @@ This outputs:
 ```
 
 **Step 2: Set Environment Variables**
+
 ```bash
 export AZURE_CLIENT_ID="12345678-1234-1234-1234-123456789abc"
 export AZURE_TENANT_ID="87654321-4321-4321-4321-987654321dcb"
@@ -126,13 +160,13 @@ export AZURE_SUBSCRIPTION_ID="<SUBSCRIPTION_ID>"
 cleancloud scan --provider azure
 ```
 
-**Not recommended for CI/CD** - Use OIDC (Method 1) instead to avoid storing secrets.
+> ⚠️ Not recommended for CI/CD — use OIDC (Method 1) to avoid storing secrets.
 
 ---
 
 ### 3. Azure CLI (Local Development)
 
-**Recommended for interactive local development.**
+Recommended for interactive local development.
 
 ```bash
 # Login
@@ -158,7 +192,7 @@ CleanCloud automatically uses your active Azure CLI session.
 
 ### Reader Role (Recommended)
 
-Built-in **Reader** role provides all required permissions:
+Built-in Reader role provides all required permissions:
 
 ```bash
 az role assignment create \
@@ -168,23 +202,27 @@ az role assignment create \
 ```
 
 **What Reader allows (all 14 permissions CleanCloud uses):**
-- `Microsoft.Compute/disks/read` — Unattached managed disks
-- `Microsoft.Compute/snapshots/read` — Old snapshots
-- `Microsoft.Compute/virtualMachines/read` — Stopped (not deallocated) VMs
-- `Microsoft.Network/publicIPAddresses/read` — Unused public IPs
-- `Microsoft.Network/loadBalancers/read` — Empty load balancers
-- `Microsoft.Network/applicationGateways/read` — Empty app gateways
-- `Microsoft.Network/virtualNetworkGateways/read` — Idle VNet gateways
-- `Microsoft.Network/connections/read` — Gateway connection status
-- `Microsoft.Web/serverfarms/read` — Empty App Service Plans
-- `Microsoft.Web/serverfarms/sites/read` — Empty App Service Plans (confirms app count)
-- `Microsoft.Sql/servers/read` — SQL server discovery
-- `Microsoft.Sql/servers/databases/read` — Idle SQL databases
-- `Microsoft.Insights/metrics/read` — CloudWatch-style metrics (SQL connections)
-- `Microsoft.Resources/subscriptions/read` — Subscription discovery
-- `Microsoft.Resources/resources/read` — Resource discovery (VNet gateways)
+
+| Permission | Rule |
+|---|---|
+| `Microsoft.Compute/disks/read` | Unattached managed disks |
+| `Microsoft.Compute/snapshots/read` | Old snapshots |
+| `Microsoft.Compute/virtualMachines/read` | Stopped (not deallocated) VMs |
+| `Microsoft.Network/publicIPAddresses/read` | Unused public IPs |
+| `Microsoft.Network/loadBalancers/read` | Empty load balancers |
+| `Microsoft.Network/applicationGateways/read` | Empty app gateways |
+| `Microsoft.Network/virtualNetworkGateways/read` | Idle VNet gateways |
+| `Microsoft.Network/connections/read` | Gateway connection status |
+| `Microsoft.Web/serverfarms/read` | Empty App Service Plans |
+| `Microsoft.Web/serverfarms/sites/read` | Empty App Service Plans (app count) |
+| `Microsoft.Sql/servers/read` | SQL server discovery |
+| `Microsoft.Sql/servers/databases/read` | Idle SQL databases |
+| `Microsoft.Insights/metrics/read` | SQL connection metrics |
+| `Microsoft.Resources/subscriptions/read` | Subscription discovery |
+| `Microsoft.Resources/resources/read` | Resource discovery |
 
 **What Reader does NOT allow:**
+
 - Delete operations (`*/delete`)
 - Modification operations (`*/write`)
 - Tagging operations (`Microsoft.Resources/tags/*`)
@@ -220,7 +258,6 @@ az role assignment create \
 }
 ```
 
-Create and assign:
 ```bash
 az role definition create --role-definition cleancloud-role.json
 
@@ -237,7 +274,6 @@ az role assignment create \
 ### Single Subscription (Default)
 
 ```bash
-# Specify via environment
 export AZURE_SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789abc"
 cleancloud scan --provider azure
 ```
@@ -245,21 +281,13 @@ cleancloud scan --provider azure
 ### All Accessible Subscriptions
 
 ```bash
-# Remove AZURE_SUBSCRIPTION_ID environment variable
 unset AZURE_SUBSCRIPTION_ID
 cleancloud scan --provider azure
-
-# Scans all subscriptions the service principal can access
 ```
 
 ### Subscription Filtering
 
-By default, CleanCloud scans **all accessible subscriptions**. You can filter to specific subscriptions:
-
 ```bash
-# Default: Scan all accessible subscriptions
-cleancloud scan --provider azure
-
 # Scan specific subscription
 cleancloud scan --provider azure --subscription <SUBSCRIPTION_ID>
 
@@ -270,14 +298,15 @@ cleancloud scan --provider azure \
 ```
 
 **When to use subscription filtering:**
-- **Enterprise scale**: Organizations with 50+ subscriptions
-- **Team ownership**: Scan only your team's subscriptions
-- **CI/CD pipelines**: Different pipelines for different subscriptions
-- **Testing**: Test on dev subscriptions before production
-- **Performance**: Faster scans targeting specific subscriptions
 
-**Subscription Validation:**
+- **Enterprise scale:** Organizations with 50+ subscriptions
+- **Team ownership:** Scan only your team's subscriptions
+- **CI/CD pipelines:** Different pipelines for different subscriptions
+- **Testing:** Test on dev subscriptions before production
+- **Performance:** Faster scans targeting specific subscriptions
+
 CleanCloud validates that specified subscriptions are accessible:
+
 ```bash
 cleancloud scan --provider azure --subscription invalid-sub-id
 # Warning: 1 subscription(s) not accessible:
@@ -286,7 +315,9 @@ cleancloud scan --provider azure --subscription invalid-sub-id
 # Error: None of the specified subscriptions are accessible
 ```
 
-### Region Filtering
+---
+
+## Region Filtering
 
 ```bash
 # Scan only East US resources
@@ -296,28 +327,28 @@ cleancloud scan --provider azure --region eastus
 cleancloud scan --provider azure --region westeurope
 ```
 
-**Note:** Region is an optional filter on results (not required like AWS).
+> Note: Region is an optional filter on results — not required like AWS.
 
 ---
 
 ## Validate Setup
-
-Use the `doctor` command to verify credentials and permissions:
 
 ```bash
 cleancloud doctor --provider azure
 ```
 
 **What it checks:**
+
 - Azure credentials are valid
 - Authentication method (OIDC, Service Principal, Azure CLI, Managed Identity)
-- Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
+- Security grade (EXCELLENT / GOOD / ACCEPTABLE / POOR)
 - CI/CD readiness and compliance compatibility
 - Token acquisition and expiry
-- Accessible subscriptions and subscription filtering
-- Required RBAC permissions (Reader role)
+- Accessible subscriptions
+- Required RBAC permissions
 
 **Example output:**
+
 ```
 ======================================================================
 AZURE ENVIRONMENT VALIDATION
@@ -354,20 +385,7 @@ Step 3: Subscription Access Validation
 Step 4: Permission Validation
 ----------------------------------------------------------------------
 [OK] Subscription read access confirmed
-  Reader role provides all required permissions:
-    - Microsoft.Compute/disks/read
-    - Microsoft.Compute/snapshots/read
-    - Microsoft.Network/publicIPAddresses/read
-    - Microsoft.Web/serverfarms/read
-    - Microsoft.Web/serverfarms/sites/read
-    - Microsoft.Network/loadBalancers/read
-    - Microsoft.Network/applicationGateways/read
-    - Microsoft.Network/virtualNetworkGateways/read
-    - Microsoft.Network/connections/read
-    - Microsoft.Compute/virtualMachines/read
-    - Microsoft.Sql/servers/read
-    - Microsoft.Sql/servers/databases/read
-    - Microsoft.Insights/metrics/read
+  Reader role provides all required permissions
 
 ======================================================================
 VALIDATION SUMMARY
@@ -395,26 +413,98 @@ cleancloud scan --provider azure --output json --output-file results.json
 cleancloud scan --provider azure --output csv --output-file results.csv
 ```
 
-**JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)
+JSON schema, examples, and CSV column reference: See [ci.md](ci.md)
 
 ---
 
 ## Troubleshooting
 
+### OIDC Subject Claim Mismatch
+
+**Symptom:** Azure login step fails with `AADSTS70021: No matching federated identity record found` or authentication silently fails even though the App Registration and federated credential exist.
+
+**Cause:** The subject claim in your federated credential does not match what GitHub actually sends in the JWT token. GitHub generates different subject claims depending on how your workflow is triggered.
+
+**The three subject formats:**
+
+| Workflow uses | GitHub sends | Federated credential subject |
+|---|---|---|
+| Branch push to `main` | `repo:org/repo:ref:refs/heads/main` | `repo:<ORG>/<REPO>:ref:refs/heads/main` |
+| Pull request trigger | `repo:org/repo:pull_request` | `repo:<ORG>/<REPO>:pull_request` |
+| `environment: production` | `repo:org/repo:environment:production` | `repo:<ORG>/<REPO>:environment:production` |
+
+**Fix — check what subject your workflow is sending:**
+
+```bash
+# List existing federated credentials on your App Registration
+az ad app federated-credential list --id <APP_ID>
+```
+
+Then check your workflow — if it has `environment:` set:
+
+```yaml
+jobs:
+  cleancloud:
+    environment: production   # ← this changes the subject claim
+```
+
+You need a matching federated credential:
+
+```bash
+az ad app federated-credential create \
+  --id <APP_ID> \
+  --parameters '{
+    "name": "CleanCloudGitHub-Env-Production",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:environment:production",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+**Multiple triggers — create one credential per subject:**
+
+You can attach multiple federated credentials to the same App Registration. If your pipeline runs on both branch pushes and with a GitHub Environment, create one credential for each:
+
+```bash
+# Credential 1: branch push
+az ad app federated-credential create \
+  --id <APP_ID> \
+  --parameters '{
+    "name": "CleanCloudGitHub-Branch",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+
+# Credential 2: GitHub Environment
+az ad app federated-credential create \
+  --id <APP_ID> \
+  --parameters '{
+    "name": "CleanCloudGitHub-Env",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:environment:production",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+> 💡 GitHub Environments are the recommended approach for production pipelines — they add deployment protection rules, required reviewers, and environment-scoped secrets on top of OIDC.
+
+---
+
 ### "Missing Azure environment variables"
 
 **For OIDC (GitHub Actions):**
+
 ```yaml
-# Ensure these secrets are set:
 secrets:
   AZURE_CLIENT_ID
   AZURE_TENANT_ID
   AZURE_SUBSCRIPTION_ID
 ```
 
-**For Service Principal (local with env vars):**
+**For Service Principal (local):**
+
 ```bash
-# Ensure all four variables are set:
 export AZURE_CLIENT_ID="..."
 export AZURE_TENANT_ID="..."
 export AZURE_CLIENT_SECRET="..."
@@ -422,28 +512,26 @@ export AZURE_SUBSCRIPTION_ID="..."
 ```
 
 **For Azure CLI:**
+
 ```bash
-# Verify you're logged in
 az account show
 ```
 
+---
+
 ### "Azure authentication failed"
 
-**For OIDC:**
-1. Verify federated credential subject matches your repo:
-   ```bash
-   az ad app federated-credential list --id <APP_ID>
-   ```
-2. Ensure `subject` is: `repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main`
+**For OIDC** — verify the federated credential subject matches your workflow:
+
+```bash
+az ad app federated-credential list --id <APP_ID>
+```
+
+See [OIDC subject claim mismatch](#oidc-subject-claim-mismatch) above.
 
 **For Service Principal:**
-```bash
-# Verify environment variables are set correctly
-echo $AZURE_CLIENT_ID
-echo $AZURE_TENANT_ID
-echo $AZURE_SUBSCRIPTION_ID
-# Don't echo AZURE_CLIENT_SECRET (security)
 
+```bash
 # Test authentication manually
 az login --service-principal \
   -u $AZURE_CLIENT_ID \
@@ -452,16 +540,12 @@ az login --service-principal \
 ```
 
 **For Azure CLI:**
+
 ```bash
-# Re-login
 az login
-
-# Scan all accessible subscriptions
-cleancloud scan --provider azure
-
-# Or scan specific subscription
-cleancloud scan --provider azure --subscription <SUBSCRIPTION_ID>
 ```
+
+---
 
 ### "No accessible subscriptions"
 
@@ -477,6 +561,8 @@ az role assignment create \
 
 # Wait 5-10 minutes for RBAC propagation
 ```
+
+---
 
 ### "Missing permission: Microsoft.Compute/disks/read"
 
@@ -494,40 +580,39 @@ az role assignment list \
 ## Azure vs AWS Differences
 
 | Aspect | AWS | Azure |
-|--------|-----|-------|
-| **OIDC Setup** | IAM role trust policy | Federated identity credential |
-| **Permissions** | IAM policies | RBAC roles |
-| **Regions** | Must specify explicitly | All locations scanned by default |
-| **Resource Scope** | Per-region | Per-subscription |
-| **Auth Methods** | OIDC, AWS CLI, env vars | OIDC, Azure CLI, service principal |
-| **Local Development** | Environment variables | Service principal or Azure CLI |
+|---|---|---|
+| OIDC Setup | IAM role trust policy | Federated identity credential |
+| Permissions | IAM policies | RBAC roles |
+| Regions | Must specify explicitly | All locations scanned by default |
+| Resource Scope | Per-region | Per-subscription |
+| Auth Methods | OIDC, AWS CLI, env vars | OIDC, Azure CLI, service principal |
+| Local Development | Environment variables | Service principal or Azure CLI |
 
 ---
 
 ## Performance
 
 | Subscriptions | Resources | Scan Time |
-|---------------|-----------|-----------|
-| 1 subscription | ~500 resources | 30-60 sec |
-| 1 subscription | ~2,000 resources | 2-3 min |
-| 3 subscriptions | ~6,000 resources | 5-8 min |
+|---|---|---|
+| 1 subscription | ~500 resources | 30–60 sec |
+| 1 subscription | ~2,000 resources | 2–3 min |
+| 3 subscriptions | ~6,000 resources | 5–8 min |
 
-**API calls:** All free (read-only operations have no cost)
+> API calls are all free — read-only operations have no cost.
 
 ---
 
 ## Security Best Practices
 
-### DO
-
+**DO:**
 - Use OIDC for CI/CD (no stored secrets)
 - Use Reader role (least privilege)
-- Restrict federated credential to specific repo/branch
+- Restrict federated credential to specific repo/branch or environment
+- Use GitHub Environments for production pipelines
 - Monitor Azure Activity Log for CleanCloud actions
 - Use separate service principals per environment
 
-### DON'T
-
+**DON'T:**
 - Use client secrets in CI/CD
 - Grant Contributor role
 - Share credentials across teams
@@ -537,7 +622,7 @@ az role assignment list \
 
 ## Supported Azure Clouds
 
-- Azure Commercial
+- Azure Commercial ✅
 - Azure Government (not tested)
 - Azure China (not tested)
 
