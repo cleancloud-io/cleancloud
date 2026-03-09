@@ -69,7 +69,7 @@ az ad app federated-credential create \
   }'
 ```
 
-> 💡 **Tip:** You can add multiple federated credentials to the same App Registration. If you use both branch pushes and environments, create one credential for each — there is no limit.
+> 💡 **Tip:** You can add multiple federated credentials to the same App Registration. If you use both branch pushes and environments, create one credential for each. Azure allows up to 20 federated credentials per App Registration.
 
 **Step 4: Assign Reader Role**
 

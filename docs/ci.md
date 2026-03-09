@@ -416,6 +416,26 @@ The JSON output follows a versioned schema (see `schemas/output-v1.0.0.json`) an
 - Individual findings contain the Azure location in the `region` field (e.g., "eastus", "westeurope")
 - The `--region` parameter for Azure is a **filter** (filters findings by location), not a selection mode
 
+### Markdown Output (Shareable Reports)
+
+```bash
+cleancloud scan \
+  --provider aws \
+  --all-regions \
+  --output markdown
+
+# Save to file
+cleancloud scan \
+  --provider aws \
+  --all-regions \
+  --output markdown \
+  --output-file results.md
+```
+
+**Markdown is designed for human sharing** — paste directly into GitHub PR comments, Slack, or issues. Without `--output-file`, it prints to stdout.
+
+---
+
 ### CSV Output (Simplified, Spreadsheet-Friendly)
 
 ```bash
@@ -664,14 +684,12 @@ cleancloud scan --provider aws --all-regions
 ### Azure Subscription Filtering
 
 ```bash
+# Scan all subscriptions (default — omit --subscription)
+cleancloud scan --provider azure
+
 # Scan specific subscription
 cleancloud scan --provider azure --subscription <subscription-id>
-
-# Scan all subscriptions (default)
-cleancloud scan --provider azure --all-subscriptions
 ```
-
-**Recommendation:** Use `--all-regions` for AWS to automatically detect and scan only active regions.
 
 ---
 

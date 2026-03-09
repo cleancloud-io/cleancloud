@@ -28,6 +28,19 @@ aws iam create-open-id-connect-provider \
 > **Note:** A `--thumbprint-list` parameter is no longer required. AWS validates GitHub's OIDC tokens directly without certificate pinning. See [aws-actions/configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials) for details.
 
 **Step 2: Create the trust policy file** (`cleancloud-trust-policy.json`)
+
+Choose the subject format that matches how your GitHub Actions workflow runs:
+
+| Workflow trigger | Subject claim to use |
+|---|---|
+| Branch push (e.g. `main`) | `repo:<ORG>/<REPO>:ref:refs/heads/main` |
+| Pull request | `repo:<ORG>/<REPO>:pull_request` |
+| GitHub Environment | `repo:<ORG>/<REPO>:environment:<ENV_NAME>` |
+
+> ⚠️ **Common mistake:** If your workflow uses `environment: production`, GitHub sends the `environment` subject claim — not the `ref` one. Using the wrong format causes `AccessDenied` when assuming the role. See [OIDC subject mismatch](#oidc-subject-claim-mismatch) in Troubleshooting.
+
+**For branch-based workflows:**
+
 ```json
 {
   "Version": "2012-10-17",
@@ -46,6 +59,29 @@ aws iam create-open-id-connect-provider \
   }]
 }
 ```
+
+**For GitHub Environment workflows:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:<YOUR_ORG>/<YOUR_REPO>:environment:<YOUR_ENV_NAME>"
+      }
+    }
+  }]
+}
+```
+
+> 💡 **Tip:** To allow multiple triggers (branch push and GitHub Environment), list both subject values in the same `StringEquals` condition — see [OIDC subject mismatch](#oidc-subject-claim-mismatch) in Troubleshooting.
 
 Replace:
 - `<ACCOUNT_ID>` — Your AWS account ID
@@ -364,6 +400,10 @@ cleancloud scan --provider aws --region us-east-1 --output json --output-file re
 
 # CSV (spreadsheet-friendly, 11 core columns)
 cleancloud scan --provider aws --region us-east-1 --output csv --output-file results.csv
+
+# Markdown (paste into GitHub PRs, Slack, or issues)
+cleancloud scan --provider aws --all-regions --output markdown
+cleancloud scan --provider aws --all-regions --output markdown --output-file results.md
 ```
 
 **JSON schema, examples, and CSV column reference:** See [`ci.md`](ci.md#output-formats)
@@ -371,6 +411,64 @@ cleancloud scan --provider aws --region us-east-1 --output csv --output-file res
 ---
 
 ## Troubleshooting
+
+### OIDC Subject Claim Mismatch
+
+**Symptom:** `Error assuming role` or `AccessDenied` during the AWS credentials step, even though the IAM role and OIDC provider exist.
+
+**Cause:** The subject claim in your IAM role trust policy does not match what GitHub actually sends in the JWT token. GitHub generates different subject claims depending on how your workflow is triggered.
+
+**The three subject formats:**
+
+| Workflow uses | GitHub sends | Trust policy `sub` condition |
+|---|---|---|
+| Branch push to `main` | `repo:org/repo:ref:refs/heads/main` | `repo:<ORG>/<REPO>:ref:refs/heads/main` |
+| Pull request trigger | `repo:org/repo:pull_request` | `repo:<ORG>/<REPO>:pull_request` |
+| `environment: production` | `repo:org/repo:environment:production` | `repo:<ORG>/<REPO>:environment:production` |
+
+**Fix — check your workflow trigger and update the trust policy:**
+
+If your workflow has `environment:` set:
+
+```yaml
+jobs:
+  cleancloud:
+    environment: production   # ← this changes the subject claim
+```
+
+Update the trust policy `sub` condition to match:
+
+```json
+"token.actions.githubusercontent.com:sub": "repo:<YOUR_ORG>/<YOUR_REPO>:environment:production"
+```
+
+**Multiple triggers — allow both subject formats in one trust policy:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/token.actions.githubusercontent.com"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": [
+          "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
+          "repo:<YOUR_ORG>/<YOUR_REPO>:environment:production"
+        ]
+      }
+    }
+  }]
+}
+```
+
+> 💡 GitHub Environments are the recommended approach for production pipelines — they add deployment protection rules, required reviewers, and environment-scoped secrets on top of OIDC.
+
+---
 
 ### "No credentials found"
 
