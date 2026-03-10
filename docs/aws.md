@@ -110,7 +110,9 @@ Go to your repo → Settings → Secrets and variables → Actions → Variables
 
 > Use `vars` (not `secrets`) for account ID — it's not sensitive and makes debugging easier.
 
-#### GitHub Actions Workflow
+#### Validate Your Setup
+
+Once credentials are configured, verify everything works:
 
 ```yaml
 permissions:
@@ -129,20 +131,13 @@ jobs:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
           aws-region: us-east-1
 
-      - name: Install CleanCloud
-        run: pip install cleancloud
-
       - name: Validate AWS permissions
-        run: cleancloud doctor --provider aws --region us-east-1
-
-      - name: Scan and enforce
         run: |
-          cleancloud scan --provider aws --region us-east-1 \
-            --output json --output-file scan.json \
-            --fail-on-confidence HIGH
+          pip install cleancloud
+          cleancloud doctor --provider aws --region us-east-1
 ```
 
-> Use `--all-regions` instead of `--region us-east-1` to scan all regions with active resources.
+For the complete production workflow with enforcement flags, scheduling, and artifact upload: **[CI/CD guide →](ci.md)**
 
 ---
 

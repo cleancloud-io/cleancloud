@@ -92,7 +92,9 @@ Go to your repo → Settings → Secrets and variables → Actions → New repos
 
 No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
 
-#### GitHub Actions Workflow
+#### Validate Your Setup
+
+Once credentials are configured, verify everything works:
 
 ```yaml
 permissions:
@@ -112,18 +114,13 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Install CleanCloud
-        run: pip install cleancloud
-
       - name: Validate Azure permissions
-        run: cleancloud doctor --provider azure
-
-      - name: Scan and enforce
         run: |
-          cleancloud scan --provider azure \
-            --output json --output-file scan.json \
-            --fail-on-confidence MEDIUM
+          pip install cleancloud
+          cleancloud doctor --provider azure
 ```
+
+For the complete production workflow with enforcement flags, scheduling, and artifact upload: **[CI/CD guide →](ci.md)**
 
 ---
 

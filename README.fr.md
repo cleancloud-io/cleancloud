@@ -39,6 +39,11 @@ Gaspillage mensuel estimé : ~$147
 Régions scannées : us-east-1, us-west-2, eu-west-1
 ```
 
+## Mentionné dans la presse
+
+- [Korben](https://korben.info/cleancloud-nettoyeur-cloud-aws-azure.html) 🇫🇷 — Grand média tech français
+- [Last Week in AWS #457](https://www.lastweekinaws.com/newsletter/15259/) — La newsletter AWS de Corey Quinn
+
 ## Ce qu'en disent les utilisateurs
 
 > "Outil de découverte solide qui remonte les économies potentielles. Facile à installer et à utiliser !"
@@ -241,43 +246,11 @@ Les scans se terminent avec `0` par défaut. Activez l'application de politique 
 | `--fail-on-cost 50` | Échec si gaspillage mensuel estimé >= 50$ | `2` |
 | `--fail-on-findings` | Échec sur n'importe quel finding | `2` |
 
-### GitHub Actions — AWS (OIDC)
+Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure (Workload Identity) — incluant la configuration OIDC, les politiques IAM/RBAC, et les patterns d'application :
 
-```yaml
-- uses: aws-actions/configure-aws-credentials@v4
-  with:
-    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
-    aws-region: us-east-1
+**[Guide CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
 
-- run: pip install cleancloud
-
-- run: |
-    cleancloud scan --provider aws --all-regions \
-      --fail-on-confidence HIGH \
-      --output json --output-file scan.json
-```
-
-### GitHub Actions — Azure (Workload Identity)
-
-```yaml
-- uses: azure/login@v2
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-- run: pip install cleancloud
-
-- run: |
-    cleancloud scan --provider azure \
-      --fail-on-confidence MEDIUM \
-      --output json --output-file scan.json
-```
-
-**Guide CI/CD complet :** [`docs/ci.md`](docs/ci.md) — configuration OIDC, patterns d'application, formats de sortie.
-Guides de configuration : [AWS](docs/aws.md) · [Azure](docs/azure.md)
-
-> Les snippets CI/CD ci-dessus utilisent `pip install` — correct pour les runners éphémères où l'isolation pipx n'est pas nécessaire.
+**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion CI/CD →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
