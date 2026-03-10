@@ -59,12 +59,17 @@ pipx ensurepath        # adds cleancloud to PATH — restart your shell after th
 cleancloud demo        # see sample findings without any cloud credentials
 ```
 
-When you're ready to scan your real environment:
+When you're ready to scan your real environment, authenticate first — then run:
 
 ```bash
+# AWS: make sure you're logged in (aws configure, aws sso login, or IAM role)
 cleancloud scan --provider aws --all-regions
+
+# Azure: make sure you're logged in (az login)
 cleancloud scan --provider azure
 ```
+
+Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` first.
 
 ### No install — try in your cloud shell
 
