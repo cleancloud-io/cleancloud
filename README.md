@@ -39,10 +39,16 @@ Estimated monthly waste: ~$147
 Regions scanned: us-east-1, us-west-2, eu-west-1
 ```
 
+## As featured in
+
+- [Korben](https://korben.info/cleancloud-nettoyeur-cloud-aws-azure.html) 🇫🇷 — Major French tech publication
+- [Last Week in AWS #457](https://www.lastweekinaws.com/newsletter/15259/) — Corey Quinn's weekly AWS newsletter
+
 ## What users say
 
 > "Solid discovery tool that bubbles up potential savings. Easy to install and use!"
 > — [Reddit user](https://www.reddit.com/r/AZURE/comments/1rm7an5/comment/o8zfv6a/)
+
 ---
 
 ## Get Started
@@ -53,12 +59,17 @@ pipx ensurepath        # adds cleancloud to PATH — restart your shell after th
 cleancloud demo        # see sample findings without any cloud credentials
 ```
 
-When you're ready to scan your real environment:
+When you're ready to scan your real environment, authenticate first — then run:
 
 ```bash
+# AWS: make sure you're logged in (aws configure, aws sso login, or IAM role)
 cleancloud scan --provider aws --all-regions
+
+# Azure: make sure you're logged in (az login)
 cleancloud scan --provider azure
 ```
+
+Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` first.
 
 ### No install — try in your cloud shell
 
@@ -242,43 +253,11 @@ Scans exit `0` by default. Opt in to enforcement:
 | `--fail-on-cost 50` | Fail if estimated monthly waste >= $50 | `2` |
 | `--fail-on-findings` | Fail on any finding | `2` |
 
-### GitHub Actions — AWS (OIDC)
+Complete, copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Workload Identity) — including OIDC setup, trust policy, RBAC, and enforcement patterns:
 
-```yaml
-- uses: aws-actions/configure-aws-credentials@v4
-  with:
-    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
-    aws-region: us-east-1
+**[CI/CD guide →](docs/ci.md)** · [AWS setup →](docs/aws.md) · [Azure setup →](docs/azure.md)
 
-- run: pip install cleancloud
-
-- run: |
-    cleancloud scan --provider aws --all-regions \
-      --fail-on-confidence HIGH \
-      --output json --output-file scan.json
-```
-
-### GitHub Actions — Azure (Workload Identity)
-
-```yaml
-- uses: azure/login@v2
-  with:
-    client-id: ${{ secrets.AZURE_CLIENT_ID }}
-    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-- run: pip install cleancloud
-
-- run: |
-    cleancloud scan --provider azure \
-      --fail-on-confidence MEDIUM \
-      --output json --output-file scan.json
-```
-
-**Complete CI/CD guide:** [`docs/ci.md`](docs/ci.md) — OIDC setup, enforcement patterns, output formats.
-Setup guides: [AWS](docs/aws.md) · [Azure](docs/azure.md)
-
-> CI/CD snippets above use `pip install` — correct for ephemeral runners where pipx isolation isn't needed.
+**Need help with OIDC or enforcement flags?** [Ask in our CI/CD setup discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
