@@ -8,6 +8,57 @@ Complete guide for integrating CleanCloud into continuous integration and deploy
 
 ---
 
+## Quick CI Setup
+
+The fastest path to a working pipeline:
+
+**AWS** — add this job to your workflow:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+      - run: pip install cleancloud
+      - run: cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH
+```
+
+**Azure** — same structure, different auth:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - run: pip install cleancloud
+      - run: cleancloud scan --provider azure --fail-on-confidence HIGH
+```
+
+> First time? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` to validate credentials before running a full scan.
+
+For OIDC setup, enforcement options, output formats, and advanced patterns — read on.
+
+---
+
 ## Overview
 
 CleanCloud is designed for CI/CD integration with:

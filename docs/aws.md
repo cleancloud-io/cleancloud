@@ -8,6 +8,43 @@ AWS authentication, IAM policies, and configuration guide.
 
 ---
 
+## Quick Setup
+
+Get OIDC running in 3 steps:
+
+```bash
+# 1. Create OIDC identity provider (one-time per AWS account)
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com
+
+# 2. Create IAM role with trust policy + attach CleanCloud policy
+aws iam create-role \
+  --role-name CleanCloudCIReadOnly \
+  --assume-role-policy-document file://cleancloud-trust-policy.json
+aws iam put-role-policy \
+  --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudReadOnly \
+  --policy-document file://cleancloud-policy.json
+
+# 3. Add AWS_ACCOUNT_ID as a GitHub repo variable (Settings → Secrets and variables → Variables)
+```
+
+Then add to your workflow:
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+    aws-region: us-east-1
+```
+
+> ⚠️ **Common mistake:** The trust policy subject must exactly match your workflow trigger. Branch push, PR, and GitHub Environment each send a different subject claim — using the wrong one causes `AccessDenied`. See [OIDC subject mismatch](#oidc-subject-claim-mismatch).
+
+Full walkthrough → [GitHub Actions OIDC setup](#1-github-actions-oidc-recommended-for-cicd)
+
+---
+
 ## Authentication Methods
 
 CleanCloud supports multiple AWS authentication methods:
@@ -245,23 +282,19 @@ Attach this policy to your IAM role or user:
 
 ## Region Scanning
 
-### Default Behavior
+AWS requires you to specify a region or use `--all-regions`. There is no default.
 
-```bash
-# AWS requires explicit region choice
-cleancloud scan --provider aws --region us-east-1
+| Mode | Command | Typical scan time |
+|---|---|---|
+| Single region | `cleancloud scan --provider aws --region us-east-1` | 15–30 sec |
+| Active regions (recommended) | `cleancloud scan --provider aws --all-regions` | 2–3 min (scans 3–5 regions with resources) |
+| All enabled regions | `cleancloud scan --provider aws --all-regions` (auto-detects) | 8–10 min (25+ regions) |
 
-# Or scan all regions with resources
-cleancloud scan --provider aws --all-regions
-
-# ERROR: Must specify --region or --all-regions
-```
-
-**Why?** AWS has 30+ regions, and scanning all by default would be slow and expensive.
+**Why no default?** AWS has 30+ regions — scanning all by default would be slow and wasteful. `--all-regions` auto-detects only the regions that have active resources.
 
 ### Region Validation
 
-CleanCloud validates region names immediately. If you specify an invalid region, the scan fails fast:
+CleanCloud validates region names immediately and fails fast on typos:
 
 ```bash
 cleancloud scan --provider aws --region invalid-xyz
@@ -270,35 +303,7 @@ cleancloud scan --provider aws --region invalid-xyz
 # Common AWS regions:
 #   us-east-1, us-east-2, us-west-1, us-west-2
 #   eu-west-1, eu-central-1, ap-southeast-1, ap-northeast-1
-#
-# All known regions:
-#   [Lists all 30+ valid regions]
 ```
-
-**Benefits:**
-- Fast fail (~1ms) instead of waiting for timeouts
-- Clear error messages with suggestions
-- Prevents accidental typos (e.g., `us-esat-1` instead of `us-east-1`)
-
-### Scan Specific Region
-
-```bash
-cleancloud scan --provider aws --region us-east-1
-```
-
-### Scan All Active Regions
-
-```bash
-cleancloud scan --provider aws --all-regions
-
-# Auto-detects regions with resources (typically 3-5 regions)
-# Scans volumes, snapshots, and logs to determine active regions
-```
-
-**Performance:**
-- Single region: 15-30 seconds
-- All active regions (3-5): 2-3 minutes
-- All enabled regions (25+): 8-10 minutes
 
 ---
 

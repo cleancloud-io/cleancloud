@@ -8,6 +8,41 @@ Azure authentication, RBAC permissions, and configuration guide.
 
 ---
 
+## Quick Setup
+
+Get OIDC running in 4 steps:
+
+```bash
+# 1. Create App Registration and Service Principal
+az ad app create --display-name "CleanCloudScanner"
+az ad sp create --id <APP_ID>
+
+# 2. Add federated identity credential
+az ad app federated-credential create \
+  --id <APP_ID> \
+  --parameters '{
+    "name": "CleanCloudGitHub",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+
+# 3. Assign Reader role
+az role assignment create \
+  --assignee <APP_ID> \
+  --role "Reader" \
+  --scope /subscriptions/<SUBSCRIPTION_ID>
+
+# 4. Add AZURE_CLIENT_ID, AZURE_TENANT_ID, AZURE_SUBSCRIPTION_ID as GitHub secrets
+#    (repo → Settings → Secrets and variables → Actions)
+```
+
+> ⚠️ **Common mistake:** The federated credential subject must exactly match your workflow trigger. Branch push, PR, and GitHub Environment each send a different subject claim — using the wrong one causes a silent auth failure (`AADSTS70021`). See [OIDC subject mismatch](#oidc-subject-claim-mismatch).
+
+Full walkthrough → [Azure OIDC setup](#1-azure-oidc-with-workload-identity-recommended-for-cicd)
+
+---
+
 ## Authentication Methods
 
 CleanCloud supports multiple Azure authentication methods:

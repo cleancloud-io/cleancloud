@@ -6,6 +6,12 @@ CleanCloud assigns an explicit confidence level to every finding:
 Confidence represents **how safe it is to review a resource as potentially abandoned** —
 not how much money it might save, and not a recommendation to delete anything.
 
+## Why Confidence Exists
+
+Cloud waste detection is inherently ambiguous. A detached disk might be orphaned — or it might be waiting for a scheduled reattachment. An untagged resource might be waste — or it might predate the tagging policy.
+
+Confidence levels allow CleanCloud to surface candidates without overstepping. Rather than binary "waste / not waste" judgements, CleanCloud assigns a confidence that reflects the strength of observable evidence, so teams can decide what to act on — and when.
+
 ## What Confidence Means
 
 Confidence answers one question only:
@@ -46,9 +52,27 @@ Signals are:
 - Deterministic
 - Cloud-provider native
 
+Signals flow through a simple pipeline:
+
+```
+Observable Signals  →  Rule Logic      →  Confidence Level  →  CI/CD Decision
+(age, state,           (conservative,     (LOW / MED / HIGH)   (report / block)
+ activity, tags)        multi-signal)
+```
+
 Signals are combined conservatively.
 
 Conflicting signals reduce confidence, not increase it.
+
+**Example — conflicting signals in practice:**
+
+| Signal | Observation | Effect |
+|---|---|---|
+| Disk attachment state | Unattached for 30+ days | Points toward HIGH |
+| Recent write activity | Writes detected in last 7 days | Conflicts with abandonment |
+| **Combined result** | | **MEDIUM** — conflict reduces confidence |
+
+When signals point in opposite directions, CleanCloud defaults to the lower confidence tier.
 
 ## What CleanCloud Will NOT Infer
 
@@ -119,6 +143,17 @@ Example:
 
 `cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH`
 
+### Why HIGH confidence is safe for pipeline gating
+
+HIGH confidence findings share these properties:
+
+- **Deterministic signals** — binary states (e.g., zero associations) or long-lived thresholds (14+ days) that eliminate ephemeral false positives
+- **IaC-resilient** — newly provisioned resources fall below age thresholds; recently modified resources show recent activity
+- **No business inference** — HIGH confidence never assumes a resource is unused forever, only that observable signals are consistently strong
+- **Stable across deploys** — a HIGH confidence finding won't flip to LOW on the next scan due to normal infrastructure churn
+
+This makes `--fail-on-confidence HIGH` safe to use as a hard gate on production pipelines.
+
 ## Design Guarantees
 
 CleanCloud guarantees that:
@@ -127,3 +162,9 @@ CleanCloud guarantees that:
 - No machine learning or probabilistic models are used
 - The same inputs always produce the same confidence
 - Confidence logic is versioned and reviewed
+
+### Versioning and backward compatibility
+
+- Confidence logic is versioned alongside rule definitions
+- Any change that promotes a finding's confidence (e.g., MEDIUM → HIGH) is treated as a breaking change and documented in the changelog
+- CI/CD pipelines can pin to a specific CleanCloud version to avoid unexpected enforcement changes — important for teams with strict change management requirements
