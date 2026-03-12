@@ -1,10 +1,22 @@
 # CleanCloud Design & Positioning
 
-CleanCloud is a **cost optimization tool** built for production and staging environments.
+CleanCloud is the safest way to detect cloud waste in production — without risking outages or requiring write permissions.
 
 It exists to answer one question safely:
 
 > What orphaned resources are costing us money — without risking production?
+
+---
+
+## Why This Matters
+
+Cloud waste is often invisible:
+
+- Native tools (AWS Trusted Advisor, Azure Advisor) raise noisy, shallow alerts that miss cross-service signals
+- Automation tools can delete IaC-managed resources, cause outages, and require elevated permissions that security teams won't approve
+- Teams need a safe middle ground: deep detection with zero mutation risk
+
+CleanCloud fills that gap. It runs in CI/CD, requires only read access, and produces actionable findings with explicit confidence levels — so teams can make informed decisions without fear.
 
 ---
 
@@ -56,6 +68,16 @@ It exists to answer one question safely:
 - Cost optimization through safe, read-only hygiene detection
 - Unlike native cloud services (too noisy/shallow) or automation tools (too risky for production)
 
+| | Native Tools | CleanCloud | Automation Tools |
+|---|---|---|---|
+| Noise | High | Low | Medium |
+| Mutation risk | None | **None** | High |
+| Detection depth | Shallow | Deep | Deep |
+| IaC-aware | No | **Yes** | No |
+| CI/CD-friendly | Weak | **Strong** | Weak |
+| Requires write access | No | **No** | Yes |
+| Human review required | No | **Yes** | No |
+
 ## Design Principles
 
 ### 1. Review-Only by Design
@@ -73,6 +95,32 @@ to support safe decision-making in production.
 ### 4. IaC-Aware
 CleanCloud assumes infrastructure is ephemeral, declarative,
 and frequently recreated — not manually curated.
+
+---
+
+## Why Read-Only Matters
+
+Read-only isn't a limitation — it's a deliberate design choice:
+
+- **No blast radius** — a misconfigured scan cannot delete or modify anything
+- **No IaC conflicts** — resources managed by Terraform, CDK, or Pulumi are safe
+- **Easy security approval** — ReadOnly/Reader roles clear most security reviews without escalation
+- **Production-safe** — run against live accounts without risk of service disruption
+- **Auditability** — every API call is a read; nothing in CloudTrail looks suspicious
+
+This is why CleanCloud can be trusted in environments where automation tools cannot.
+
+---
+
+## Who This Is For
+
+| Persona | Why CleanCloud helps |
+|---|---|
+| **Platform teams** | Enforce cloud hygiene standards across accounts in CI/CD |
+| **SREs** | Catch orphaned resources before they cause cost surprises or config drift |
+| **FinOps practitioners** | Quantify waste with cost estimates and track trends over time |
+| **Security teams** | Approve and run read-only tooling without elevated permission risk |
+| **Engineering managers** | Set policy thresholds (`--fail-on-confidence HIGH`) without manual review |
 
 ---
 
