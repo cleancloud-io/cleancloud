@@ -8,6 +8,7 @@ jobs:
   docker:
     name: Build and Push Docker Image
     runs-on: ubuntu-latest
+    environment: dockerhub
     permissions:
       contents: write  # to update release notes
 
