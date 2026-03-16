@@ -13,6 +13,8 @@
 
 **Trivy pour le gaspillage cloud. Un scanner qui détecte les ressources orphelines et applique l'hygiène en CI.**
 
+![Démo CleanCloud](demo.gif)
+
 Comme `tfsec` pour Terraform ou `trivy` pour les conteneurs — CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
 
 - **20 règles de détection haut signal :** volumes orphelins, bases de données inactives, load balancers vides, et plus
@@ -27,7 +29,8 @@ Comme `tfsec` pour Terraform ou `trivy` pour les conteneurs — CleanCloud scann
 - Analyses d'hygiène planifiées — cron ou CI hebdomadaire pour détecter la dérive
 - Gate CI/CD — bloquer un build si le gaspillage dépasse votre seuil
 
-```
+```console
+$ cleancloud scan --provider aws --all-regions
 6 problèmes d'hygiène détectés :
 
 1. [AWS] Volume EBS non attaché      — $40/mois
@@ -53,20 +56,20 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 
 ## Démarrage
 
-```bash
-pipx install cleancloud
-pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell après
-cleancloud demo        # visualisez des findings sans aucun credential cloud
+```console
+$ pipx install cleancloud
+$ pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell après
+$ cleancloud demo        # visualisez des findings sans aucun credential cloud
 ```
 
 Prêt à scanner votre vrai environnement ? Authentifiez-vous d'abord, puis lancez :
 
-```bash
+```console
 # AWS : assurez-vous d'être connecté (aws configure, aws sso login, ou rôle IAM)
-cleancloud scan --provider aws --all-regions
+$ cleancloud scan --provider aws --all-regions
 
 # Azure : assurez-vous d'être connecté (az login)
-cleancloud scan --provider azure
+$ cleancloud scan --provider azure
 ```
 
 Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws` ou `cleancloud doctor --provider azure`.
@@ -76,18 +79,18 @@ Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `clea
 Vous avez un compte AWS ou Azure ? Lancez un vrai scan en quelques secondes, sans installation locale.
 
 **AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell) :**
-```bash
-pip install --upgrade cleancloud
-cleancloud doctor --provider aws   # vérifiez les permissions de votre session
-cleancloud scan --provider aws --all-regions
+```console
+$ pip install --upgrade cleancloud
+$ cleancloud doctor --provider aws   # vérifiez les permissions de votre session
+$ cleancloud scan --provider aws --all-regions
 ```
 
 **Azure — [Azure Cloud Shell](https://shell.azure.com) :**
-```bash
-pip install --upgrade --user cleancloud
-export PATH="$HOME/.local/bin:$PATH"
-cleancloud doctor --provider azure  # vérifiez les permissions de votre session
-cleancloud scan --provider azure
+```console
+$ pip install --upgrade --user cleancloud
+$ export PATH="$HOME/.local/bin:$PATH"
+$ cleancloud doctor --provider azure  # vérifiez les permissions de votre session
+$ cleancloud scan --provider azure
 ```
 
 Les deux shells s'authentifient via votre session du portail — aucune credential séparée n'est requise.
@@ -122,7 +125,8 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 
 ## Exemple de résultat détaillé
 
-```
+```console
+$ cleancloud scan --provider aws --all-regions
 6 problèmes d'hygiène détectés :
 
 1. [AWS] Volume EBS non attaché
@@ -170,8 +174,8 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 
 ### Rapport markdown partageable
 
-```bash
-cleancloud scan --provider aws --all-regions --output markdown
+```console
+$ cleancloud scan --provider aws --all-regions --output markdown
 ```
 
 Produit un résumé groupé que vous pouvez coller directement dans un commentaire de PR GitHub, un message Slack, ou une issue :

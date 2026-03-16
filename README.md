@@ -13,6 +13,8 @@
 
 **Trivy for cloud waste. A scanner that finds orphaned resources and enforces hygiene in CI.**
 
+![CleanCloud demo](demo.gif)
+
 Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
 - **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
@@ -27,7 +29,8 @@ Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your c
 - Scheduled hygiene scans — cron job or weekly CI run to catch drift
 - CI/CD enforcement gates — fail builds when waste exceeds your threshold
 
-```
+```console
+$ cleancloud scan --provider aws --all-regions
 Found 6 hygiene issues:
 
 1. [AWS] Unattached EBS Volume       — $40/month
@@ -53,20 +56,20 @@ Regions scanned: us-east-1, us-west-2, eu-west-1
 
 ## Get Started
 
-```bash
-pipx install cleancloud
-pipx ensurepath        # adds cleancloud to PATH — restart your shell after this
-cleancloud demo        # see sample findings without any cloud credentials
+```console
+$ pipx install cleancloud
+$ pipx ensurepath        # adds cleancloud to PATH — restart your shell after this
+$ cleancloud demo        # see sample findings without any cloud credentials
 ```
 
 When you're ready to scan your real environment, authenticate first — then run:
 
-```bash
+```console
 # AWS: make sure you're logged in (aws configure, aws sso login, or IAM role)
-cleancloud scan --provider aws --all-regions
+$ cleancloud scan --provider aws --all-regions
 
 # Azure: make sure you're logged in (az login)
-cleancloud scan --provider azure
+$ cleancloud scan --provider azure
 ```
 
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` first.
@@ -76,18 +79,18 @@ Not sure if your credentials have the right permissions? Run `cleancloud doctor 
 Got an AWS or Azure account? Run a real scan in seconds with no local setup.
 
 **AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell):**
-```bash
-pip install --upgrade cleancloud
-cleancloud doctor --provider aws   # check what permissions your session has
-cleancloud scan --provider aws --all-regions
+```console
+$ pip install --upgrade cleancloud
+$ cleancloud doctor --provider aws   # check what permissions your session has
+$ cleancloud scan --provider aws --all-regions
 ```
 
 **Azure — [Azure Cloud Shell](https://shell.azure.com):**
-```bash
-pip install --upgrade --user cleancloud
-export PATH="$HOME/.local/bin:$PATH"
-cleancloud doctor --provider azure  # check what permissions your session has
-cleancloud scan --provider azure
+```console
+$ pip install --upgrade --user cleancloud
+$ export PATH="$HOME/.local/bin:$PATH"
+$ cleancloud doctor --provider azure  # check what permissions your session has
+$ cleancloud scan --provider azure
 ```
 
 Both shells authenticate using your portal session — no separate credentials needed. 
@@ -124,7 +127,8 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 
 ## What It Looks Like
 
-```
+```console
+$ cleancloud scan --provider aws --all-regions
 Found 6 hygiene issues:
 
 1. [AWS] Unattached EBS Volume
@@ -172,8 +176,8 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ### Shareable markdown report
 
-```bash
-cleancloud scan --provider aws --all-regions --output markdown
+```console
+$ cleancloud scan --provider aws --all-regions --output markdown
 ```
 
 Prints a grouped summary you can paste directly into a GitHub PR comment, Slack message, or issue:

@@ -80,3 +80,4 @@ Desktop.ini
 .env.*
 *.pem
 *.key
+demo.cast
