@@ -130,7 +130,7 @@ jobs:
 
 ```yaml
 # Pin to exact version — safest for production pipelines
-getcleancloud/cleancloud:1.7.1
+getcleancloud/cleancloud:1.7.2
 
 # Pin to minor — gets patch fixes automatically
 getcleancloud/cleancloud:1.7
