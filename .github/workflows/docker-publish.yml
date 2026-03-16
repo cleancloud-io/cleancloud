@@ -25,7 +25,7 @@ jobs:
           CLEANCLOUD_VERSION="${{ steps.version.outputs.CLEANCLOUD_VERSION }}"
           echo "Waiting for cleancloud==${CLEANCLOUD_VERSION} to appear on PyPI..."
           for i in $(seq 1 20); do
-            pip index versions cleancloud 2>/dev/null | grep -q "${CLEANCLOUD_VERSION}" && echo "Found on PyPI" && exit 0
+            curl -sf "https://pypi.org/pypi/cleancloud/${CLEANCLOUD_VERSION}/json" > /dev/null && echo "Found on PyPI" && exit 0
             echo "Not yet available (attempt $i/20), retrying in 30s..."
             sleep 30
           done

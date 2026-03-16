@@ -55,6 +55,7 @@ jobs:
     environment: pypi
     permissions:
       id-token: write  # Required for trusted publishing
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
