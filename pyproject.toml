@@ -7,7 +7,7 @@ name = "cleancloud"
 version = "1.7.1"
 description = "Reduce cloud costs through safe, read-only hygiene evaluation. Built for production environments with confidence-scored signals for AWS and Azure."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [
     {name = "CleanCloud", email = "suresh@getcleancloud.com"}
@@ -21,10 +21,10 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
     "Topic :: Software Development :: Quality Assurance",
@@ -97,4 +97,4 @@ ignore_missing_imports = true
 
 [tool.black]
 line-length = 100
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py310', 'py311', 'py312', 'py313']

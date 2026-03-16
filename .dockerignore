@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+.idea
+.pytest_cache
+.ruff_cache
+*.egg-info
+__pycache__
+*.pyc
+*.pyo
+tests/
+docs/
+schemas/
+demo.tape
+demo.cast

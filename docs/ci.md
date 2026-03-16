@@ -826,6 +826,88 @@ cleancloud doctor --provider azure --region eastus
 
 ---
 
+## Using the Docker Image
+
+No Python setup required — pull and run. Useful for pipelines where you don't control the runner environment or want to pin to an exact CleanCloud version.
+
+### AWS
+
+```yaml
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+
+      - name: Run CleanCloud
+        run: |
+          docker run --rm \
+            -e AWS_ACCESS_KEY_ID \
+            -e AWS_SECRET_ACCESS_KEY \
+            -e AWS_SESSION_TOKEN \
+            -e AWS_REGION \
+            getcleancloud/cleancloud scan \
+              --provider aws \
+              --all-regions \
+              --fail-on-confidence HIGH \
+              --fail-on-cost 100
+```
+
+> `configure-aws-credentials` sets `AWS_*` env vars on the runner. Passing them with `-e VAR_NAME` (no value) forwards them into the container automatically.
+
+### Azure
+
+```yaml
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run CleanCloud
+        run: |
+          docker run --rm \
+            -e AZURE_CLIENT_ID \
+            -e AZURE_TENANT_ID \
+            -e AZURE_SUBSCRIPTION_ID \
+            -e AZURE_FEDERATED_TOKEN_FILE \
+            -v "${AZURE_FEDERATED_TOKEN_FILE}:${AZURE_FEDERATED_TOKEN_FILE}:ro" \
+            getcleancloud/cleancloud scan \
+              --provider azure \
+              --fail-on-confidence HIGH \
+              --fail-on-cost 100
+```
+
+> Azure Workload Identity writes an OIDC token to a temp file on the runner. The `-v` mount makes that file accessible inside the container.
+
+### Pinning to a specific version
+
+```yaml
+# Pin to exact version — safest for production pipelines
+getcleancloud/cleancloud:1.7.1
+
+# Pin to minor — gets patch fixes automatically
+getcleancloud/cleancloud:1.7
+
+# Always latest — simplest, least predictable
+getcleancloud/cleancloud:latest
+```
+
+---
+
 ## Azure DevOps Pipelines
 
 Coming soon. For now, use Azure CLI task with manual commands:
