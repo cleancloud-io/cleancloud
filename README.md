@@ -2,12 +2,15 @@
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
+![Docker Pulls](https://img.shields.io/docker/pulls/getcleancloud/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
+
+**Docs:** [AWS Setup](docs/aws.md) · [Azure Setup](docs/azure.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud)
 
 ---
 
@@ -53,10 +56,17 @@ Regions scanned: us-east-1, us-west-2, eu-west-1
 
 ## Get Started
 
+**Via pipx (recommended for local use):**
 ```bash
 pipx install cleancloud
 pipx ensurepath        # adds cleancloud to PATH — restart your shell after this
 cleancloud demo        # see sample findings without any cloud credentials
+```
+
+**Via Docker (recommended for CI/CD — no Python required):**
+```bash
+docker pull getcleancloud/cleancloud
+docker run --rm getcleancloud/cleancloud demo
 ```
 
 When you're ready to scan your real environment, authenticate first — then run:

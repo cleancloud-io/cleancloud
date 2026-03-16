@@ -1,0 +1,88 @@
+name: Publish Docker Image
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  docker:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # to update release notes
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          echo "CLEANCLOUD_VERSION=${TAG#v}" >> $GITHUB_OUTPUT
+
+      - name: Wait for PyPI availability
+        run: |
+          CLEANCLOUD_VERSION="${{ steps.version.outputs.CLEANCLOUD_VERSION }}"
+          echo "Waiting for cleancloud==${CLEANCLOUD_VERSION} to appear on PyPI..."
+          for i in $(seq 1 20); do
+            pip index versions cleancloud 2>/dev/null | grep -q "${CLEANCLOUD_VERSION}" && echo "Found on PyPI" && exit 0
+            echo "Not yet available (attempt $i/20), retrying in 30s..."
+            sleep 30
+          done
+          echo "Timed out waiting for PyPI" && exit 1
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: getcleancloud/cleancloud
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.description=Read-only cloud hygiene scanner for AWS and Azure
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: CLEANCLOUD_VERSION=${{ steps.version.outputs.CLEANCLOUD_VERSION }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update release notes with Docker info
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = '${{ steps.version.outputs.CLEANCLOUD_VERSION }}';
+            const currentBody = context.payload.release.body || '';
+            const safeBody = currentBody.endsWith('\n') ? currentBody : currentBody + '\n';
+            const dockerInfo = `\n🐳 **Docker Image**\n\n\`\`\`bash\n# AWS\ndocker run --rm -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e AWS_REGION getcleancloud/cleancloud scan --provider aws --all-regions\n\n# Azure\ndocker run --rm -e AZURE_CLIENT_ID -e AZURE_TENANT_ID -e AZURE_SUBSCRIPTION_ID -e AZURE_FEDERATED_TOKEN_FILE -v "\${AZURE_FEDERATED_TOKEN_FILE}:\${AZURE_FEDERATED_TOKEN_FILE}:ro" getcleancloud/cleancloud scan --provider azure\n\`\`\`\n\n📦 Pull: \`docker pull getcleancloud/cleancloud:${version}\`\n🔗 Docker Hub: https://hub.docker.com/r/getcleancloud/cleancloud`;
+
+            await github.rest.repos.updateRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              release_id: context.payload.release.id,
+              body: safeBody + dockerInfo
+            });
