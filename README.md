@@ -126,7 +126,7 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 
 **Wrong version after install** — Run `which cleancloud`; an old pip install may be shadowing pipx.
 
-**Minimum recommended version: v1.6.3** — earlier versions have setup friction. Run `cleancloud --version` to check.
+**Minimum recommended version: v1.7.2** — earlier versions have setup friction. Run `cleancloud --version` to check.
 
 </details>
 
