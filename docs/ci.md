@@ -59,6 +59,50 @@ For OIDC setup, enforcement options, output formats, and advanced patterns — r
 
 ---
 
+## Using the GitHub Action
+
+The simplest way to add CleanCloud to GitHub Actions — one step, no pip install needed.
+
+### AWS (OIDC)
+
+```yaml
+- uses: aws-actions/configure-aws-credentials@v4
+  with:
+    role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+    aws-region: us-east-1
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    all-regions: 'true'
+    fail-on-confidence: HIGH
+    fail-on-cost: '100'
+    output: json
+    output-file: scan-results.json
+```
+
+### Azure (Workload Identity)
+
+```yaml
+- uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: azure
+    fail-on-confidence: HIGH
+    fail-on-cost: '100'
+    output: json
+    output-file: scan-results.json
+```
+
+Full input reference and options: [cleancloud-io/scan-action →](https://github.com/marketplace/actions/cleancloud-scan)
+
+---
+
 ## Using the Docker Image
 
 No Python setup required — pull and run. Useful for pipelines where you don't control the runner environment or want to pin to an exact CleanCloud version.

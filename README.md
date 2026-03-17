@@ -10,7 +10,7 @@
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
 
-**Docs:** [AWS Setup](docs/aws.md) · [Azure Setup](docs/azure.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud)
+**Docs:** [AWS Setup](docs/aws.md) · [Azure Setup](docs/azure.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
 
 ---
 
