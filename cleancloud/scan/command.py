@@ -113,7 +113,7 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
     "multi_account_file",
     type=click.Path(exists=True),
     default=None,
-    help="Path to accounts.yaml for multi-account scanning (AWS only)",
+    help="Path to accounts config file for multi-account scanning, e.g. .cleancloud/accounts.yaml (AWS only)",
 )
 @click.option(
     "--accounts",

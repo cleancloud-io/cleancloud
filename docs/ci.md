@@ -702,7 +702,21 @@ Scan entire AWS Organizations in a single workflow run. CleanCloud assumes a cro
 
 **Prerequisites:** Cross-account `CleanCloudReadOnlyRole` deployed to each target account. See [AWS multi-account setup →](aws.md#multi-account-scanning)
 
-### From accounts.yaml
+### From .cleancloud/accounts.yaml
+
+Commit your account list to your repository at `.cleancloud/accounts.yaml`. `actions/checkout@v4` makes it available to the runner automatically — no extra steps needed.
+
+```yaml
+# .cleancloud/accounts.yaml — commit this file to your repo
+role_name: CleanCloudReadOnlyRole
+accounts:
+  - id: "111111111111"
+    name: production
+  - id: "222222222222"
+    name: staging
+```
+
+> You can use a different path — just pass it to `--multi-account /your/path/accounts.yaml`. `.cleancloud/accounts.yaml` is the recommended convention.
 
 ```yaml
 name: CleanCloud Multi-Account Scan
@@ -720,6 +734,7 @@ jobs:
   cleancloud:
     runs-on: ubuntu-latest
     steps:
+      # Checks out your repo — makes .cleancloud/accounts.yaml available to the runner
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
@@ -735,7 +750,7 @@ jobs:
         run: |
           cleancloud scan \
             --provider aws \
-            --multi-account accounts.yaml \
+            --multi-account .cleancloud/accounts.yaml \
             --all-regions \
             --concurrency 5 \
             --fail-on-confidence HIGH \
@@ -754,6 +769,8 @@ jobs:
 
 ### Auto-discover via AWS Organizations
 
+No file needed — CleanCloud calls `organizations:ListAccounts` on the hub account and discovers all member accounts automatically.
+
 ```yaml
       - name: Scan all org accounts
         run: |
@@ -768,7 +785,7 @@ jobs:
             --output-file scan-results.json
 ```
 
-> Requires `organizations:ListAccounts` on the hub account role. See [AWS setup →](aws.md#multi-account-scanning)
+> Requires `organizations:ListAccounts` on the hub account role — one extra permission, hub only. See [AWS setup →](aws.md#multi-account-scanning)
 
 ### GitHub Action (one-liner)
 

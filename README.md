@@ -280,7 +280,7 @@ Built for enterprises running AWS Organizations. Scan every account in parallel 
 
 ```bash
 # Scan from a config file
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
 
 # Inline account IDs — no file needed
 cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions
@@ -292,7 +292,7 @@ cleancloud scan --provider aws --org --all-regions --concurrency 5
 **How it works:**
 
 - **Hub-and-spoke** — CleanCloud assumes `CleanCloudReadOnlyRole` in each target account using STS. No persistent access, no stored credentials.
-- **Three discovery modes** — `accounts.yaml` for explicit control, `--accounts` for quick ad-hoc scans, `--org` for full AWS Organizations auto-discovery.
+- **Three discovery modes** — `.cleancloud/accounts.yaml` for explicit control, `--accounts` for quick ad-hoc scans, `--org` for full AWS Organizations auto-discovery.
 - **Efficient region detection** — active regions are discovered once on the hub account and reused across all spokes. Without this: N accounts × 160 API calls just for region probing. With it: 160 calls once.
 - **Parallel with isolation** — each account runs in its own thread with its own session. One account failing (AccessDenied, timeout) never affects the others.
 - **Partial-success visibility** — if 2 regions fail and 7 succeed within an account, the account is marked `partial` with the failed regions named. You see exactly what was missed, not just a binary pass/fail.

@@ -289,7 +289,7 @@ Scan multiple AWS accounts in a single run. CleanCloud assumes a cross-account I
 | Mode | Flag | When to use |
 |------|------|-------------|
 | **AWS Organizations auto-discovery** | `--org` | You use AWS Organizations and want every active account scanned automatically. Requires `organizations:ListAccounts` on the hub role ([see step 3](#3-for---org-auto-discovery-add-organizationslistaccounts-to-the-hub-account-role)). |
-| **Config file** | `--multi-account accounts.yaml` | You want explicit control over which accounts are scanned, or you're not using AWS Organizations. |
+| **Config file** | `--multi-account .cleancloud/accounts.yaml` | You want explicit control over which accounts are scanned, or you're not using AWS Organizations. |
 | **Inline IDs** | `--accounts 111,222,333` | Quick ad-hoc scan of a few accounts — no file needed. |
 
 > `--org` only needs one extra permission on the **hub** role. Spoke accounts need no changes regardless of which mode you use.
@@ -323,10 +323,10 @@ The identity CleanCloud runs as (OIDC role, CLI profile, etc.) must be allowed t
 cleancloud scan --provider aws --org --all-regions
 
 # Or use an explicit account list
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
 ```
 
-Not sure if everything is wired up correctly? Run `cleancloud doctor --provider aws --multi-account accounts.yaml` first — it validates role assumption account by account before touching anything.
+Not sure if everything is wired up correctly? Run `cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml` first — it validates role assumption account by account before touching anything.
 
 ---
 
@@ -500,9 +500,14 @@ module "cleancloud_role" {
 
 ---
 
-### accounts.yaml Format
+### .cleancloud/accounts.yaml Format
+
+Commit this file to your repository at `.cleancloud/accounts.yaml`. In CI/CD, `actions/checkout@v4` (or equivalent) makes it available to the runner automatically.
+
+You can use a different path — just pass it to `--multi-account /your/path/accounts.yaml`. `.cleancloud/accounts.yaml` is the recommended convention.
 
 ```yaml
+# .cleancloud/accounts.yaml
 role_name: CleanCloudReadOnlyRole   # Role to assume in each account
 external_id: your-external-id       # Optional — required if trust policy uses ExternalId
 scan_timeout: 3600                  # Total scan timeout in seconds (default: 3600 — 1 hour)
@@ -521,8 +526,8 @@ accounts:
 ### Scanning
 
 ```bash
-# From accounts.yaml
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+# From .cleancloud/accounts.yaml
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
 
 # Inline account IDs (quick scan, no file needed)
 cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions
@@ -531,15 +536,15 @@ cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-region
 cleancloud scan --provider aws --org --all-regions
 
 # With enforcement
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions \
   --fail-on-confidence HIGH --fail-on-cost 500
 
 # Custom role name
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions \
   --role-name MyCustomReadOnlyRole
 
-# With ExternalId (overrides accounts.yaml value)
-cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+# With ExternalId (overrides .cleancloud/accounts.yaml value)
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions \
   --external-id your-external-id
 ```
 
@@ -550,7 +555,7 @@ cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
 Before running a full scan, validate that CleanCloud can reach all target accounts:
 
 ```bash
-cleancloud doctor --provider aws --multi-account accounts.yaml
+cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml
 ```
 
 **What it checks:**

@@ -26,7 +26,7 @@ from cleancloud.doctor.runner import run_doctor
     "multi_account_file",
     type=click.Path(exists=True),
     default=None,
-    help="Validate cross-account role access for each account in accounts.yaml",
+    help="Validate cross-account role access for each account in .cleancloud/accounts.yaml",
 )
 @click.option(
     "--role-name",

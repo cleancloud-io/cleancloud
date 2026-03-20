@@ -567,6 +567,7 @@ def run_aws_multi_account_doctor(
     profile: Optional[str] = None,
     region: Optional[str] = None,
 ) -> None:
+    # STS is global — region only selects the endpoint; us-east-1 is the canonical global endpoint
     region = region or "us-east-1"
 
     info("")
