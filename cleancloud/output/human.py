@@ -16,6 +16,13 @@ def print_human(findings: List[Finding]):
         print(f"   Risk       : {f.risk.value.capitalize()}")
         print(f"   Confidence : {f.confidence.value.capitalize()}")
 
+        if f.account_id:
+            label = (
+                f.account_name
+                if f.account_name and f.account_name != f.account_id
+                else f.account_id
+            )
+            print(f"   Account    : {label} ({f.account_id})")
         print(f"   Resource   : {f.resource_type} → {f.resource_id}")
         if f.region:
             print(f"   Region     : {f.region}")

@@ -8,7 +8,9 @@ Complete output examples for CleanCloud across AWS and Azure — doctor validati
 
 - [Doctor — AWS](#doctor--aws)
 - [Doctor — Azure](#doctor--azure)
+- [Doctor — Multi-Account](#doctor--multi-account)
 - [Scan — AWS (Human-Readable)](#scan--aws-human-readable)
+- [Scan — AWS Multi-Account](#scan--aws-multi-account)
 - [Scan — Azure (Human-Readable)](#scan--azure-human-readable)
 - [Scan — AWS (JSON)](#scan--aws-json)
 - [Scan — Azure (JSON)](#scan--azure-json)
@@ -241,6 +243,110 @@ Authentication Method: OIDC (Workload Identity Federation)
 
 [OK] Compliance: SOC2/ISO27001 Compatible
 ```
+
+---
+
+## Doctor — Multi-Account
+
+`cleancloud doctor --provider aws --multi-account accounts.yaml`
+
+Validates cross-account role access for every account in the config before committing to a full scan.
+
+```
+Running CleanCloud doctor
+
+======================================================================
+MULTI-ACCOUNT VALIDATION
+======================================================================
+Role name    : CleanCloudReadOnlyRole
+External ID  : (none)
+Accounts     : 3
+
+Step 1: Hub Account Credentials
+----------------------------------------------------------------------
+[OK] Hub account: 000000000000  (arn:aws:sts::000000000000:assumed-role/CleanCloudCIReadOnly/github-actions)
+
+Step 2: Hub Role Permissions
+----------------------------------------------------------------------
+[OK] organizations:ListAccounts  ✅  (--org flag will work)
+
+Step 3: Cross-Account Role Validation
+----------------------------------------------------------------------
+[OK] production (111111111111)  →  arn:aws:sts::111111111111:assumed-role/CleanCloudReadOnlyRole/cleancloud-111111111111
+[OK] staging (222222222222)     →  arn:aws:sts::222222222222:assumed-role/CleanCloudReadOnlyRole/cleancloud-222222222222
+[!] dev (333333333333)          →  AccessDenied: role not found
+
+======================================================================
+MULTI-ACCOUNT SUMMARY
+======================================================================
+Accounts passed : 2/3
+Accounts failed : 1
+  dev (333333333333): AccessDenied: role not found
+
+Expected role ARN format: arn:aws:iam::<ACCOUNT_ID>:role/CleanCloudReadOnlyRole
+See docs/aws.md for cross-account IAM setup instructions
+======================================================================
+```
+
+---
+
+## Scan — AWS Multi-Account
+
+`cleancloud scan --provider aws --multi-account accounts.yaml --all-regions`
+
+Scans 3 accounts in parallel, aggregates findings, and shows a per-account breakdown.
+
+```
+Starting CleanCloud scan...
+
+Provider: aws
+
+Scanning 3 accounts (role: CleanCloudReadOnlyRole)...
+
+[INFO] Scanning production (111111111111)...
+[INFO] Scanning staging (222222222222)...
+[INFO] Scanning dev (333333333333)...
+[INFO] Completed dev in 14.2s — 8 findings  ~$420
+[INFO] Completed staging in 18.7s — 31 findings  ~$4,200
+[INFO] Completed production in 22.1s — 45 findings  ~$12,000
+
+Found 84 hygiene issues:
+
+1. [AWS] Unattached EBS Volume
+   Account    : production (111111111111)
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Region     : us-east-1
+   Rule       : aws.ebs.volume.unattached
+   Reason     : Volume has been unattached for 47 days
+   ...
+
+--- Scan Summary ---
+Total findings: 84
+
+By risk:
+  low: 61
+  medium: 23
+
+By confidence:
+  high: 38
+  medium: 46
+
+Minimum estimated waste: ~$18,200/month
+(71 of 84 findings costed)
+Regions scanned: eu-west-1, us-east-1, us-west-2 (explicit)
+Scanned at: 2026-03-17T08:00:00+00:00
+
+Accounts scanned:     3 ✅
+
+Per-account breakdown:
+  dev                  (333333333333):  8 findings  ~$420/month
+  production           (111111111111):  45 findings  ~$12,000/month
+  staging              (222222222222):  31 findings  ~$4,200/month
+```
+
+**JSON output** includes `accounts_scanned`, `per_account` breakdown, and `account_id`/`account_name` on every finding — ideal for downstream processing in CI/CD pipelines.
 
 ---
 

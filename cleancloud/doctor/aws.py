@@ -2,11 +2,13 @@ import os
 import sys
 from typing import Optional
 
+import botocore.exceptions
 import click
 
+from cleancloud.config.accounts import MultiAccountConfig
 from cleancloud.doctor.common import fail, info, success, warn
 from cleancloud.policy.exit_policy import EXIT_ERROR
-from cleancloud.providers.aws.session import create_aws_session
+from cleancloud.providers.aws.session import BOTO_CONFIG, assume_role, create_aws_session
 from cleancloud.providers.aws.validate import KNOWN_AWS_REGIONS
 
 
@@ -556,5 +558,101 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         warn("AWS ENVIRONMENT READY (partial coverage)")
     else:
         success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
+    info("=" * 70)
+    info("")
+
+
+def run_aws_multi_account_doctor(
+    config: MultiAccountConfig,
+    profile: Optional[str] = None,
+    region: Optional[str] = None,
+) -> None:
+    # STS is global — region only selects the endpoint; us-east-1 is the canonical global endpoint
+    region = region or "us-east-1"
+
+    info("")
+    info("=" * 70)
+    info("MULTI-ACCOUNT VALIDATION")
+    info("=" * 70)
+    info(f"Role name    : {config.role_name}")
+    info(f"External ID  : {config.external_id or '(none)'}")
+    info(f"Accounts     : {len(config.accounts)}")
+    info("")
+
+    # Validate hub credentials first
+    info("Step 1: Hub Account Credentials")
+    info("-" * 70)
+    try:
+        hub_session = create_aws_session(profile=profile, region=region)
+        sts = hub_session.client("sts", config=BOTO_CONFIG)
+        identity = sts.get_caller_identity()
+        success(f"Hub account: {identity['Account']}  ({identity['Arn']})")
+    except Exception as e:
+        fail(f"Hub credentials failed: {e}")
+        return
+
+    # Check sts:AssumeRole permission
+    info("")
+    info("Step 2: Hub Role Permissions")
+    info("-" * 70)
+    try:
+        orgs = hub_session.client("organizations", config=BOTO_CONFIG)
+        orgs.list_accounts(MaxResults=1)
+        success("organizations:ListAccounts  (--org flag will work)")
+    except botocore.exceptions.ClientError as e:
+        code = e.response["Error"]["Code"]
+        if code in ("AccessDeniedException", "AWSOrganizationsNotInUseException"):
+            warn("organizations:ListAccounts  (--org flag will not work)")
+        else:
+            warn(f"organizations:ListAccounts  {code}")
+    except Exception as e:
+        warn(f"organizations:ListAccounts  {e}")
+
+    # Validate each target account
+    info("")
+    info("Step 3: Cross-Account Role Validation")
+    info("-" * 70)
+
+    passed = 0
+    failed_accounts = []
+
+    for account in config.accounts:
+        label = f"{account.name} ({account.id})"
+        try:
+            assumed = assume_role(
+                session=hub_session,
+                account_id=account.id,
+                role_name=config.role_name,
+                region=region,
+                external_id=config.external_id,
+            )
+            assumed_identity = assumed.client("sts", config=BOTO_CONFIG).get_caller_identity()
+            success(f"{label}  →  {assumed_identity['Arn']}")
+            passed += 1
+        except botocore.exceptions.ClientError as e:
+            code = e.response["Error"]["Code"]
+            msg = e.response["Error"]["Message"]
+            warn(f"{label}  {code}: {msg}")
+            failed_accounts.append((label, f"{code}: {msg}"))
+        except Exception as e:
+            warn(f"{label}  {e}")
+            failed_accounts.append((label, str(e)))
+
+    info("")
+    info("=" * 70)
+    info("MULTI-ACCOUNT SUMMARY")
+    info("=" * 70)
+    info(f"Accounts passed : {passed}/{len(config.accounts)}")
+    if failed_accounts:
+        info(f"Accounts failed : {len(failed_accounts)}")
+        info("")
+        info("Failed accounts — check that the role exists and trust policy allows assumption:")
+        for label, error in failed_accounts:
+            warn(f"  {label}: {error}")
+        info("")
+        info(f"Expected role ARN format: arn:aws:iam::<ACCOUNT_ID>:role/{config.role_name}")
+        info("See docs/aws.md for cross-account IAM setup instructions")
+    else:
+        success("All accounts reachable — ready for multi-account scan")
     info("=" * 70)
     info("")

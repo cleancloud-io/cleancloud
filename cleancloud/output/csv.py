@@ -5,6 +5,8 @@ from typing import List
 from cleancloud.core.finding import Finding
 
 CSV_FIELDS = [
+    "account_id",
+    "account_name",
     "provider",
     "rule_id",
     "resource_type",

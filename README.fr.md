@@ -2,6 +2,7 @@
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
+![Docker Pulls](https://img.shields.io/docker/pulls/getcleancloud/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 [![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
 ![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
@@ -9,18 +10,35 @@
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
 
+**Docs:** [Configuration AWS](docs/aws.md) · [Permissions & Commandes AWS](docs/aws.md#at-a-glance) · [Multi-comptes AWS](docs/aws.md#multi-account-scanning) · [Configuration Azure](docs/azure.md) · [Guide CI/CD](docs/ci.md) · [Règles de détection](docs/rules.md) · [Exemples de sortie](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
+
 ---
 
-**Trivy pour le gaspillage cloud. Un scanner qui détecte les ressources orphelines et applique l'hygiène en CI.**
+**Applique la politique d'hygiène cloud en CI et donne aux équipes engineering, finance et ops une vue unifiée du gaspillage.**
 
-Comme `tfsec` pour Terraform ou `trivy` pour les conteneurs — CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
+**Supporte :** AWS · Azure — GCP bientôt disponible
+
+Hygiène cloud en lecture seule pour les environnements réglementés & souverains.
+
+CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
 
 - **20 règles de détection haut signal :** volumes orphelins, bases de données inactives, load balancers vides, et plus
 - **Gaspillage mensuel estimé :** par finding et en agrégat
+- **Scan multi-comptes :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Application de politique CI/CD (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` gate votre pipeline
 - **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub ou Slack)
 - **Lecture seule par conception :** aucune suppression, aucune modification de tags, aucune mutation — jamais
 - **Aucun agent. Zéro télémétrie. Pas de SaaS.** S'exécute dans votre environnement, les données ne quittent jamais votre périmètre
+
+### Ce que CleanCloud ne fait PAS
+
+| | |
+|---|---|
+| ❌ Supprimer des ressources | ❌ Modifier ou créer des tags |
+| ❌ Écrire dans une API cloud | ❌ Stocker ou journaliser des credentials |
+| ❌ Envoyer des données de télémétrie | ❌ Nécessiter un compte SaaS ou un agent |
+
+Toutes les opérations sont en lecture seule. Sûr pour les comptes de production, environnements air-gapped, et pipelines soumis à revue de sécurité.
 
 **Cas d'usage :**
 - Audit ponctuel de gaspillage cloud — exécutez dans CloudShell, findings visibles en 60 secondes
@@ -53,10 +71,58 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 
 ## Démarrage
 
+### Commandes
+
+| Commande | Fonction |
+|---|---|
+| `cleancloud demo` | Affiche des findings exemples — aucun credential requis |
+| `cleancloud scan` | Scanne votre environnement cloud et rapporte les findings |
+| `cleancloud doctor` | Vérifie que les credentials et permissions sont correctement configurés |
+| `cleancloud --version` | Affiche la version installée |
+| `cleancloud --help` | Liste tous les flags |
+
+<details>
+<summary>Tous les flags de scan</summary>
+
+```
+# Obligatoire
+--provider aws|azure          Fournisseur cloud à scanner
+
+# Région (optionnel)
+--region REGION               Région unique
+--all-regions                 Scanne toutes les régions actives (recommandé)
+
+# Multi-comptes — AWS uniquement (optionnel, choisir un)
+--multi-account FILE          Fichier de config listant les comptes (ex. .cleancloud/accounts.yaml)
+--accounts 111,222            IDs de comptes inline, séparés par des virgules
+--org                         Auto-découverte via AWS Organizations
+--concurrency N               Comptes en parallèle (défaut : 3)
+--timeout SECONDS             Timeout total du scan en secondes (défaut : 3600)
+
+# Sortie (optionnel)
+--output human|json|csv|markdown  Format de sortie (défaut : human)
+--output-file FILE            Écrit la sortie dans un fichier
+
+# Application CI/CD (optionnel, tous retournent exit code 2)
+--fail-on-confidence HIGH     Échec sur findings HIGH confidence
+--fail-on-confidence MEDIUM   Échec sur findings MEDIUM ou supérieur
+--fail-on-cost N              Échec si gaspillage mensuel estimé >= $N
+--fail-on-findings            Échec si au moins un finding
+```
+
+</details>
+
+**Via pipx (recommandé pour usage local) :**
 ```bash
 pipx install cleancloud
 pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell après
 cleancloud demo        # visualisez des findings sans aucun credential cloud
+```
+
+**Via Docker (recommandé pour CI/CD — Python non requis) :**
+```bash
+docker pull getcleancloud/cleancloud
+docker run --rm getcleancloud/cleancloud demo
 ```
 
 Prêt à scanner votre vrai environnement ? Authentifiez-vous d'abord, puis lancez :
@@ -114,7 +180,7 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 
 **Mauvaise version après installation** — Exécutez `which cleancloud` ; un ancien `pip install` masque peut-être le pipx.
 
-**Version minimale recommandée : v1.6.3** — les versions antérieures ont des problèmes de setup. Exécutez `cleancloud --version` pour vérifier.
+**Version minimale recommandée : v1.7.2** — les versions antérieures ont des problèmes de setup. Exécutez `cleancloud --version` pour vérifier.
 
 </details>
 
@@ -259,12 +325,72 @@ Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure
 
 ---
 
+## Scan Multi-Comptes (AWS uniquement)
+
+Conçu pour les entreprises utilisant AWS Organizations. Scannez chaque compte en parallèle — les findings sont agrégés dans un seul rapport.
+
+```bash
+# Scan depuis un fichier de configuration (commitez .cleancloud/accounts.yaml dans votre repo)
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
+
+# IDs de comptes en ligne — sans fichier
+cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions
+
+# Auto-découverte de tous les comptes de votre AWS Organization
+cleancloud scan --provider aws --org --all-regions --concurrency 5
+```
+
+**Permissions requises :**
+
+| Rôle | Permissions |
+|---|---|
+| Compte hub | 16 permissions lecture seule + `sts:AssumeRole` sur les rôles spoke |
+| Compte hub (`--org` uniquement) | Ci-dessus + `organizations:ListAccounts` |
+| Comptes spoke | 16 permissions lecture seule (identique au scan mono-compte — aucun changement) |
+
+**`.cleancloud/accounts.yaml`** — à commiter dans votre repo :
+
+```yaml
+role_name: CleanCloudReadOnlyRole
+accounts:
+  - id: "111111111111"
+    name: production
+  - id: "222222222222"
+    name: staging
+```
+
+**Trust policy du compte spoke** — autorise le hub à assumer le rôle :
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::<HUB_ACCOUNT_ID>:root" },
+  "Action": "sts:AssumeRole"
+}
+```
+
+Politique IAM complète, trust policy et templates IaC : [Configuration multi-comptes AWS →](docs/aws.md#multi-account-scanning)
+
+**Comment ça fonctionne :**
+
+- **Hub-and-spoke** — CleanCloud assume `CleanCloudReadOnlyRole` dans chaque compte cible via STS. Aucun accès persistant, aucun credential stocké.
+- **Trois modes de découverte** — `.cleancloud/accounts.yaml` pour un contrôle explicite, `--accounts` pour des scans ad-hoc rapides, `--org` pour l'auto-découverte complète via AWS Organizations.
+- **Détection de régions efficace** — les régions actives sont découvertes une seule fois sur le compte hub et réutilisées sur tous les spokes. Sans ça : N comptes × 160 appels API rien que pour la détection de régions. Avec : 160 appels une fois.
+- **Parallèle avec isolation** — chaque compte s'exécute dans son propre thread avec sa propre session. Un compte en échec (AccessDenied, timeout) n'affecte jamais les autres.
+- **Visibilité partielle** — si 2 régions échouent et 7 réussissent dans un compte, le compte est marqué `partial` avec les régions en échec nommées. Vous voyez exactement ce qui a été manqué.
+- **Progression en temps réel** — `[3/50] done production (123456789012) — 47s, 12 findings` affiché au fil des comptes.
+- **Détail des coûts par compte** — la sortie JSON inclut le gaspillage mensuel estimé par compte.
+
+Guide complet (politique IAM, trust policy, templates IaC) : [Configuration multi-comptes AWS →](docs/aws.md#multi-account-scanning)
+
+---
+
 ## Feuille de route
 
 - Règles AWS supplémentaires (cycle de vie S3, instances EC2 arrêtées)
 - Policy-as-code dans `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` en config)
 - Filtrage de règles (flag `--rules`)
-- Scan multi-comptes (AWS Organizations)
+- Scan Azure Management Groups (multi-abonnements au niveau org)
 
 ---
 
