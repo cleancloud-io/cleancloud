@@ -1,10 +1,53 @@
 # AWS Setup
 
-AWS authentication, IAM policies, and configuration guide.
+> **Rules Reference:** [rules.md](rules.md) · **CI/CD Guide:** [ci.md](ci.md) · **Example Outputs:** [example-outputs.md](example-outputs.md)
 
-> **Quick Start:** See [README.md](../README.md)  
-> **Rules Reference:** See [rules.md](rules.md)  
-> **CI/CD Integration:** See [ci.md](ci.md)
+---
+
+## At a Glance
+
+### Permissions
+
+| Scenario | What you need |
+|---|---|
+| Single-account scan | [16 read-only permissions](#iam-policy-minimum-required-permissions) |
+| Multi-account — spoke accounts | Same 16 permissions (no changes needed) |
+| Multi-account — hub account | Same 16 + `sts:AssumeRole` on spoke roles |
+| `--org` auto-discovery (hub only) | Above + `organizations:ListAccounts` |
+
+All permissions are read-only. No `Delete*`, `Create*`, or `Tag*` actions — ever.
+
+---
+
+### Commands
+
+| Task | Command |
+|---|---|
+| Scan current account, all regions | `cleancloud scan --provider aws --all-regions` |
+| Scan specific region | `cleancloud scan --provider aws --region us-east-1` |
+| Scan multiple accounts (config file) | `cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions` |
+| Scan multiple accounts (inline IDs) | `cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions` |
+| Scan entire AWS Organization | `cleancloud scan --provider aws --org --all-regions` |
+| Fail build on HIGH findings | Add `--fail-on-confidence HIGH` to any scan command |
+| Fail build if waste ≥ $X/month | Add `--fail-on-cost 500` to any scan command |
+| Check permissions (single account) | `cleancloud doctor --provider aws` |
+| Check permissions + multi-account roles | `cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml` |
+
+---
+
+### Multi-Account Setup (3 steps)
+
+**Step 1 — Deploy `CleanCloudReadOnlyRole` to each spoke account** → [Deploy the Cross-Account Role](#deploy-the-cross-account-role)
+
+**Step 2 — Add `sts:AssumeRole` to your hub role** → [IAM Setup (Hub Account)](#iam-setup-hub-account)
+
+**Step 3 — Create `.cleancloud/accounts.yaml` in your repo** → [accounts.yaml Format](#cleanclouaccountsyaml-format)
+
+Then run:
+```bash
+cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml  # validate first
+cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
+```
 
 ---
 
@@ -403,26 +446,62 @@ Replace `<HUB_ACCOUNT_ID>` with the account ID where CleanCloud runs (your CI/CD
 }
 ```
 
-> **Deploy at scale:** Use the ready-made templates below to deploy `CleanCloudReadOnlyRole` across all member accounts automatically.
+> **Deploy the spoke role once per account.** Three options depending on your scale — start with Option A if you have a handful of accounts.
 
 ---
 
-### Deploy the Role at Scale
+### Deploy the Cross-Account Role
 
-#### Option A: CloudFormation StackSet (AWS-native, recommended)
+#### Option A: AWS CLI (quickest — 1 to ~10 accounts)
 
-Use [`deploy/cloudformation/cleancloud-role.yaml`](../deploy/cloudformation/cleancloud-role.yaml) — StackSet-ready, deploys to all member accounts in one operation.
+No prerequisites. Run this in each spoke account (or paste into [AWS CloudShell](https://console.aws.amazon.com/cloudshell) logged into the spoke account):
 
-**Single account (manual):**
 ```bash
-aws cloudformation deploy \
-  --stack-name cleancloud-role \
-  --template-file deploy/cloudformation/cleancloud-role.yaml \
-  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> \
-  --capabilities CAPABILITY_NAMED_IAM
+HUB_ACCOUNT_ID=<HUB_ACCOUNT_ID>   # account where CleanCloud runs
+
+aws iam create-role \
+  --role-name CleanCloudReadOnlyRole \
+  --assume-role-policy-document "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [{
+      \"Effect\": \"Allow\",
+      \"Principal\": {\"AWS\": \"arn:aws:iam::${HUB_ACCOUNT_ID}:root\"},
+      \"Action\": \"sts:AssumeRole\"
+    }]
+  }"
+
+aws iam put-role-policy \
+  --role-name CleanCloudReadOnlyRole \
+  --policy-name CleanCloudReadOnly \
+  --policy-document file://security/aws-readonly-policy.json
 ```
 
-**Entire AWS Organization via StackSets (management account):**
+> `security/aws-readonly-policy.json` is in the [CleanCloud repo](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json). Download it first or clone the repo, then run the commands above.
+
+Repeat for each spoke account — takes under 30 seconds per account.
+
+**With ExternalId (optional, confused deputy protection):**
+```bash
+aws iam create-role \
+  --role-name CleanCloudReadOnlyRole \
+  --assume-role-policy-document "{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [{
+      \"Effect\": \"Allow\",
+      \"Principal\": {\"AWS\": \"arn:aws:iam::${HUB_ACCOUNT_ID}:root\"},
+      \"Action\": \"sts:AssumeRole\",
+      \"Condition\": {\"StringEquals\": {\"sts:ExternalId\": \"my-secret-token\"}}
+    }]
+  }"
+```
+
+---
+
+#### Option B: CloudFormation StackSet (10+ accounts, AWS-native)
+
+Use [`deploy/cloudformation/cleancloud-role.yaml`](../deploy/cloudformation/cleancloud-role.yaml) — deploys to all member accounts in one operation. Requires trusted access enabled between CloudFormation and AWS Organizations (done once in your management account).
+
+**Entire AWS Organization (management account):**
 ```bash
 aws cloudformation create-stack-set \
   --stack-set-name cleancloud-role \
@@ -439,20 +518,20 @@ aws cloudformation create-stack-instances \
   --regions us-east-1
 ```
 
-With `AUTO_DEPLOYMENT` enabled, new accounts added to the org automatically get the role — no manual steps.
+With `AUTO_DEPLOYMENT` enabled, new accounts added to the org automatically get the role.
 
-**With ExternalId:**
+**Single account:**
 ```bash
 aws cloudformation deploy \
   --stack-name cleancloud-role \
   --template-file deploy/cloudformation/cleancloud-role.yaml \
-  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> ExternalId=my-secret-token \
+  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
 ---
 
-#### Option B: Terraform module
+#### Option C: Terraform (if you already manage IAM with Terraform)
 
 Use [`deploy/terraform/`](../deploy/terraform/) — drop it into your existing Terraform codebase.
 

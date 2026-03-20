@@ -10,15 +10,17 @@
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
 
-**Docs:** [AWS Setup](docs/aws.md) · [Azure Setup](docs/azure.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
+**Docs:** [AWS Setup](docs/aws.md) · [AWS Permissions & Commands](docs/aws.md#at-a-glance) · [AWS Multi-Account](docs/aws.md#multi-account-scanning) · [Azure Setup](docs/azure.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
 
 ---
 
 **Enforces cloud hygiene policy in CI and gives engineering, finance, and ops a single view of waste.**
 
+**Supports:** AWS · Azure — GCP coming soon
+
 Read-only cloud hygiene for regulated & sovereign environments.
 
-Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
+CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
 - **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
 - **Estimated monthly waste:** per finding and aggregate
@@ -27,6 +29,16 @@ Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your c
 - **Multiple output formats:** human-readable, JSON, CSV, and markdown (paste into GitHub PRs or Slack)
 - **Read-only by design:** no deletions, no tag changes, no mutations — ever
 - **No agents. No telemetry. No SaaS.** Runs in your environment, data never leaves
+
+### What CleanCloud does NOT do
+
+| | |
+|---|---|
+| ❌ Delete resources | ❌ Modify or create tags |
+| ❌ Write to any cloud API | ❌ Store or log credentials |
+| ❌ Send telemetry or usage data | ❌ Require a SaaS account or agent |
+
+All operations are read-only. Safe for production accounts, air-gapped environments, and security-reviewed pipelines.
 
 **Use cases:**
 - One-time cloud waste audit — run in CloudShell, see findings in 60 seconds
@@ -59,6 +71,16 @@ Regions scanned: us-east-1, us-west-2, eu-west-1
 
 ## Get Started
 
+### Commands
+
+| Command | What it does |
+|---|---|
+| `cleancloud demo` | Show sample findings — no credentials needed |
+| `cleancloud scan` | Scan your cloud environment and report findings |
+| `cleancloud doctor` | Check that credentials and permissions are correctly configured |
+| `cleancloud --version` | Show installed version |
+| `cleancloud --help` | List all flags |
+
 **Via pipx (recommended for local use):**
 ```bash
 pipx install cleancloud
@@ -83,6 +105,37 @@ cleancloud scan --provider azure
 ```
 
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` first.
+
+<details>
+<summary>All scan flags</summary>
+
+```
+# Required
+--provider aws|azure          Cloud provider to scan
+
+# Region (optional)
+--region REGION               Single region
+--all-regions                 Scan all active regions (recommended)
+
+# Multi-account — AWS only (optional, pick one)
+--multi-account FILE          Config file listing accounts (e.g. .cleancloud/accounts.yaml)
+--accounts 111,222            Inline account IDs, comma-separated
+--org                         Auto-discover all accounts via AWS Organizations
+--concurrency N               Parallel accounts (default: 3)
+--timeout SECONDS             Total scan timeout in seconds (default: 3600)
+
+# Output (optional)
+--output human|json|csv|markdown  Output format (default: human)
+--output-file FILE            Write output to file instead of stdout
+
+# CI/CD enforcement (optional, all exit code 2 on match)
+--fail-on-confidence HIGH     Fail on HIGH confidence findings
+--fail-on-confidence MEDIUM   Fail on MEDIUM or higher findings
+--fail-on-cost N              Fail if estimated monthly waste >= $N
+--fail-on-findings            Fail on any finding
+```
+
+</details>
 
 ### No install — try in your cloud shell
 
@@ -274,12 +327,12 @@ Complete, copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Work
 
 ---
 
-## Multi-Account Scanning
+## Multi-Account Scanning (AWS only)
 
 Built for enterprises running AWS Organizations. Scan every account in parallel — findings aggregated into one report.
 
 ```bash
-# Scan from a config file
+# Scan from a config file (commit .cleancloud/accounts.yaml to your repo)
 cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-regions
 
 # Inline account IDs — no file needed
@@ -288,6 +341,37 @@ cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-region
 # Auto-discover all accounts in your AWS Organization
 cleancloud scan --provider aws --org --all-regions --concurrency 5
 ```
+
+**Permissions required:**
+
+| Role | Permissions |
+|---|---|
+| Hub account | 16 read-only permissions + `sts:AssumeRole` on spoke roles |
+| Hub account (`--org` only) | Above + `organizations:ListAccounts` |
+| Spoke accounts | 16 read-only permissions (same as single-account scan — no extra changes) |
+
+**`.cleancloud/accounts.yaml`** — commit this to your repo:
+
+```yaml
+role_name: CleanCloudReadOnlyRole
+accounts:
+  - id: "111111111111"
+    name: production
+  - id: "222222222222"
+    name: staging
+```
+
+**Spoke account trust policy** — allows the hub to assume the role:
+
+```json
+{
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::<HUB_ACCOUNT_ID>:root" },
+  "Action": "sts:AssumeRole"
+}
+```
+
+Full IAM policy, trust policy, and IaC templates: [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
 
 **How it works:**
 
@@ -299,22 +383,7 @@ cleancloud scan --provider aws --org --all-regions --concurrency 5
 - **Live progress** — `[3/50] done production (123456789012) — 47s, 12 findings` printed as each account completes.
 - **Per-account cost breakdown** — JSON output includes estimated monthly waste per account, sortable and scriptable.
 
-**Deploying the cross-account role:**
-
-Ready-to-use IaC templates included — deploy `CleanCloudReadOnlyRole` to all spoke accounts in one command:
-
-```bash
-# CloudFormation StackSet — deploys to entire AWS Organization
-aws cloudformation create-stack-set \
-  --stack-set-name CleanCloudReadOnlyRole \
-  --template-body file://deploy/cloudformation/cleancloud-role.yaml \
-  --parameters ParameterKey=HubAccountId,ParameterValue=<HUB_ACCOUNT_ID> \
-  --permission-model SERVICE_MANAGED \
-  --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false \
-  --capabilities CAPABILITY_NAMED_IAM
-```
-
-Full setup guide: [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
+Full setup guide (IAM policy, trust policy, IaC templates): [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
 
 ---
 
