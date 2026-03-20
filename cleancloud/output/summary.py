@@ -43,7 +43,7 @@ def _format_enum_counts(data: dict) -> dict[str, int]:
     return result
 
 
-def _print_summary(summary: dict, region_selection_mode: str = None):
+def _print_summary(summary: dict, region_selection_mode: str = None, multi_account_results=None):
     click.echo("\n--- Scan Summary ---")
 
     skipped_rules = summary.get("skipped_rules", [])
@@ -132,6 +132,52 @@ def _print_summary(summary: dict, region_selection_mode: str = None):
         click.echo(
             "Run 'cleancloud doctor --provider <aws|azure>' to see how to grant full coverage."
         )
+
+    # Multi-account breakdown
+    if multi_account_results:
+        succeeded = [r for r in multi_account_results if r.status == "success"]
+        partial = [r for r in multi_account_results if r.status == "partial"]
+        failed = [r for r in multi_account_results if r.status == "failed"]
+        timed_out = [r for r in multi_account_results if r.status == "timeout"]
+
+        click.echo()
+        click.echo(f"Accounts scanned:   {len(succeeded):>3}")
+        if partial:
+            click.echo(f"Accounts partial:   {len(partial):>3}  (some regions failed)")
+        if failed:
+            click.echo(f"Accounts failed:    {len(failed):>3}")
+        if timed_out:
+            click.echo(f"Accounts timed out: {len(timed_out):>3}")
+
+        complete = succeeded + partial
+        if complete:
+            click.echo()
+            click.echo("Per-account breakdown:")
+            for r in sorted(complete, key=lambda x: x.account_name):
+                cost = sum(
+                    f.estimated_monthly_cost_usd for f in r.findings if f.estimated_monthly_cost_usd
+                )
+                cost_str = f"  ~${cost:,.0f}/month" if cost else ""
+                label = r.account_name if r.account_name != r.account_id else r.account_id
+                partial_note = (
+                    f"  [{len(r.regions_failed)} region(s) failed]" if r.regions_failed else ""
+                )
+                click.echo(
+                    f"  {label:<20} ({r.account_id}):"
+                    f"  {len(r.findings)} findings{cost_str}{partial_note}"
+                )
+
+        if failed:
+            click.echo()
+            click.echo("Failed accounts:")
+            for r in failed:
+                click.echo(f"  [failed] {r.account_name} ({r.account_id}): {r.error}")
+
+        if timed_out:
+            click.echo()
+            click.echo("Timed out accounts:")
+            for r in timed_out:
+                click.echo(f"  [timeout] {r.account_name} ({r.account_id})")
 
     # Success message
     if summary["total_findings"] == 0:

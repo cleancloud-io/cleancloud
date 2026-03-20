@@ -6,6 +6,7 @@ import click
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.aws.region_cache import get_cached_regions, set_cached_regions
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
 from cleancloud.providers.aws.rules.cloudwatch_inactive import (
     find_inactive_cloudwatch_logs,
@@ -22,7 +23,7 @@ from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
-from cleancloud.providers.aws.session import create_aws_session
+from cleancloud.providers.aws.session import BOTO_CONFIG, create_aws_session
 from cleancloud.providers.aws.validate import validate_region_params
 
 AWS_RULES: List[Callable] = [
@@ -90,6 +91,17 @@ def scan_aws_with_region_selection(
 
 def _get_active_aws_regions(session) -> List[str]:
     try:
+        account_id = session.client("sts").get_caller_identity()["Account"]
+        cached = get_cached_regions(account_id)
+        if cached is not None:
+            click.echo(
+                f"Using cached regions (account {account_id}) — delete ~/.cleancloud/region_cache.json to refresh"
+            )
+            return cached
+    except Exception:
+        account_id = None
+
+    try:
         ec2 = session.client("ec2", region_name="us-east-1")
         response = ec2.describe_regions(
             AllRegions=False,
@@ -132,12 +144,19 @@ def _get_active_aws_regions(session) -> List[str]:
             click.echo(f"   ... and {len(errors) - 5} more")
         click.echo()
 
-    return sorted(active_regions)
+    result = sorted(active_regions)
+    if account_id and result:
+        try:
+            set_cached_regions(account_id, result)
+        except Exception:
+            pass  # cache write failure is non-fatal
+
+    return result
 
 
 def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Optional[str]]:
     try:
-        ec2 = session.client("ec2", region_name=region)
+        ec2 = session.client("ec2", region_name=region, config=BOTO_CONFIG)
 
         # 1. Check EBS volumes
         # Note: Use MaxResults=5 - some regions don't accept MaxResults=1
@@ -152,7 +171,7 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
             return True, None
 
         # 3. Check CloudWatch Logs
-        logs = session.client("logs", region_name=region)
+        logs = session.client("logs", region_name=region, config=BOTO_CONFIG)
         log_groups = logs.describe_log_groups(limit=1)
         if log_groups["logGroups"]:
             return True, None
@@ -169,7 +188,7 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
             return True, None
 
         # 6. Check RDS instances
-        rds = session.client("rds", region_name=region)
+        rds = session.client("rds", region_name=region, config=BOTO_CONFIG)
         instances = rds.describe_db_instances(MaxRecords=20)
         if instances["DBInstances"]:
             return True, None
@@ -180,7 +199,7 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
             return True, None
 
         # 8. Check Elastic Load Balancers (ALB/NLB)
-        elbv2 = session.client("elbv2", region_name=region)
+        elbv2 = session.client("elbv2", region_name=region, config=BOTO_CONFIG)
         lbs = elbv2.describe_load_balancers(PageSize=1)
         if lbs.get("LoadBalancers"):
             return True, None
@@ -256,6 +275,70 @@ def scan_aws_regions(
                     advance(bar)
 
     return findings, all_skipped_rules
+
+
+def scan_aws_regions_with_session(
+    session,
+    regions_to_scan: List[str],
+) -> Tuple[List[Finding], List[dict], List[str]]:
+    """
+    Scan a list of regions using a pre-existing boto3 session (e.g. assumed role).
+    Used by multi-account scanning. No progress bars — account-level logging handles UX.
+    Returns (findings, skipped_rules, failed_regions).
+    """
+    findings: List[Finding] = []
+    all_skipped_rules: List[dict] = []
+    failed_regions: List[str] = []
+
+    with ThreadPoolExecutor(max_workers=min(5, len(regions_to_scan))) as executor:
+        futures = {
+            executor.submit(_scan_aws_region_with_session, session, region): region
+            for region in regions_to_scan
+        }
+        for future in as_completed(futures):
+            region = futures[future]
+            try:
+                region_findings, region_skipped = future.result()
+                findings.extend(region_findings)
+                for skipped in region_skipped:
+                    if not any(s["rule"] == skipped["rule"] for s in all_skipped_rules):
+                        all_skipped_rules.append(skipped)
+            except Exception as e:
+                click.echo(f"  Region {region} failed: {e}")
+                failed_regions.append(region)
+
+    return findings, all_skipped_rules, failed_regions
+
+
+def _scan_aws_region_with_session(session, region: str) -> Tuple[List[Finding], List[dict]]:
+    """
+    Scan a single region using a pre-existing session. Used for assumed-role
+    (multi-account) scans where the session is already scoped to the target account.
+    """
+    findings: List[Finding] = []
+    skipped_rules: List[dict] = []
+
+    with ThreadPoolExecutor(max_workers=min(4, len(AWS_RULES))) as executor:
+        futures = {executor.submit(rule, session, region): rule for rule in AWS_RULES}
+
+        for future in as_completed(futures):
+            rule = futures[future]
+            try:
+                rule_findings = future.result()
+                findings.extend(rule_findings)
+            except botocore.exceptions.NoCredentialsError:
+                raise
+            except PermissionError as e:
+                skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
+            except botocore.exceptions.EndpointConnectionError:
+                pass  # Invalid/inaccessible region — skip silently in multi-account
+            except Exception as e:
+                click.echo(f"    Rule {rule.__name__} failed in {region}: {e}")
+
+    for f in findings:
+        f.region = region
+
+    return findings, skipped_rules
 
 
 def _scan_aws_region(profile: Optional[str], region: str) -> Tuple[List[Finding], List[dict]]:

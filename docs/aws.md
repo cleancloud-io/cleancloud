@@ -280,6 +280,321 @@ Attach this policy to your IAM role or user:
 
 ---
 
+## Multi-Account Scanning
+
+Scan multiple AWS accounts in a single run. CleanCloud assumes a cross-account IAM role in each target account, scans in parallel, and produces an aggregated report.
+
+### Choosing a discovery mode
+
+| Mode | Flag | When to use |
+|------|------|-------------|
+| **AWS Organizations auto-discovery** | `--org` | You use AWS Organizations and want every active account scanned automatically. Requires `organizations:ListAccounts` on the hub role ([see step 3](#3-for---org-auto-discovery-add-organizationslistaccounts-to-the-hub-account-role)). |
+| **Config file** | `--multi-account accounts.yaml` | You want explicit control over which accounts are scanned, or you're not using AWS Organizations. |
+| **Inline IDs** | `--accounts 111,222,333` | Quick ad-hoc scan of a few accounts — no file needed. |
+
+> `--org` only needs one extra permission on the **hub** role. Spoke accounts need no changes regardless of which mode you use.
+
+### Setup Overview
+
+Three steps, done once:
+
+**Step 1 — Deploy the role to each spoke account**
+
+Use the CloudFormation template or Terraform module to create `CleanCloudReadOnlyRole` in every account you want to scan. For an AWS Organization, a single StackSet deploys to all accounts at once.
+
+→ [CloudFormation StackSet](#option-a-cloudformation-stackset-aws-native-recommended) · [Terraform module](#option-b-terraform-module)
+
+**Step 2 — Ensure your hub account has `sts:AssumeRole` permission**
+
+The identity CleanCloud runs as (OIDC role, CLI profile, etc.) must be allowed to call `sts:AssumeRole`. Add this to its IAM policy if not already present:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "sts:AssumeRole",
+  "Resource": "arn:aws:iam::*:role/CleanCloudReadOnlyRole"
+}
+```
+
+**Step 3 — Run the scan**
+
+```bash
+# Auto-discover all accounts in your AWS Organization
+cleancloud scan --provider aws --org --all-regions
+
+# Or use an explicit account list
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+```
+
+Not sure if everything is wired up correctly? Run `cleancloud doctor --provider aws --multi-account accounts.yaml` first — it validates role assumption account by account before touching anything.
+
+---
+
+> **Two roles, two purposes.** Multi-account scanning uses two distinct IAM roles — don't confuse them:
+>
+> | Role | Lives in | Trusted by | Purpose |
+> |---|---|---|---|
+> | `CleanCloudCIReadOnly` | Hub account | GitHub Actions OIDC | What CleanCloud *runs as* in CI |
+> | `CleanCloudReadOnlyRole` | Each spoke account | Hub account (STS) | What CleanCloud *assumes into* per target account |
+>
+> The sections above cover `CleanCloudCIReadOnly`. This section covers `CleanCloudReadOnlyRole`.
+
+### IAM Setup (Target Accounts)
+
+Each account you want to scan needs a role that your hub account (where CleanCloud runs) can assume.
+
+**1. Create the role in each target account:**
+
+```bash
+aws iam create-role \
+  --role-name CleanCloudReadOnlyRole \
+  --assume-role-policy-document file://cleancloud-cross-account-trust.json
+aws iam put-role-policy \
+  --role-name CleanCloudReadOnlyRole \
+  --policy-name CleanCloudReadOnly \
+  --policy-document file://cleancloud-policy.json
+```
+
+**2. Trust policy (`cleancloud-cross-account-trust.json`) — allows your hub account to assume the role:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "AWS": "arn:aws:iam::<HUB_ACCOUNT_ID>:root"
+    },
+    "Action": "sts:AssumeRole"
+  }]
+}
+```
+
+Replace `<HUB_ACCOUNT_ID>` with the account ID where CleanCloud runs (your CI/CD account or local account).
+
+**With ExternalId (recommended for enterprise):**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "AWS": "arn:aws:iam::<HUB_ACCOUNT_ID>:root"
+    },
+    "Action": "sts:AssumeRole",
+    "Condition": {
+      "StringEquals": {
+        "sts:ExternalId": "your-external-id"
+      }
+    }
+  }]
+}
+```
+
+**3. For `--org` auto-discovery**, add `organizations:ListAccounts` to the hub account role:
+
+```json
+{
+  "Sid": "OrgReadOnly",
+  "Effect": "Allow",
+  "Action": "organizations:ListAccounts",
+  "Resource": "*"
+}
+```
+
+> **Deploy at scale:** Use the ready-made templates below to deploy `CleanCloudReadOnlyRole` across all member accounts automatically.
+
+---
+
+### Deploy the Role at Scale
+
+#### Option A: CloudFormation StackSet (AWS-native, recommended)
+
+Use [`deploy/cloudformation/cleancloud-role.yaml`](../deploy/cloudformation/cleancloud-role.yaml) — StackSet-ready, deploys to all member accounts in one operation.
+
+**Single account (manual):**
+```bash
+aws cloudformation deploy \
+  --stack-name cleancloud-role \
+  --template-file deploy/cloudformation/cleancloud-role.yaml \
+  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+**Entire AWS Organization via StackSets (management account):**
+```bash
+aws cloudformation create-stack-set \
+  --stack-set-name cleancloud-role \
+  --template-body file://deploy/cloudformation/cleancloud-role.yaml \
+  --parameters ParameterKey=HubAccountId,ParameterValue=<HUB_ACCOUNT_ID> \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --permission-model SERVICE_MANAGED \
+  --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false
+
+# Deploy to all accounts in the org
+aws cloudformation create-stack-instances \
+  --stack-set-name cleancloud-role \
+  --deployment-targets OrganizationalUnitIds=<ROOT_OU_ID> \
+  --regions us-east-1
+```
+
+With `AUTO_DEPLOYMENT` enabled, new accounts added to the org automatically get the role — no manual steps.
+
+**With ExternalId:**
+```bash
+aws cloudformation deploy \
+  --stack-name cleancloud-role \
+  --template-file deploy/cloudformation/cleancloud-role.yaml \
+  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> ExternalId=my-secret-token \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+---
+
+#### Option B: Terraform module
+
+Use [`deploy/terraform/`](../deploy/terraform/) — drop it into your existing Terraform codebase.
+
+**Single account:**
+```hcl
+module "cleancloud_role" {
+  source = "github.com/cleancloud-io/cleancloud//deploy/terraform"
+
+  hub_account_id = "<HUB_ACCOUNT_ID>"
+}
+```
+
+**All accounts via `for_each`:**
+```hcl
+locals {
+  spoke_accounts = {
+    production = "111111111111"
+    staging    = "222222222222"
+    dev        = "333333333333"
+  }
+}
+
+module "cleancloud_role" {
+  for_each = local.spoke_accounts
+  source   = "github.com/cleancloud-io/cleancloud//deploy/terraform"
+
+  providers = {
+    aws = aws.accounts[each.key]
+  }
+
+  hub_account_id = "<HUB_ACCOUNT_ID>"
+  role_name      = "CleanCloudReadOnlyRole"
+}
+```
+
+**With ExternalId:**
+```hcl
+module "cleancloud_role" {
+  source = "github.com/cleancloud-io/cleancloud//deploy/terraform"
+
+  hub_account_id = "<HUB_ACCOUNT_ID>"
+  external_id    = "my-secret-token"
+}
+```
+
+---
+
+### accounts.yaml Format
+
+```yaml
+role_name: CleanCloudReadOnlyRole   # Role to assume in each account
+external_id: your-external-id       # Optional — required if trust policy uses ExternalId
+scan_timeout: 3600                  # Total scan timeout in seconds (default: 3600 — 1 hour)
+
+accounts:
+  - id: "111111111111"
+    name: production
+  - id: "222222222222"
+    name: staging
+  - id: "333333333333"
+    name: dev
+```
+
+---
+
+### Scanning
+
+```bash
+# From accounts.yaml
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+
+# Inline account IDs (quick scan, no file needed)
+cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions
+
+# Auto-discover all accounts in the AWS Organization
+cleancloud scan --provider aws --org --all-regions
+
+# With enforcement
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+  --fail-on-confidence HIGH --fail-on-cost 500
+
+# Custom role name
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+  --role-name MyCustomReadOnlyRole
+
+# With ExternalId (overrides accounts.yaml value)
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions \
+  --external-id your-external-id
+```
+
+---
+
+### Validate Multi-Account Setup
+
+Before running a full scan, validate that CleanCloud can reach all target accounts:
+
+```bash
+cleancloud doctor --provider aws --multi-account accounts.yaml
+```
+
+**What it checks:**
+- Hub account credentials are valid
+- `organizations:ListAccounts` permission (for `--org`)
+- Each target account: role exists, trust policy allows assumption, returns valid identity
+
+**Example output:**
+
+```
+======================================================================
+MULTI-ACCOUNT VALIDATION
+======================================================================
+Role name    : CleanCloudReadOnlyRole
+External ID  : (none)
+Accounts     : 3
+
+Step 1: Hub Account Credentials
+----------------------------------------------------------------------
+[OK] Hub account: 000000000000  (arn:aws:sts::000000000000:assumed-role/CleanCloudCIReadOnly/github-actions)
+
+Step 2: Hub Role Permissions
+----------------------------------------------------------------------
+[OK] organizations:ListAccounts  ✅  (--org flag will work)
+
+Step 3: Cross-Account Role Validation
+----------------------------------------------------------------------
+[OK] production (111111111111)  →  arn:aws:sts::111111111111:assumed-role/CleanCloudReadOnlyRole/cleancloud-111111111111
+[OK] staging (222222222222)  →  arn:aws:sts::222222222222:assumed-role/CleanCloudReadOnlyRole/cleancloud-222222222222
+❌  dev (333333333333)  →  AccessDenied: role not found
+
+======================================================================
+MULTI-ACCOUNT SUMMARY
+======================================================================
+Accounts passed : 2/3
+Accounts failed : 1
+  333333333333: AccessDenied: role not found
+Expected role ARN format: arn:aws:iam::<ACCOUNT_ID>:role/CleanCloudReadOnlyRole
+See docs/aws.md for cross-account IAM setup instructions
+======================================================================
+```
+
+---
+
 ## Region Scanning
 
 AWS requires you to specify a region or use `--all-regions`. There is no default.

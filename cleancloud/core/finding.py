@@ -27,6 +27,8 @@ class Finding:
     evidence: Evidence
 
     estimated_monthly_cost_usd: Optional[float] = None
+    account_id: Optional[str] = None
+    account_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = {
@@ -46,4 +48,8 @@ class Finding:
         }
         if self.estimated_monthly_cost_usd is not None:
             d["estimated_monthly_cost_usd"] = self.estimated_monthly_cost_usd
+        if self.account_id is not None:
+            d["account_id"] = self.account_id
+        if self.account_name is not None:
+            d["account_name"] = self.account_name
         return d

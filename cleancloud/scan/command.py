@@ -7,6 +7,12 @@ import botocore.exceptions
 import click
 import yaml
 
+from cleancloud.config.accounts import (
+    MultiAccountConfig,
+    load_accounts_config,
+    parse_inline_accounts,
+)
+
 # ------------------------
 # Config + filtering
 # ------------------------
@@ -32,6 +38,11 @@ from cleancloud.policy.exit_policy import (
     EXIT_PERMISSION_ERROR,
     EXIT_POLICY_VIOLATION,
     determine_exit_code,
+)
+from cleancloud.providers.aws.multi_account import (
+    AccountScanResult,
+    discover_org_accounts,
+    scan_multiple_accounts,
 )
 from cleancloud.providers.aws.scan import scan_aws_with_region_selection
 from cleancloud.providers.azure.scan import scan_azure_with_region_selection
@@ -98,6 +109,55 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
     help="Fail scan if estimated monthly waste exceeds this USD amount",
 )
 @click.option(
+    "--multi-account",
+    "multi_account_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to accounts.yaml for multi-account scanning (AWS only)",
+)
+@click.option(
+    "--accounts",
+    "accounts_inline",
+    default=None,
+    help="Comma-separated AWS account IDs to scan (e.g. 111111111111,222222222222)",
+)
+@click.option(
+    "--org",
+    "scan_org",
+    is_flag=True,
+    default=False,
+    help="Auto-discover and scan all accounts in the AWS Organization",
+)
+@click.option(
+    "--role-name",
+    default="CleanCloudReadOnlyRole",
+    show_default=True,
+    help="IAM role name to assume in each target account",
+)
+@click.option(
+    "--external-id",
+    default=None,
+    help="External ID for cross-account role assumption (if required by trust policy)",
+)
+@click.option(
+    "--timeout",
+    default=3600,
+    show_default=True,
+    help="Total scan timeout in seconds across all accounts (default: 1 hour)",
+)
+@click.option(
+    "--concurrency",
+    default=3,
+    show_default=True,
+    help="Number of accounts to scan in parallel (keep low to avoid AWS API throttling)",
+)
+@click.option(
+    "--per-account-regions",
+    is_flag=True,
+    default=False,
+    help="Detect active regions per account instead of once on the hub (slower but accurate if accounts use different regions)",
+)
+@click.option(
     "--no-feedback",
     is_flag=True,
     default=False,
@@ -118,7 +178,18 @@ def scan(
     config: Optional[str],
     ignore_tag: List[str],
     no_feedback: bool,
+    multi_account_file: Optional[str],
+    accounts_inline: Optional[str],
+    scan_org: bool,
+    role_name: str,
+    external_id: Optional[str],
+    timeout: int,
+    concurrency: int,
+    per_account_regions: bool,
 ):
+    if output in ("json", "csv") and not output_file:
+        raise click.UsageError(f"--output-file is required when using --output {output}")
+
     click.echo()
     click.echo("Starting CleanCloud scan...")
     click.echo()
@@ -129,6 +200,7 @@ def scan(
 
         findings: List[Finding] = []
         skipped_rules: List[dict] = []
+        multi_account_results: List[AccountScanResult] = []
 
         # Provider-specific metadata
         region_selection_mode = None
@@ -136,7 +208,64 @@ def scan(
         subscription_selection_mode = None
         subscriptions_scanned = []
 
-        if provider == "aws":
+        # Determine if this is a multi-account scan
+        is_multi_account = bool(multi_account_file or accounts_inline or scan_org)
+
+        if provider == "aws" and is_multi_account:
+            # Build account config from whichever source was provided
+            if multi_account_file:
+                ma_config = load_accounts_config(multi_account_file)
+                # CLI flags override file values
+                if role_name != "CleanCloudReadOnlyRole":
+                    ma_config.role_name = role_name
+                if external_id:
+                    ma_config.external_id = external_id
+                ma_config.scan_timeout = timeout
+            else:
+                if scan_org:
+                    from cleancloud.providers.aws.session import create_aws_session
+
+                    hub_session = create_aws_session(profile=profile, region=region or "us-east-1")
+                    click.echo("Discovering accounts from AWS Organizations...")
+                    org_accounts = discover_org_accounts(hub_session)
+                    click.echo(f"Found {len(org_accounts)} active accounts")
+                    click.echo()
+                    ma_config = MultiAccountConfig(
+                        accounts=org_accounts,
+                        role_name=role_name,
+                        external_id=external_id,
+                        scan_timeout=timeout,
+                    )
+                else:
+                    ma_config = MultiAccountConfig(
+                        accounts=parse_inline_accounts(accounts_inline),
+                        role_name=role_name,
+                        external_id=external_id,
+                        scan_timeout=timeout,
+                    )
+
+            multi_account_results = scan_multiple_accounts(
+                config=ma_config,
+                region=region,
+                all_regions=all_regions,
+                profile=profile,
+                max_concurrent=concurrency,
+                per_account_regions=per_account_regions,
+            )
+
+            # Aggregate findings and metadata from all accounts
+            for result in multi_account_results:
+                findings.extend(result.findings)
+                for skipped in result.skipped_rules:
+                    if not any(s["rule"] == skipped["rule"] for s in skipped_rules):
+                        skipped_rules.append(skipped)
+
+            regions_scanned = sorted(
+                set(r for res in multi_account_results for r in res.regions_scanned)
+            )
+            region_selection_mode = "all-regions" if all_regions else "explicit"
+
+        elif provider == "aws":
             region_selection_mode, findings, regions_scanned, skipped_rules = (
                 scan_aws_with_region_selection(
                     profile=profile, region=region, all_regions=all_regions
@@ -190,6 +319,49 @@ def scan(
         summary["regions_scanned"] = regions_scanned
         summary["provider"] = provider
 
+        # Multi-account summary fields
+        if is_multi_account and multi_account_results:
+            succeeded = [r for r in multi_account_results if r.status == "success"]
+            partial = [r for r in multi_account_results if r.status == "partial"]
+            failed = [r for r in multi_account_results if r.status == "failed"]
+            timed_out = [r for r in multi_account_results if r.status == "timeout"]
+            summary["accounts_scanned"] = len(succeeded) + len(partial)
+            if partial:
+                summary["accounts_partial"] = [
+                    {"id": r.account_id, "name": r.account_name, "regions_failed": r.regions_failed}
+                    for r in partial
+                ]
+            if failed:
+                summary["accounts_failed"] = [
+                    {"id": r.account_id, "name": r.account_name, "error": r.error} for r in failed
+                ]
+            if timed_out:
+                summary["accounts_timed_out"] = [
+                    {"id": r.account_id, "name": r.account_name} for r in timed_out
+                ]
+            summary["per_account"] = [
+                {
+                    "id": r.account_id,
+                    "name": r.account_name,
+                    "findings": len(r.findings),
+                    "status": r.status,
+                    "regions_failed": r.regions_failed,
+                    "estimated_monthly_waste_usd": (
+                        round(
+                            sum(
+                                f.estimated_monthly_cost_usd
+                                for f in r.findings
+                                if f.estimated_monthly_cost_usd
+                            ),
+                            2,
+                        )
+                        if r.findings
+                        else 0
+                    ),
+                }
+                for r in sorted(multi_account_results, key=lambda r: r.account_name)
+            ]
+
         # Add provider-specific fields
         if provider == "aws":
             summary["region_selection_mode"] = region_selection_mode
@@ -209,9 +381,6 @@ def scan(
             summary["ignored_by_tag_policy"] = ignored_count
 
         output_path = Path(output_file) if output_file else None
-
-        if output in ("json", "csv") and not output_path:
-            raise ValueError("--output-file is required for json/csv output")
 
         if output == "json":
             write_json(
@@ -240,7 +409,7 @@ def scan(
 
         else:
             print_human(findings)
-            _print_summary(summary, region_selection_mode)
+            _print_summary(summary, region_selection_mode, multi_account_results or None)
 
         # Community prompt (all output modes)
         click.echo()

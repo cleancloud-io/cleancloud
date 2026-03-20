@@ -174,10 +174,10 @@ jobs:
 
 ```yaml
 # Pin to exact version — safest for production pipelines
-getcleancloud/cleancloud:1.7.2
+getcleancloud/cleancloud:1.8.0
 
 # Pin to minor — gets patch fixes automatically
-getcleancloud/cleancloud:1.7
+getcleancloud/cleancloud:1.8
 
 # Always latest — simplest, least predictable
 getcleancloud/cleancloud:latest
@@ -693,6 +693,97 @@ cleancloud scan \
 ```
 
 **Note:** CLI tags replace config file tags (not merged).
+
+---
+
+## Multi-Account Scanning
+
+Scan entire AWS Organizations in a single workflow run. CleanCloud assumes a cross-account role in each account in parallel and produces an aggregated report.
+
+**Prerequisites:** Cross-account `CleanCloudReadOnlyRole` deployed to each target account. See [AWS multi-account setup →](aws.md#multi-account-scanning)
+
+### From accounts.yaml
+
+```yaml
+name: CleanCloud Multi-Account Scan
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly on Monday
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Scan all accounts
+        run: |
+          cleancloud scan \
+            --provider aws \
+            --multi-account accounts.yaml \
+            --all-regions \
+            --concurrency 5 \
+            --fail-on-confidence HIGH \
+            --fail-on-cost 500 \
+            --output json \
+            --output-file scan-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-account-scan-results
+          path: scan-results.json
+          retention-days: 30
+```
+
+### Auto-discover via AWS Organizations
+
+```yaml
+      - name: Scan all org accounts
+        run: |
+          cleancloud scan \
+            --provider aws \
+            --org \
+            --all-regions \
+            --concurrency 5 \
+            --timeout 7200 \
+            --fail-on-confidence HIGH \
+            --output json \
+            --output-file scan-results.json
+```
+
+> Requires `organizations:ListAccounts` on the hub account role. See [AWS setup →](aws.md#multi-account-scanning)
+
+### GitHub Action (one-liner)
+
+```yaml
+      - uses: cleancloud-io/scan-action@v1
+        with:
+          provider: aws
+          all-regions: 'true'
+          fail-on-confidence: HIGH
+          fail-on-cost: '500'
+          output: json
+          output-file: scan-results.json
+```
+
+> The GitHub Action uses the runner's ambient AWS credentials — configure via `aws-actions/configure-aws-credentials` before this step. For multi-account scanning with the action, set up the hub account OIDC role and use `--multi-account` via the CLI directly.
 
 ---
 

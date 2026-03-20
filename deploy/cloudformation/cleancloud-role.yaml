@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CleanCloud read-only IAM role for cross-account scanning.
+  Deploy to each spoke account via StackSets or manually.
+  https://github.com/cleancloud-io/cleancloud
+
+Parameters:
+  HubAccountId:
+    Type: String
+    Description: AWS account ID where CleanCloud runs (the hub/scanner account).
+    AllowedPattern: "^[0-9]{12}$"
+    ConstraintDescription: Must be a 12-digit AWS account ID.
+
+  RoleName:
+    Type: String
+    Default: CleanCloudReadOnlyRole
+    Description: Name of the IAM role to create. Must match --role-name flag in CleanCloud.
+
+  ExternalId:
+    Type: String
+    Default: ""
+    Description: >
+      Optional. If set, the hub account must provide this value when assuming the role
+      (confused deputy protection). Pass the same value via --external-id in CleanCloud.
+
+Conditions:
+  UseExternalId: !Not [!Equals [!Ref ExternalId, ""]]
+
+Resources:
+  CleanCloudRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref RoleName
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${HubAccountId}:root"
+            Action: sts:AssumeRole
+            Condition: !If
+              - UseExternalId
+              - StringEquals:
+                  "sts:ExternalId": !Ref ExternalId
+              - !Ref AWS::NoValue
+      Policies:
+        - PolicyName: CleanCloudReadOnly
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: EC2ReadOnly
+                Effect: Allow
+                Action:
+                  - ec2:DescribeVolumes
+                  - ec2:DescribeSnapshots
+                  - ec2:DescribeImages
+                  - ec2:DescribeAddresses
+                  - ec2:DescribeNetworkInterfaces
+                  - ec2:DescribeNatGateways
+                  - ec2:DescribeRegions
+                Resource: "*"
+              - Sid: ELBReadOnly
+                Effect: Allow
+                Action:
+                  - elasticloadbalancing:DescribeLoadBalancers
+                  - elasticloadbalancing:DescribeTargetGroups
+                  - elasticloadbalancing:DescribeTargetHealth
+                Resource: "*"
+              - Sid: RDSReadOnly
+                Effect: Allow
+                Action:
+                  - rds:DescribeDBInstances
+                Resource: "*"
+              - Sid: CloudWatchReadOnly
+                Effect: Allow
+                Action:
+                  - logs:DescribeLogGroups
+                  - cloudwatch:GetMetricStatistics
+                Resource: "*"
+              - Sid: S3ReadOnly
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketTagging
+                Resource: "*"
+              - Sid: STSIdentity
+                Effect: Allow
+                Action:
+                  - sts:GetCallerIdentity
+                Resource: "*"
+      Tags:
+        - Key: ManagedBy
+          Value: CleanCloud
+        - Key: Purpose
+          Value: CrossAccountReadOnlyScanning
+
+Outputs:
+  RoleArn:
+    Description: ARN of the CleanCloud IAM role.
+    Value: !GetAtt CleanCloudRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RoleArn"
+
+  RoleName:
+    Description: Name of the CleanCloud IAM role.
+    Value: !Ref CleanCloudRole

@@ -21,9 +21,44 @@ from cleancloud.doctor.runner import run_doctor
     type=click.Path(exists=True),
     help="Path to cleancloud.yaml",
 )
-def doctor(provider: Optional[str], region: str, profile: Optional[str], config: Optional[str]):
+@click.option(
+    "--multi-account",
+    "multi_account_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Validate cross-account role access for each account in accounts.yaml",
+)
+@click.option(
+    "--role-name",
+    default="CleanCloudReadOnlyRole",
+    show_default=True,
+    help="IAM role name to validate in each target account",
+)
+def doctor(
+    provider: Optional[str],
+    region: str,
+    profile: Optional[str],
+    config: Optional[str],
+    multi_account_file: Optional[str],
+    role_name: str,
+):
     click.echo("Running CleanCloud doctor")
     click.echo()
+
+    if multi_account_file:
+        if provider != "aws" and provider is not None:
+            click.echo("Error: --multi-account is only supported with --provider aws")
+            import sys
+
+            sys.exit(1)
+        from cleancloud.config.accounts import load_accounts_config
+        from cleancloud.doctor.aws import run_aws_multi_account_doctor
+
+        ma_config = load_accounts_config(multi_account_file)
+        if role_name != "CleanCloudReadOnlyRole":
+            ma_config.role_name = role_name
+        run_aws_multi_account_doctor(ma_config, profile=profile, region=region)
+        return
 
     run_doctor(provider=provider, profile=profile, region=region)
 

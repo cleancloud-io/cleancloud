@@ -169,6 +169,47 @@ jobs:
           name: aws-integration-test-results
           path: test-results.json
 
+  integration-test-aws-multi-account:
+    name: Integration Test - AWS Multi-Account
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment: cleancloud-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CleanCloud
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+
+      - name: Test multi-account scan
+        run: |
+          cleancloud scan \
+            --provider aws \
+            --accounts ${{ vars.AWS_ACCOUNT_ID }},${{ vars.AWS_SPOKE_ACCOUNT_ID }} \
+            --all-regions \
+            --output json \
+            --output-file multi-account-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aws-multi-account-pr-results
+          path: multi-account-results.json
+
   integration-test-azure:
     name: Integration Test - Azure
     runs-on: ubuntu-latest

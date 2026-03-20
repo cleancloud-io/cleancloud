@@ -14,12 +14,15 @@
 
 ---
 
-**Trivy for cloud waste. A scanner that finds orphaned resources and enforces hygiene in CI.**
+**Enforces cloud hygiene policy in CI and gives engineering, finance, and ops a single view of waste.**
+
+Read-only cloud hygiene for regulated & sovereign environments.
 
 Like `tfsec` for Terraform or `trivy` for containers — CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
 - **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
 - **Estimated monthly waste:** per finding and aggregate
+- **Multi-account scanning:** scan entire AWS Organizations in minutes — config file, inline IDs, or auto-discovery via `--org`
 - **CI-native enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
 - **Multiple output formats:** human-readable, JSON, CSV, and markdown (paste into GitHub PRs or Slack)
 - **Read-only by design:** no deletions, no tag changes, no mutations — ever
@@ -271,12 +274,56 @@ Complete, copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Work
 
 ---
 
+## Multi-Account Scanning
+
+Built for enterprises running AWS Organizations. Scan every account in parallel — findings aggregated into one report.
+
+```bash
+# Scan from a config file
+cleancloud scan --provider aws --multi-account accounts.yaml --all-regions
+
+# Inline account IDs — no file needed
+cleancloud scan --provider aws --accounts 111111111111,222222222222 --all-regions
+
+# Auto-discover all accounts in your AWS Organization
+cleancloud scan --provider aws --org --all-regions --concurrency 5
+```
+
+**How it works:**
+
+- **Hub-and-spoke** — CleanCloud assumes `CleanCloudReadOnlyRole` in each target account using STS. No persistent access, no stored credentials.
+- **Three discovery modes** — `accounts.yaml` for explicit control, `--accounts` for quick ad-hoc scans, `--org` for full AWS Organizations auto-discovery.
+- **Efficient region detection** — active regions are discovered once on the hub account and reused across all spokes. Without this: N accounts × 160 API calls just for region probing. With it: 160 calls once.
+- **Parallel with isolation** — each account runs in its own thread with its own session. One account failing (AccessDenied, timeout) never affects the others.
+- **Partial-success visibility** — if 2 regions fail and 7 succeed within an account, the account is marked `partial` with the failed regions named. You see exactly what was missed, not just a binary pass/fail.
+- **Live progress** — `[3/50] done production (123456789012) — 47s, 12 findings` printed as each account completes.
+- **Per-account cost breakdown** — JSON output includes estimated monthly waste per account, sortable and scriptable.
+
+**Deploying the cross-account role:**
+
+Ready-to-use IaC templates included — deploy `CleanCloudReadOnlyRole` to all spoke accounts in one command:
+
+```bash
+# CloudFormation StackSet — deploys to entire AWS Organization
+aws cloudformation create-stack-set \
+  --stack-set-name CleanCloudReadOnlyRole \
+  --template-body file://deploy/cloudformation/cleancloud-role.yaml \
+  --parameters ParameterKey=HubAccountId,ParameterValue=<HUB_ACCOUNT_ID> \
+  --permission-model SERVICE_MANAGED \
+  --auto-deployment Enabled=true,RetainStacksOnAccountRemoval=false \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
+Full setup guide: [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
+
+---
+
 ## Roadmap
 
 - Additional AWS rules (S3 lifecycle, stopped EC2 instances)
 - Policy-as-code in `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` in config)
 - Rule filtering (`--rules` flag)
-- Multi-account scanning (AWS Organizations)
+- Azure Management Group scanning (multi-subscription org-level)
 
 ---
 
