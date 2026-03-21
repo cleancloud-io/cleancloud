@@ -23,8 +23,9 @@ Hygiène cloud en lecture seule pour les environnements réglementés & souverai
 CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
 
 - **20 règles de détection haut signal :** volumes orphelins, bases de données inactives, load balancers vides, et plus
-- **Gaspillage mensuel estimé :** par finding et en agrégat
-- **Scan multi-comptes :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Gaspillage mensuel estimé :** par finding et en agrégat, détaillé par compte et abonnement
+- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle avec une seule identité — auto-découverte via Management Group ou tous les accessibles — détail des coûts par abonnement inclus
 - **Application de politique CI/CD (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` gate votre pipeline
 - **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub ou Slack)
 - **Lecture seule par conception :** aucune suppression, aucune modification de tags, aucune mutation — jamais
@@ -99,6 +100,10 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 --concurrency N               Comptes en parallèle (défaut : 3)
 --timeout SECONDS             Timeout total du scan en secondes (défaut : 3600)
 
+# Multi-abonnements — Azure uniquement (optionnel)
+--management-group ID         Scanner tous les abonnements d'un Management Group
+--subscription ID             Scanner un seul abonnement (défaut : tous les accessibles)
+
 # Sortie (optionnel)
 --output human|json|csv|markdown  Format de sortie (défaut : human)
 --output-file FILE            Écrit la sortie dans un fichier
@@ -123,7 +128,17 @@ cleancloud demo        # visualisez des findings sans aucun credential cloud
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
+
+# Avec credentials AWS (Docker n'hérite pas de ~/.aws automatiquement)
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
+  -e AWS_REGION=us-east-1 \
+  getcleancloud/cleancloud scan --provider aws --all-regions
 ```
+
+> En CI/CD, `aws-actions/configure-aws-credentials` définit les variables `AWS_*` sur le runner — passez-les avec `-e VAR_NAME` et elles sont transmises au conteneur automatiquement. Voir [Guide CI/CD →](docs/ci.md#using-the-docker-image)
 
 Prêt à scanner votre vrai environnement ? Authentifiez-vous d'abord, puis lancez :
 
@@ -390,7 +405,6 @@ Guide complet (politique IAM, trust policy, templates IaC) : [Configuration mult
 - Règles AWS supplémentaires (cycle de vie S3, instances EC2 arrêtées)
 - Policy-as-code dans `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` en config)
 - Filtrage de règles (flag `--rules`)
-- Scan Azure Management Groups (multi-abonnements au niveau org)
 
 ---
 

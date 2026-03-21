@@ -301,41 +301,69 @@ az role assignment create \
 
 ---
 
-## Subscription Scanning
+## Multi-Subscription Scanning
 
-### Single Subscription (Default)
+Large Azure tenants often have 20–200+ subscriptions. CleanCloud scans them all in parallel with one identity — no extra credentials, no cross-subscription role setup.
+
+Findings from all subscriptions are aggregated into a single report with a per-subscription breakdown.
+
+### Discovery modes
+
+| Mode | Flag | When to use |
+|---|---|---|
+| **All accessible** | *(no flag)* | Service principal has Reader on multiple subscriptions — all are scanned automatically |
+| **Management Group** | `--management-group <ID>` | Auto-discover all subscriptions under a Management Group |
+| **Explicit list** | `--subscription <ID>` (repeatable) | Scan specific subscriptions only |
 
 ```bash
-export AZURE_SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789abc"
+# All subscriptions the service principal can access
 cleancloud scan --provider azure
-```
 
-### All Accessible Subscriptions
+# Auto-discover via Management Group
+cleancloud scan --provider azure --management-group <MANAGEMENT_GROUP_ID>
 
-```bash
-unset AZURE_SUBSCRIPTION_ID
-cleancloud scan --provider azure
-```
-
-### Subscription Filtering
-
-```bash
-# Scan specific subscription
-cleancloud scan --provider azure --subscription <SUBSCRIPTION_ID>
-
-# Scan multiple subscriptions
+# Explicit list
 cleancloud scan --provider azure \
   --subscription <SUB_1> \
   --subscription <SUB_2>
+
+# Single subscription
+cleancloud scan --provider azure --subscription <SUBSCRIPTION_ID>
 ```
 
-**When to use subscription filtering:**
+### Permissions for multi-subscription scanning
 
-- **Enterprise scale:** Organizations with 50+ subscriptions
-- **Team ownership:** Scan only your team's subscriptions
-- **CI/CD pipelines:** Different pipelines for different subscriptions
-- **Testing:** Test on dev subscriptions before production
-- **Performance:** Faster scans targeting specific subscriptions
+No extra role assignments needed beyond Reader. Assign Reader at the **Management Group level** — it inherits to all subscriptions underneath automatically.
+
+```bash
+az role assignment create \
+  --assignee <SERVICE_PRINCIPAL_CLIENT_ID> \
+  --role Reader \
+  --scope /providers/Microsoft.Management/managementGroups/<MANAGEMENT_GROUP_ID>
+```
+
+> For `--management-group` auto-discovery, the service principal also needs `Microsoft.Management/managementGroups/read` on the Management Group.
+
+### Per-subscription output
+
+When scanning multiple subscriptions, CleanCloud shows a per-subscription breakdown:
+
+```
+Subscriptions scanned: 3
+
+Per-subscription breakdown:
+  production                     (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx):  12 findings  ~$147/month
+  staging                        (yyyyyyyy-yyyy-yyyy-yyyy-yyyyyyyyyyyy):   4 findings  ~$32/month
+  dev                            (zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz):  0 findings
+```
+
+JSON output includes `per_subscription` with findings count and estimated cost per subscription.
+
+### Performance
+
+Subscriptions are scanned in parallel (up to 4 concurrent). Rules within each subscription also run in parallel. A 10-subscription tenant typically completes in the same time as scanning 2–3 sequentially.
+
+### Subscription Filtering
 
 CleanCloud validates that specified subscriptions are accessible:
 
@@ -345,6 +373,13 @@ cleancloud scan --provider azure --subscription invalid-sub-id
 #   - invalid-sub-id
 #
 # Error: None of the specified subscriptions are accessible
+```
+
+### Single Subscription
+
+```bash
+export AZURE_SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789abc"
+cleancloud scan --provider azure
 ```
 
 ---

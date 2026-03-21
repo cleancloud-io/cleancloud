@@ -255,3 +255,44 @@ jobs:
         with:
           name: azure-integration-test-results
           path: test-results.json
+
+  integration-test-azure-multi-subscription:
+    name: Integration Test - Azure Multi-Subscription
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment: cleancloud-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CleanCloud
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Azure Login via OIDC (no subscription pin — scans all)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          enable-AzPSSession: false
+          allow-no-subscription: true
+
+      - name: Test Azure multi-subscription scan
+        run: |
+          cleancloud scan \
+            --provider azure \
+            --output json \
+            --output-file multi-subscription-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-multi-subscription-pr-results
+          path: multi-subscription-results.json

@@ -23,8 +23,9 @@ Read-only cloud hygiene for regulated & sovereign environments.
 CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
 - **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
-- **Estimated monthly waste:** per finding and aggregate
-- **Multi-account scanning:** scan entire AWS Organizations in minutes — config file, inline IDs, or auto-discovery via `--org`
+- **Estimated monthly waste:** per finding and aggregate, broken down per account and subscription
+- **Multi-account scanning (AWS):** scan entire AWS Organizations in minutes — config file, inline IDs, or auto-discovery via `--org`
+- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel with one identity — auto-discovery via Management Group or all accessible — per-subscription cost breakdown included
 - **CI-native enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
 - **Multiple output formats:** human-readable, JSON, CSV, and markdown (paste into GitHub PRs or Slack)
 - **Read-only by design:** no deletions, no tag changes, no mutations — ever
@@ -92,7 +93,17 @@ cleancloud demo        # see sample findings without any cloud credentials
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
+
+# With AWS credentials (Docker doesn't inherit local ~/.aws automatically)
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
+  -e AWS_REGION=us-east-1 \
+  getcleancloud/cleancloud scan --provider aws --all-regions
 ```
+
+> In CI/CD, `aws-actions/configure-aws-credentials` sets `AWS_*` env vars on the runner — pass them with `-e VAR_NAME` and they forward into the container automatically. See [CI/CD guide →](docs/ci.md#using-the-docker-image)
 
 When you're ready to scan your real environment, authenticate first — then run:
 
@@ -123,6 +134,10 @@ Not sure if your credentials have the right permissions? Run `cleancloud doctor 
 --org                         Auto-discover all accounts via AWS Organizations
 --concurrency N               Parallel accounts (default: 3)
 --timeout SECONDS             Total scan timeout in seconds (default: 3600)
+
+# Multi-subscription — Azure only (optional)
+--management-group ID         Scan all subscriptions under a Management Group
+--subscription ID             Scan a single subscription (default: all accessible)
 
 # Output (optional)
 --output human|json|csv|markdown  Output format (default: human)
@@ -392,7 +407,6 @@ Full setup guide (IAM policy, trust policy, IaC templates): [AWS multi-account s
 - Additional AWS rules (S3 lifecycle, stopped EC2 instances)
 - Policy-as-code in `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` in config)
 - Rule filtering (`--rules` flag)
-- Azure Management Group scanning (multi-subscription org-level)
 
 ---
 

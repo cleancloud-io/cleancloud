@@ -787,6 +787,77 @@ No file needed — CleanCloud calls `organizations:ListAccounts` on the hub acco
 
 > Requires `organizations:ListAccounts` on the hub account role — one extra permission, hub only. See [AWS setup →](aws.md#multi-account-scanning)
 
+---
+
+## Azure Multi-Subscription Scanning
+
+Assign Reader at the Management Group level — CleanCloud discovers all subscriptions underneath automatically. No cross-subscription role setup required.
+
+### All accessible subscriptions
+
+```yaml
+name: CleanCloud Azure Multi-Subscription Scan
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'  # Weekly on Monday
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Azure Login via OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Scan all subscriptions
+        run: |
+          cleancloud scan \
+            --provider azure \
+            --fail-on-confidence HIGH \
+            --fail-on-cost 500 \
+            --output json \
+            --output-file scan-results.json
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: azure-multi-subscription-results
+          path: scan-results.json
+          retention-days: 30
+```
+
+> The service principal must have Reader role on all target subscriptions (or at Management Group level). See [Azure setup →](azure.md#multi-subscription-scanning)
+
+### Auto-discover via Management Group
+
+```yaml
+      - name: Scan all subscriptions in Management Group
+        run: |
+          cleancloud scan \
+            --provider azure \
+            --management-group ${{ vars.AZURE_MANAGEMENT_GROUP_ID }} \
+            --fail-on-confidence HIGH \
+            --output json \
+            --output-file scan-results.json
+```
+
+> Requires `Microsoft.Management/managementGroups/read` on the Management Group in addition to Reader on subscriptions.
+
+---
+
 ### GitHub Action (one-liner)
 
 ```yaml

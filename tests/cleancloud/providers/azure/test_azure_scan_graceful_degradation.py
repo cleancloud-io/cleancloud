@@ -60,6 +60,7 @@ def test_permission_error_skips_azure_rule():
     ):
         findings, skipped_rules = _scan_azure_subscription(
             subscription_id="sub-123",
+            subscription_name="test-sub",
             credential=MagicMock(),
             region_filter=None,
         )
@@ -78,6 +79,7 @@ def test_http_403_skips_azure_rule():
     ):
         findings, skipped_rules = _scan_azure_subscription(
             subscription_id="sub-123",
+            subscription_name="test-sub",
             credential=MagicMock(),
             region_filter=None,
         )
@@ -96,6 +98,7 @@ def test_http_non_403_is_still_a_failure():
     ):
         findings, skipped_rules = _scan_azure_subscription(
             subscription_id="sub-123",
+            subscription_name="test-sub",
             credential=MagicMock(),
             region_filter=None,
         )
@@ -113,6 +116,7 @@ def test_all_permission_errors_no_exception():
     ):
         findings, skipped_rules = _scan_azure_subscription(
             subscription_id="sub-123",
+            subscription_name="test-sub",
             credential=MagicMock(),
             region_filter=None,
         )

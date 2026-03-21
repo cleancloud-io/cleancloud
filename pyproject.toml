@@ -39,6 +39,7 @@ dependencies = [
     "azure-identity>=1.19.0",
     "azure-mgmt-resource>=23.0.0",
     "azure-mgmt-subscription>=3.0.0",
+    "azure-mgmt-managementgroups>=1.0.0",
     "azure-mgmt-compute>=30.0.0",
     "azure-mgmt-network>=25.0.0",
     "azure-mgmt-web>=8.0.0",
