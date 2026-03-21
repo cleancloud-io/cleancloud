@@ -400,6 +400,49 @@ Guide complet (politique IAM, trust policy, templates IaC) : [Configuration mult
 
 ---
 
+## Scan multi-abonnements (Azure)
+
+Conçu pour les entreprises gérant de grands tenants Azure. Scannez chaque abonnement en parallèle avec une seule identité — findings agrégés dans un rapport unique avec détail des coûts par abonnement.
+
+```bash
+# Scanner tous les abonnements accessibles (défaut)
+cleancloud scan --provider azure
+
+# Auto-découverte via Management Group
+cleancloud scan --provider azure --management-group <MANAGEMENT_GROUP_ID>
+
+# Liste explicite
+cleancloud scan --provider azure --subscription <SUB_1> --subscription <SUB_2>
+```
+
+**Permissions requises :**
+
+| Périmètre | Rôle |
+|---|---|
+| Chaque abonnement | Reader (intégré) |
+| Management Group (si `--management-group`) | Reader + `Microsoft.Management/managementGroups/read` |
+
+Assignez Reader au niveau du Management Group — il hérite automatiquement à tous les abonnements en dessous :
+
+```bash
+az role assignment create \
+  --assignee <SERVICE_PRINCIPAL_CLIENT_ID> \
+  --role Reader \
+  --scope /providers/Microsoft.Management/managementGroups/<MANAGEMENT_GROUP_ID>
+```
+
+**Fonctionnement :**
+
+- **Modèle d'identité plat** — un seul service principal, Reader au niveau du Management Group. Pas d'assumption de rôle inter-abonnements, pas de complexité hub-and-spoke.
+- **Trois modes de découverte** — tous les accessibles (défaut), `--management-group` pour l'auto-découverte, `--subscription` pour un contrôle explicite.
+- **Parallèle avec isolation** — chaque abonnement s'exécute dans son propre thread. Un abonnement en échec (permission refusée, timeout) n'affecte jamais les autres.
+- **Gestion gracieuse des permissions** — les règles échouant avec 403 sont signalées comme ignorées (avec la permission manquante nommée), pas comme des échecs de scan.
+- **Détail des coûts par abonnement** — la sortie indique le gaspillage mensuel estimé par abonnement pour identifier précisément lequel est problématique.
+
+Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi-abonnements Azure →](docs/azure.md#multi-subscription-scanning)
+
+---
+
 ## Feuille de route
 
 - Règles AWS supplémentaires (cycle de vie S3, instances EC2 arrêtées)

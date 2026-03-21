@@ -402,6 +402,49 @@ Full setup guide (IAM policy, trust policy, IaC templates): [AWS multi-account s
 
 ---
 
+## Multi-Subscription Scanning (Azure)
+
+Built for enterprises running large Azure tenants. Scan every subscription in parallel with one identity — findings aggregated into one report with a per-subscription cost breakdown.
+
+```bash
+# Scan all subscriptions the service principal can access (default)
+cleancloud scan --provider azure
+
+# Auto-discover via Management Group
+cleancloud scan --provider azure --management-group <MANAGEMENT_GROUP_ID>
+
+# Explicit list
+cleancloud scan --provider azure --subscription <SUB_1> --subscription <SUB_2>
+```
+
+**Permissions required:**
+
+| Scope | Role |
+|---|---|
+| Each subscription | Reader (built-in) |
+| Management Group (if using `--management-group`) | Reader + `Microsoft.Management/managementGroups/read` |
+
+Assign Reader at the Management Group level and it inherits to all subscriptions underneath — no per-subscription role assignment needed:
+
+```bash
+az role assignment create \
+  --assignee <SERVICE_PRINCIPAL_CLIENT_ID> \
+  --role Reader \
+  --scope /providers/Microsoft.Management/managementGroups/<MANAGEMENT_GROUP_ID>
+```
+
+**How it works:**
+
+- **Flat identity model** — one service principal, Reader at Management Group level. No cross-subscription role assumption, no hub-and-spoke complexity.
+- **Three discovery modes** — all accessible (default), `--management-group` for auto-discovery, `--subscription` for explicit control.
+- **Parallel with isolation** — each subscription runs in its own thread. One subscription failing (permission denied, timeout) never affects the others.
+- **Graceful permission handling** — rules that fail with 403 are reported as skipped (with the missing permission named), not as scan failures.
+- **Per-subscription cost breakdown** — output shows estimated monthly waste per subscription so you can see exactly which subscription is dirty.
+
+Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subscription setup →](docs/azure.md#multi-subscription-scanning)
+
+---
+
 ## Roadmap
 
 - Additional AWS rules (S3 lifecycle, stopped EC2 instances)
