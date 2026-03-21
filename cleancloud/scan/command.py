@@ -70,6 +70,11 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
     is_flag=True,
     help="Scan all accessible Azure subscriptions (default behavior)",
 )
+@click.option(
+    "--management-group",
+    default=None,
+    help="Azure Management Group ID — auto-discover all subscriptions underneath (Azure only)",
+)
 @click.option("--profile", default=None, help="AWS CLI profile name")
 @click.option(
     "--output",
@@ -169,6 +174,7 @@ def scan(
     all_regions: bool,
     subscription: tuple,
     all_subscriptions: bool,
+    management_group: Optional[str],
     profile: Optional[str],
     output: str,
     output_file: Optional[str],
@@ -207,6 +213,7 @@ def scan(
         regions_scanned = []
         subscription_selection_mode = None
         subscriptions_scanned = []
+        azure_sub_results = []
 
         # Determine if this is a multi-account scan
         is_multi_account = bool(multi_account_file or accounts_inline or scan_org)
@@ -273,14 +280,18 @@ def scan(
             )
 
         elif provider == "azure":
-            # Convert tuple to list for Azure
             subscription_list = list(subscription) if subscription else None
-            subscription_selection_mode, findings, subscriptions_scanned, skipped_rules = (
-                scan_azure_with_region_selection(
-                    region=region,
-                    subscriptions=subscription_list,
-                    all_subscriptions=all_subscriptions,
-                )
+            (
+                subscription_selection_mode,
+                findings,
+                subscriptions_scanned,
+                skipped_rules,
+                azure_sub_results,
+            ) = scan_azure_with_region_selection(
+                region=region,
+                subscriptions=subscription_list,
+                all_subscriptions=all_subscriptions,
+                management_group=management_group,
             )
             # Extract unique regions from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
@@ -368,6 +379,23 @@ def scan(
         elif provider == "azure":
             summary["subscription_selection_mode"] = subscription_selection_mode
             summary["subscriptions_scanned"] = subscriptions_scanned
+            failed_subs = [r for r in azure_sub_results if r.status == "failed"]
+            if failed_subs:
+                summary["subscriptions_failed"] = [
+                    {"id": r.subscription_id, "name": r.subscription_name, "error": r.error}
+                    for r in failed_subs
+                ]
+            if len(azure_sub_results) > 1:
+                summary["per_subscription"] = [
+                    {
+                        "id": r.subscription_id,
+                        "name": r.subscription_name,
+                        "status": r.status,
+                        "findings": len(r.findings),
+                        "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
+                    }
+                    for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
+                ]
         summary["highest_confidence"] = max(
             (f.confidence for f in findings),
             default=None,

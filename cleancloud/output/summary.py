@@ -78,7 +78,9 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
     # Use provider-aware label
     provider = summary.get("provider", "aws")
     if provider == "azure":
+        subscriptions_scanned = summary.get("subscriptions_scanned", [])
         label = "Subscriptions scanned"
+        regions_str = ", ".join(subscriptions_scanned) if subscriptions_scanned else regions_str
     else:
         label = "Regions scanned"
 
@@ -86,9 +88,12 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
 
     # Selection mode annotations
     if provider == "azure":
-        if region_selection_mode == "all":
+        mode = summary.get("subscription_selection_mode", "")
+        if mode == "all":
             click.echo(" (all accessible)")
-        elif region_selection_mode == "explicit":
+        elif mode == "management-group":
+            click.echo(" (management group)")
+        elif mode == "explicit":
             click.echo(" (explicit)")
         else:
             click.echo()
@@ -178,6 +183,29 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             click.echo("Timed out accounts:")
             for r in timed_out:
                 click.echo(f"  [timeout] {r.account_name} ({r.account_id})")
+
+    # Azure multi-subscription breakdown
+    per_sub = summary.get("per_subscription")
+    if per_sub:
+        failed_subs = summary.get("subscriptions_failed", [])
+        click.echo()
+        click.echo(f"Subscriptions scanned: {len(per_sub) - len(failed_subs)}")
+        if failed_subs:
+            click.echo(f"Subscriptions failed:  {len(failed_subs)}")
+        click.echo()
+        click.echo("Per-subscription breakdown:")
+        for r in per_sub:
+            cost = r.get("estimated_monthly_cost_usd", 0)
+            cost_str = f"  ~${cost:,.0f}/month" if cost else ""
+            status = "" if r["status"] == "success" else f"  [{r['status']}]"
+            click.echo(
+                f"  {r['name']:<30} ({r['id']}):" f"  {r['findings']} findings{cost_str}{status}"
+            )
+        if failed_subs:
+            click.echo()
+            click.echo("Failed subscriptions:")
+            for r in failed_subs:
+                click.echo(f"  [failed] {r['name']} ({r['id']}): {r.get('error', '')}")
 
     # Success message
     if summary["total_findings"] == 0:

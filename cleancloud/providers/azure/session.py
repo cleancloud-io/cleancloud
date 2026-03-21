@@ -22,18 +22,36 @@ class AzureSession:
         self.credential = credential
         self.default_subscription_id = default_subscription_id
 
-    def list_subscription_ids(self) -> List[str]:
+    def list_subscriptions(self) -> List[dict]:
         """
-        List all accessible Azure subscription IDs for this credential.
-        If default_subscription_id is provided, return only that.
+        List all accessible Azure subscriptions for this credential.
+        Returns list of dicts with 'id' and 'name' keys.
+        If default_subscription_id is provided, return only that subscription.
         """
-        if self.default_subscription_id:
-            return [self.default_subscription_id]
-
         sub_client = SubscriptionClient(self.credential)
-        subscriptions = sub_client.subscriptions.list()
 
-        return [sub.subscription_id for sub in subscriptions]
+        if self.default_subscription_id:
+            sub = sub_client.subscriptions.get(self.default_subscription_id)
+            return [{"id": sub.subscription_id, "name": sub.display_name}]
+
+        return [
+            {"id": sub.subscription_id, "name": sub.display_name}
+            for sub in sub_client.subscriptions.list()
+        ]
+
+    def list_subscriptions_in_management_group(self, management_group_id: str) -> List[dict]:
+        """
+        List all subscriptions under a Management Group.
+        Requires Microsoft.Management/managementGroups/read permission.
+        """
+        from azure.mgmt.managementgroups import ManagementGroupsAPI
+
+        mgmt_client = ManagementGroupsAPI(self.credential)
+        entities = mgmt_client.entities.list(group_name=management_group_id)
+
+        return [
+            {"id": e.name, "name": e.display_name} for e in entities if e.type == "/subscriptions"
+        ]
 
 
 def create_azure_session(

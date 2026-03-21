@@ -23,8 +23,9 @@ Hygiène cloud en lecture seule pour les environnements réglementés & souverai
 CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
 
 - **20 règles de détection haut signal :** volumes orphelins, bases de données inactives, load balancers vides, et plus
-- **Gaspillage mensuel estimé :** par finding et en agrégat
-- **Scan multi-comptes :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Gaspillage mensuel estimé :** par finding et en agrégat, détaillé par compte et abonnement
+- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle avec une seule identité — auto-découverte via Management Group ou tous les accessibles — détail des coûts par abonnement inclus
 - **Application de politique CI/CD (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` gate votre pipeline
 - **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub ou Slack)
 - **Lecture seule par conception :** aucune suppression, aucune modification de tags, aucune mutation — jamais
@@ -99,6 +100,10 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 --concurrency N               Comptes en parallèle (défaut : 3)
 --timeout SECONDS             Timeout total du scan en secondes (défaut : 3600)
 
+# Multi-abonnements — Azure uniquement (optionnel)
+--management-group ID         Scanner tous les abonnements d'un Management Group
+--subscription ID             Scanner un seul abonnement (défaut : tous les accessibles)
+
 # Sortie (optionnel)
 --output human|json|csv|markdown  Format de sortie (défaut : human)
 --output-file FILE            Écrit la sortie dans un fichier
@@ -123,7 +128,17 @@ cleancloud demo        # visualisez des findings sans aucun credential cloud
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
+
+# Avec credentials AWS (Docker n'hérite pas de ~/.aws automatiquement)
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
+  -e AWS_REGION=us-east-1 \
+  getcleancloud/cleancloud scan --provider aws --all-regions
 ```
+
+> En CI/CD, `aws-actions/configure-aws-credentials` définit les variables `AWS_*` sur le runner — passez-les avec `-e VAR_NAME` et elles sont transmises au conteneur automatiquement. Voir [Guide CI/CD →](docs/ci.md#using-the-docker-image)
 
 Prêt à scanner votre vrai environnement ? Authentifiez-vous d'abord, puis lancez :
 
@@ -385,12 +400,54 @@ Guide complet (politique IAM, trust policy, templates IaC) : [Configuration mult
 
 ---
 
+## Scan multi-abonnements (Azure)
+
+Conçu pour les entreprises gérant de grands tenants Azure. Scannez chaque abonnement en parallèle avec une seule identité — findings agrégés dans un rapport unique avec détail des coûts par abonnement.
+
+```bash
+# Scanner tous les abonnements accessibles (défaut)
+cleancloud scan --provider azure
+
+# Auto-découverte via Management Group
+cleancloud scan --provider azure --management-group <MANAGEMENT_GROUP_ID>
+
+# Liste explicite
+cleancloud scan --provider azure --subscription <SUB_1> --subscription <SUB_2>
+```
+
+**Permissions requises :**
+
+| Périmètre | Rôle |
+|---|---|
+| Chaque abonnement | Reader (intégré) |
+| Management Group (si `--management-group`) | Reader + `Microsoft.Management/managementGroups/read` |
+
+Assignez Reader au niveau du Management Group — il hérite automatiquement à tous les abonnements en dessous :
+
+```bash
+az role assignment create \
+  --assignee <SERVICE_PRINCIPAL_CLIENT_ID> \
+  --role Reader \
+  --scope /providers/Microsoft.Management/managementGroups/<MANAGEMENT_GROUP_ID>
+```
+
+**Fonctionnement :**
+
+- **Modèle d'identité plat** — un seul service principal, Reader au niveau du Management Group. Pas d'assumption de rôle inter-abonnements, pas de complexité hub-and-spoke.
+- **Trois modes de découverte** — tous les accessibles (défaut), `--management-group` pour l'auto-découverte, `--subscription` pour un contrôle explicite.
+- **Parallèle avec isolation** — chaque abonnement s'exécute dans son propre thread. Un abonnement en échec (permission refusée, timeout) n'affecte jamais les autres.
+- **Gestion gracieuse des permissions** — les règles échouant avec 403 sont signalées comme ignorées (avec la permission manquante nommée), pas comme des échecs de scan.
+- **Détail des coûts par abonnement** — la sortie indique le gaspillage mensuel estimé par abonnement pour identifier précisément lequel est problématique.
+
+Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi-abonnements Azure →](docs/azure.md#multi-subscription-scanning)
+
+---
+
 ## Feuille de route
 
 - Règles AWS supplémentaires (cycle de vie S3, instances EC2 arrêtées)
 - Policy-as-code dans `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` en config)
 - Filtrage de règles (flag `--rules`)
-- Scan Azure Management Groups (multi-abonnements au niveau org)
 
 ---
 

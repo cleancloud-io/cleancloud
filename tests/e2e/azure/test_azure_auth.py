@@ -8,7 +8,8 @@ from cleancloud.providers.azure.session import create_azure_session
 def test_azure_auth_and_list_subscriptions():
 
     session = create_azure_session()
-    subs = session.list_subscription_ids()
+    subs = session.list_subscriptions()
 
     assert isinstance(subs, list)
     assert len(subs) >= 1
+    assert all("id" in s and "name" in s for s in subs)

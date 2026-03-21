@@ -22,10 +22,10 @@ from cleancloud.providers.azure.session import create_azure_session
 @pytest.mark.azure
 def test_azure_rules_run_without_error():
     session = create_azure_session()
-    subscription_ids = session.list_subscription_ids()
-    assert subscription_ids, "No Azure subscriptions available for E2E test"
+    subscriptions = session.list_subscriptions()
+    assert subscriptions, "No Azure subscriptions available for E2E test"
 
-    sub_id = subscription_ids[0]
+    sub_id = subscriptions[0]["id"]
     credential = session.credential
 
     region_filter = "eastus"  # optional, restrict scan region

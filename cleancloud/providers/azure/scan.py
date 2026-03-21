@@ -1,5 +1,7 @@
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, List, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional, Tuple
 
 import click
 from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoundError
@@ -33,69 +35,22 @@ from cleancloud.providers.azure.validate import (
 )
 
 
-def scan_azure_with_region_selection(
-    region: Optional[str],
-    subscriptions: Optional[List[str]] = None,
-    all_subscriptions: bool = False,
-) -> Tuple[str, List[Finding], List[str]]:
-    # Validate subscription parameters
-    validate_subscription_params(subscriptions, all_subscriptions)
+@dataclass
+class SubscriptionScanResult:
+    subscription_id: str
+    subscription_name: str
+    status: str  # "success" | "failed"
+    findings: List[Finding] = field(default_factory=list)
+    skipped_rules: List[dict] = field(default_factory=list)
+    error: Optional[str] = None
 
-    # Validate region parameter
-    validate_region_params(region)
-
-    click.echo("Authenticating to Azure")
-    click.echo()
-
-    session = create_azure_session()
-    all_accessible_subscriptions = session.list_subscription_ids()
-
-    if not all_accessible_subscriptions:
-        raise PermissionError("No accessible Azure subscriptions found")
-
-    # Determine which subscriptions to scan
-    if subscriptions:
-        # Specific subscription(s) requested
-        subscription_ids = subscriptions
-        subscription_selection_mode = "explicit"
-
-        # Validate that requested subscriptions are accessible
-        inaccessible = set(subscription_ids) - set(all_accessible_subscriptions)
-        if inaccessible:
-            click.echo(f"Warning: {len(inaccessible)} subscription(s) not accessible:")
-            for sub_id in sorted(inaccessible)[:5]:
-                click.echo(f"   - {sub_id}")
-            if len(inaccessible) > 5:
-                click.echo(f"   ... and {len(inaccessible) - 5} more")
-            click.echo()
-
-            # Only scan accessible ones
-            subscription_ids = [s for s in subscription_ids if s in all_accessible_subscriptions]
-
-            if not subscription_ids:
-                raise PermissionError("None of the specified subscriptions are accessible")
-
-        click.echo(f"Scanning {len(subscription_ids)} specified subscription(s)")
-    else:
-        # Default: scan all accessible subscriptions
-        subscription_ids = all_accessible_subscriptions
-        subscription_selection_mode = "all"
-        click.echo(f"Found {len(subscription_ids)} accessible subscription(s)")
-
-    click.echo()
-
-    findings, skipped_rules = scan_azure_subscriptions(
-        subscription_ids,
-        session.credential,
-        region,
-    )
-
-    click.echo()
-
-    # Return subscription info (not region info)
-    subscriptions_scanned = subscription_ids
-
-    return subscription_selection_mode, findings, subscriptions_scanned, skipped_rules
+    @property
+    def estimated_monthly_cost(self) -> float:
+        return sum(
+            f.estimated_monthly_cost_usd
+            for f in self.findings
+            if f.estimated_monthly_cost_usd is not None
+        )
 
 
 AZURE_RULES: List[Callable] = [
@@ -111,14 +66,133 @@ AZURE_RULES: List[Callable] = [
     find_idle_sql_databases,
 ]
 
+_TRANSIENT_STATUS_CODES = {429, 500, 503}
+_MAX_RETRIES = 3
+
+
+def _parse_retry_after(e: HttpResponseError) -> Optional[int]:
+    try:
+        header = e.response.headers.get("Retry-After")
+        return int(header) if header else None
+    except Exception:
+        return None
+
+
+def _run_rule_with_retry(
+    rule: Callable,
+    subscription_id: str,
+    credential,
+    region_filter: Optional[str],
+) -> List[Finding]:
+    for attempt in range(_MAX_RETRIES):
+        try:
+            result = rule(
+                subscription_id=subscription_id,
+                credential=credential,
+                region_filter=region_filter,
+            )
+            return result if result is not None else []
+        except HttpResponseError as e:
+            if e.status_code in _TRANSIENT_STATUS_CODES and attempt < _MAX_RETRIES - 1:
+                wait = _parse_retry_after(e) or (2**attempt)
+                click.echo(
+                    f"  Retrying {rule.__name__} (attempt {attempt + 2}/{_MAX_RETRIES}, wait {wait}s) ..."
+                )
+                time.sleep(min(wait, 60))
+            else:
+                raise
+
+
+def scan_azure_with_region_selection(
+    region: Optional[str],
+    subscriptions: Optional[List[str]] = None,
+    all_subscriptions: bool = False,
+    management_group: Optional[str] = None,
+) -> Tuple[str, List[Finding], List[str], List[dict], List[SubscriptionScanResult]]:
+    # Validate subscription parameters
+    validate_subscription_params(subscriptions, all_subscriptions)
+
+    # Validate region parameter
+    validate_region_params(region)
+
+    click.echo("Authenticating to Azure")
+    click.echo()
+
+    session = create_azure_session()
+
+    # Management Group auto-discovery
+    if management_group:
+        click.echo(f"Discovering subscriptions in management group: {management_group}")
+        all_accessible = session.list_subscriptions_in_management_group(management_group)
+        subscription_selection_mode = "management-group"
+    else:
+        all_accessible = session.list_subscriptions()
+        subscription_selection_mode = "all"
+
+    if not all_accessible:
+        raise PermissionError("No accessible Azure subscriptions found")
+
+    # Build id -> name map for tagging findings
+    sub_name_map: Dict[str, str] = {s["id"]: s["name"] for s in all_accessible}
+    accessible_ids = set(sub_name_map.keys())
+
+    # Determine which subscriptions to scan
+    if subscriptions:
+        subscription_selection_mode = "explicit"
+        inaccessible = set(subscriptions) - accessible_ids
+        if inaccessible:
+            click.echo(f"Warning: {len(inaccessible)} subscription(s) not accessible:")
+            for sub_id in sorted(inaccessible)[:5]:
+                click.echo(f"   - {sub_id}")
+            if len(inaccessible) > 5:
+                click.echo(f"   ... and {len(inaccessible) - 5} more")
+            click.echo()
+
+        subscription_ids = [s for s in subscriptions if s in accessible_ids]
+        if not subscription_ids:
+            raise PermissionError("None of the specified subscriptions are accessible")
+
+        # Add names for explicitly requested subs not in the accessible list
+        for sub_id in subscription_ids:
+            sub_name_map.setdefault(sub_id, sub_id)
+
+        click.echo(f"Scanning {len(subscription_ids)} specified subscription(s)")
+    else:
+        subscription_ids = list(accessible_ids)
+        click.echo(f"Found {len(subscription_ids)} accessible subscription(s)")
+
+    click.echo()
+
+    sub_results = scan_azure_subscriptions(
+        subscription_ids,
+        sub_name_map,
+        session.credential,
+        region,
+    )
+
+    click.echo()
+
+    all_findings = [f for r in sub_results for f in r.findings]
+    skipped_rules: List[dict] = [skipped for r in sub_results for skipped in r.skipped_rules]
+
+    subscriptions_scanned = [r.subscription_id for r in sub_results if r.status == "success"]
+
+    return (
+        subscription_selection_mode,
+        all_findings,
+        subscriptions_scanned,
+        skipped_rules,
+        sub_results,
+    )
+
 
 def scan_azure_subscriptions(
     subscription_ids: List[str],
+    sub_name_map: Dict[str, str],
     credential,
     region_filter: Optional[str],
-) -> Tuple[List[Finding], List[dict]]:
-    all_findings: List[Finding] = []
-    all_skipped_rules: List[dict] = []
+) -> List[SubscriptionScanResult]:
+    results: List[SubscriptionScanResult] = []
 
     with click.progressbar(
         length=len(subscription_ids),
@@ -131,6 +205,7 @@ def scan_azure_subscriptions(
                 executor.submit(
                     _scan_azure_subscription,
                     subscription_id=sub_id,
+                    subscription_name=sub_name_map.get(sub_id, sub_id),
                     credential=credential,
                     region_filter=region_filter,
                 ): sub_id
@@ -139,29 +214,38 @@ def scan_azure_subscriptions(
 
             for future in as_completed(futures):
                 sub_id = futures[future]
+                sub_name = sub_name_map.get(sub_id, sub_id)
                 try:
                     sub_findings, sub_skipped = future.result()
-                    all_findings.extend(sub_findings)
-                    # Deduplicate skipped rules across subscriptions
-                    for skipped in sub_skipped:
-                        if not any(s["rule"] == skipped["rule"] for s in all_skipped_rules):
-                            all_skipped_rules.append(skipped)
-                except RuntimeError as e:
-                    # RuntimeError indicates a complete subscription failure (all rules failed)
-                    # This is fatal for explicitly requested subscriptions
-                    click.echo(f"Subscription {sub_id} failed: {e}")
-                    advance(bar)
-                    raise  # Re-raise to fail the entire scan
+                    results.append(
+                        SubscriptionScanResult(
+                            subscription_id=sub_id,
+                            subscription_name=sub_name,
+                            status="success",
+                            findings=sub_findings,
+                            skipped_rules=sub_skipped,
+                        )
+                    )
                 except Exception as e:
-                    # Other exceptions might be transient - log and continue
-                    click.echo(f"Subscription {sub_id} failed: {e}")
+                    click.echo(f"  Subscription {sub_name} ({sub_id}) failed: {e}")
+                    results.append(
+                        SubscriptionScanResult(
+                            subscription_id=sub_id,
+                            subscription_name=sub_name,
+                            status="failed",
+                            error=str(e),
+                        )
+                    )
+                finally:
                     advance(bar)
 
-    return all_findings, all_skipped_rules
+    results.sort(key=lambda r: r.subscription_name)
+    return results
 
 
 def _scan_azure_subscription(
     subscription_id: str,
+    subscription_name: str,
     credential,
     region_filter: Optional[str],
 ) -> Tuple[List[Finding], List[dict]]:
@@ -171,73 +255,75 @@ def _scan_azure_subscription(
     rules_failed = 0
     resource_not_found_errors = 0
 
-    with click.progressbar(
-        length=len(AZURE_RULES),
-        label=f"Scanning Azure rules in subscription {subscription_id}",
-        show_eta=True,
-        show_percent=True,
-    ) as bar:
-        with ThreadPoolExecutor(max_workers=min(4, len(AZURE_RULES))) as executor:
-            futures = {
-                executor.submit(
-                    rule,
-                    subscription_id=subscription_id,
-                    credential=credential,
-                    region_filter=region_filter,
-                ): rule
-                for rule in AZURE_RULES
-            }
+    click.echo(f"  Scanning {subscription_name}")
 
-            for future in as_completed(futures):
-                rule = futures[future]
-                try:
-                    rule_findings = future.result()
-                    findings.extend(rule_findings)
-                    rules_succeeded += 1
-                except PermissionError as e:
-                    # Graceful degradation — missing permissions skip this rule
-                    skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
-                except EnvironmentError:
-                    # Azure auth failed mid-scan (e.g. token expired) — re-raise immediately
-                    # Must come after PermissionError since it is a subclass of EnvironmentError
-                    raise
-                except HttpResponseError as e:
-                    if e.status_code == 403:
-                        # Treat 403 as a skipped rule (missing Azure RBAC permission)
-                        skipped_rules.append(
-                            {
-                                "rule": rule.__name__,
-                                "missing_permissions": "Azure Reader role permission denied (403)",
-                            }
-                        )
-                    else:
-                        rules_failed += 1
-                        click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
-                except ResourceNotFoundError as e:
-                    # Resource not found - likely invalid subscription ID
-                    rules_failed += 1
-                    resource_not_found_errors += 1
-                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
-                except AzureError as e:
-                    # Other Azure SDK errors
-                    rules_failed += 1
-                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
-                except Exception as e:
-                    # Unexpected errors
-                    rules_failed += 1
-                    click.echo(f"Azure rule failed in subscription {subscription_id}: {e}")
-                finally:
-                    advance(bar)
+    with ThreadPoolExecutor(max_workers=min(2, len(AZURE_RULES))) as executor:
+        futures = {
+            executor.submit(
+                _run_rule_with_retry,
+                rule,
+                subscription_id,
+                credential,
+                region_filter,
+            ): rule
+            for rule in AZURE_RULES
+        }
 
-    # If ALL rules failed due to resource not found (none skipped), subscription is likely invalid
+        for future in as_completed(futures):
+            rule = futures[future]
+            try:
+                rule_findings = future.result(timeout=120)
+                # Tag each finding with subscription identity
+                for f in rule_findings:
+                    f.account_id = subscription_id
+                    f.account_name = subscription_name
+                findings.extend(rule_findings)
+                rules_succeeded += 1
+            except PermissionError as e:
+                skipped_rules.append(
+                    {
+                        "rule": rule.__name__,
+                        "missing_permissions": str(e),
+                        "subscription_id": subscription_id,
+                        "subscription_name": subscription_name,
+                    }
+                )
+            except EnvironmentError:
+                # Azure auth failed mid-scan — re-raise immediately
+                raise
+            except HttpResponseError as e:
+                if e.status_code == 403:
+                    skipped_rules.append(
+                        {
+                            "rule": rule.__name__,
+                            "missing_permissions": "Azure Reader role permission denied (403)",
+                            "subscription_id": subscription_id,
+                            "subscription_name": subscription_name,
+                        }
+                    )
+                else:
+                    rules_failed += 1
+                    click.echo(
+                        f"  Rule failed: {rule.__name__} ({subscription_name}) — {type(e).__name__} {e.status_code}"
+                    )
+            except ResourceNotFoundError:
+                rules_failed += 1
+                resource_not_found_errors += 1
+                click.echo(
+                    f"  Rule failed: {rule.__name__} ({subscription_name}) — ResourceNotFound"
+                )
+            except (AzureError, Exception) as e:
+                rules_failed += 1
+                click.echo(
+                    f"  Rule failed: {rule.__name__} ({subscription_name}) — {type(e).__name__}"
+                )
+
     if rules_succeeded == 0 and not skipped_rules and resource_not_found_errors == rules_failed:
         raise RuntimeError(
-            f"Subscription '{subscription_id}' appears to be invalid or inaccessible. "
-            f"All {rules_failed} rules failed with 'ResourceNotFound' errors. "
-            f"Check that the subscription ID is correct and accessible."
+            f"Subscription '{subscription_id}' appears invalid or inaccessible. "
+            f"All {rules_failed} rules failed with 'ResourceNotFound' errors."
         )
 
-    # If ALL rules failed for any non-permission reason, something is seriously wrong
     if rules_succeeded == 0 and not skipped_rules and rules_failed > 0:
         raise RuntimeError(
             f"All {rules_failed} rules failed in subscription '{subscription_id}'. "
