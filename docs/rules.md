@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all hygiene rules implemented by CleanCloud.
+Complete reference for all 20 hygiene rules implemented by CleanCloud.
 
 ---
 
@@ -31,9 +31,45 @@ Every finding includes a confidence level:
 
 ---
 
-## AWS Rules (10 Total)
+## Quick Reference
 
-### 1. Unattached EBS Volumes
+**AWS:**
+
+| Rule ID | Cost Surface | What It Detects |
+|---|---|---|
+| `aws.ebs.volume.unattached` | Storage | EBS volumes not attached to any instance |
+| `aws.ebs.snapshot.old` | Storage | Snapshots ≥ 90 days old |
+| `aws.ec2.ami.old` | Storage | AMIs older than 180 days |
+| `aws.ec2.elastic_ip.unattached` | Network | Elastic IPs allocated 30+ days with no attachment |
+| `aws.ec2.eni.detached` | Network | Detached ENIs 60+ days old |
+| `aws.ec2.nat_gateway.idle` | Network | NAT Gateways with zero traffic 14+ days |
+| `aws.elbv2.alb.idle` / `aws.elbv2.nlb.idle` / `aws.elb.clb.idle` | Network | Load balancers with zero traffic 14+ days |
+| `aws.rds.instance.idle` | Platform | RDS instances with zero connections 14+ days |
+| `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
+| `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
+
+**Azure:**
+
+| Rule ID | Cost Surface | What It Detects |
+|---|---|---|
+| `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
+| `azure.unattached_managed_disk` | Storage | Managed disks not attached to any VM |
+| `azure.old_snapshot` | Storage | Snapshots older than 30–90 days |
+| `azure.public_ip_unused` | Network | Public IPs not attached to any interface |
+| `azure.load_balancer.no_backends` | Network | Standard LBs with zero backend members |
+| `azure.application_gateway.no_backends` | Network | App Gateways with zero backend targets |
+| `azure.virtual_network_gateway.idle` | Network | VPN/ExpressRoute Gateways with no connections |
+| `azure.app_service_plan.empty` | Platform | Paid App Service Plans with zero apps |
+| `azure.sql_database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
+| `azure.untagged_resource` | Governance | Disks and snapshots with zero tags |
+
+---
+
+## AWS Rules
+
+### Storage Waste
+
+#### Unattached EBS Volumes
 
 **Rule ID:** `aws.ebs.volume.unattached`
 
@@ -61,7 +97,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 ---
 
-### 2. Old EBS Snapshots
+#### Old EBS Snapshots
 
 **Rule ID:** `aws.ebs.snapshot.old`
 
@@ -86,63 +122,59 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 ---
 
-### 3. CloudWatch Log Groups (Infinite Retention)
+#### Old AMIs
 
-**Rule ID:** `aws.cloudwatch.logs.infinite_retention`
+**Rule ID:** `aws.ec2.ami.old`
 
-**What it detects:** Log groups with no retention policy (never expires)
+**What it detects:** AMIs (Amazon Machine Images) older than 180 days (default threshold)
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** No retention policy configured
+- **MEDIUM:** Age ≥ 180 days (AMI may still be actively used as template)
+
+**Why MEDIUM confidence:**
+- Age alone is a moderate signal
+- AMI may be a golden image still used for launches
+- Cannot check if AMI is referenced by launch templates or Auto Scaling groups
 
 **Why this matters:**
-- Logs grow indefinitely without retention
-- Can reach GBs/TBs over months
-- Often forgotten after service decommission
+- AMIs have associated EBS snapshots that incur storage costs
+- Old unused AMIs accumulate over time
+- Storage costs are ~$0.05/GB-month
+
+**Detection logic:**
+```python
+for ami in describe_images(Owners=["self"]):
+    age_days = (now - ami.creation_date).days
+    if age_days >= 180 (default) and ami.state == "available":
+        # Flag as old AMI
+```
+
+**What gets checked:**
+- AMI creation date
+- AMI state (only "available" AMIs are flagged)
+- Associated snapshot sizes for cost estimation
 
 **Common causes:**
-- Default CloudFormation behavior (no retention)
-- Manual log group creation
-- Missing lifecycle policies
+- AMIs from old deployments
+- Test/dev AMIs no longer needed
+- Superseded golden images
+- AMIs from terminated projects
 
-**Required permission:** `logs:DescribeLogGroups`
+**Cost estimates:**
+- Based on total EBS snapshot storage
+- ~$0.05/GB-month for snapshot storage
+- Example: 100 GB AMI = ~$5/month
 
----
-
-### 4. Untagged Resources
-
-**Rule ID:** `aws.resource.untagged`
-
-**What it detects:** Resources with zero tags
-
-**Resources checked:**
-- EBS volumes
-- S3 buckets
-- CloudWatch log groups
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **MEDIUM:** Zero tags (always MEDIUM, never HIGH)
-
-**Why this matters:**
-- Ownership ambiguity
-- Compliance violations (SOC2, ISO27001)
-- Cleanup decision paralysis
-
-**Required permissions:**
-- `ec2:DescribeVolumes`
-- `s3:ListAllMyBuckets`
-- `s3:GetBucketTagging`
-- `logs:DescribeLogGroups`
+**Required permission:** `ec2:DescribeImages`
 
 ---
 
-### 5. Unattached Elastic IPs
+### Network Waste
+
+#### Unattached Elastic IPs
 
 **Rule ID:** `aws.ec2.elastic_ip.unattached`
 
@@ -187,7 +219,7 @@ if "AssociationId" not in eip:  # Not attached
 
 ---
 
-### 6. Detached Network Interfaces (ENIs)
+#### Detached Network Interfaces (ENIs)
 
 **Rule ID:** `aws.ec2.eni.detached`
 
@@ -243,7 +275,6 @@ if eni['Status'] == 'available':  # Currently detached
 - 60-day threshold is conservative to reduce false positives
 - Could flag ENIs that were attached until recently (unavoidable with AWS API)
 - Flags ENIs without tags (ownership unclear signal)
-- AWS Hyperplane ENI reuse behavior listed as signal not checked (undocumented retention)
 - `interface_type` and `requester_managed` included in details for CI/CD filtering
 
 **Why 60 days (not 30):**
@@ -255,57 +286,7 @@ if eni['Status'] == 'available':  # Currently detached
 
 ---
 
-### 7. Old AMIs
-
-**Rule ID:** `aws.ec2.ami.old`
-
-**What it detects:** AMIs (Amazon Machine Images) older than 180 days (default threshold)
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **MEDIUM:** Age ≥ 180 days (AMI may still be actively used as template)
-
-**Why MEDIUM confidence:**
-- Age alone is a moderate signal
-- AMI may be a golden image still used for launches
-- Cannot check if AMI is referenced by launch templates or Auto Scaling groups
-
-**Why this matters:**
-- AMIs have associated EBS snapshots that incur storage costs
-- Old unused AMIs accumulate over time
-- Storage costs are ~$0.05/GB-month
-
-**Detection logic:**
-```python
-for ami in describe_images(Owners=["self"]):
-    age_days = (now - ami.creation_date).days
-    if age_days >= 180 (default) and ami.state == "available":
-        # Flag as old AMI
-```
-
-**What gets checked:**
-- AMI creation date
-- AMI state (only "available" AMIs are flagged)
-- Associated snapshot sizes for cost estimation
-
-**Common causes:**
-- AMIs from old deployments
-- Test/dev AMIs no longer needed
-- Superseded golden images
-- AMIs from terminated projects
-
-**Cost estimates:**
-- Based on total EBS snapshot storage
-- ~$0.05/GB-month for snapshot storage
-- Example: 100 GB AMI = ~$5/month
-
-**Required permission:** `ec2:DescribeImages`
-
----
-
-### 8. Idle NAT Gateways
+#### Idle NAT Gateways
 
 **Rule ID:** `aws.ec2.nat_gateway.idle`
 
@@ -358,66 +339,7 @@ for gw in describe_nat_gateways():
 
 ---
 
-### 9. Idle RDS Instances
-
-**Rule ID:** `aws.rds.instance.idle`
-
-**What it detects:** RDS instances with zero database connections for 14+ days (default, configurable)
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **HIGH:** Zero connections for 14+ days (CloudWatch metrics checked, strong idle signal)
-
-**Why HIGH confidence:**
-- Zero database connections is a very strong signal of non-use
-- Combined with age check and tag exclusions, false positive rate is low
-
-**Risk:** HIGH
-
-**Why HIGH risk:**
-- RDS instances are among the more expensive AWS resources
-- Even small instances cost $12-50+/month
-- Production-class instances can cost $100-700+/month
-
-**Why this matters:**
-- RDS instances incur hourly charges regardless of usage
-- Idle instances with no connections are a clear cost optimization signal
-- Common after application migrations or decommissions
-
-**Detection logic:**
-```python
-for instance in describe_db_instances():
-    if instance.status == "available" and age >= idle_threshold_days:
-        if not instance.read_replica_source:  # Skip read replicas
-            connections = get_metric(DatabaseConnections, period=idle_threshold_days)
-            if connections == 0:
-                confidence = "HIGH"
-                risk = "HIGH"
-```
-
-**CloudWatch metrics checked:**
-- `AWS/RDS` -> `DatabaseConnections` (daily sum)
-
-**Exclusions:**
-- Aurora cluster members (`DBClusterIdentifier` set) — Aurora instances are managed at cluster level and may show zero connections individually even when the cluster is active
-- Read replicas (`ReadReplicaSourceDBInstanceIdentifier` set)
-- Instances younger than the idle threshold
-
-**Common causes:**
-- Applications migrated to different databases
-- Dev/staging instances left running
-- Decommissioned services with retained databases
-- Test databases no longer needed
-
-**Required permissions:**
-- `rds:DescribeDBInstances`
-- `cloudwatch:GetMetricStatistics`
-
----
-
-### 10. Idle Elastic Load Balancers (ALB/CLB/NLB)
+#### Idle Elastic Load Balancers (ALB/CLB/NLB)
 
 **Rule IDs:**
 - `aws.elbv2.alb.idle` — Application Load Balancer
@@ -484,9 +406,184 @@ for lb in describe_load_balancers():
 
 ---
 
-## Azure Rules (10 Total)
+### Platform Waste
 
-### 1. Unattached Managed Disks
+#### Idle RDS Instances
+
+**Rule ID:** `aws.rds.instance.idle`
+
+**What it detects:** RDS instances with zero database connections for 14+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero connections for 14+ days (CloudWatch metrics checked, strong idle signal)
+
+**Why HIGH confidence:**
+- Zero database connections is a very strong signal of non-use
+- Combined with age check and tag exclusions, false positive rate is low
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- RDS instances are among the more expensive AWS resources
+- Even small instances cost $12-50+/month
+- Production-class instances can cost $100-700+/month
+
+**Why this matters:**
+- RDS instances incur hourly charges regardless of usage
+- Idle instances with no connections are a clear cost optimization signal
+- Common after application migrations or decommissions
+
+**Detection logic:**
+```python
+for instance in describe_db_instances():
+    if instance.status == "available" and age >= idle_threshold_days:
+        if not instance.read_replica_source:  # Skip read replicas
+            connections = get_metric(DatabaseConnections, period=idle_threshold_days)
+            if connections == 0:
+                confidence = "HIGH"
+                risk = "HIGH"
+```
+
+**CloudWatch metrics checked:**
+- `AWS/RDS` -> `DatabaseConnections` (daily sum)
+
+**Exclusions:**
+- Aurora cluster members (`DBClusterIdentifier` set) — Aurora instances are managed at cluster level and may show zero connections individually even when the cluster is active
+- Read replicas (`ReadReplicaSourceDBInstanceIdentifier` set)
+- Instances younger than the idle threshold
+
+**Common causes:**
+- Applications migrated to different databases
+- Dev/staging instances left running
+- Decommissioned services with retained databases
+- Test databases no longer needed
+
+**Required permissions:**
+- `rds:DescribeDBInstances`
+- `cloudwatch:GetMetricStatistics`
+
+---
+
+### Observability Waste
+
+#### CloudWatch Log Groups (Infinite Retention)
+
+**Rule ID:** `aws.cloudwatch.logs.infinite_retention`
+
+**What it detects:** Log groups with no retention policy (never expires)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** No retention policy configured
+
+**Why this matters:**
+- Logs grow indefinitely without retention
+- Can reach GBs/TBs over months
+- Often forgotten after service decommission
+
+**Common causes:**
+- Default CloudFormation behavior (no retention)
+- Manual log group creation
+- Missing lifecycle policies
+
+**Required permission:** `logs:DescribeLogGroups`
+
+---
+
+### Governance
+
+#### Untagged Resources
+
+**Rule ID:** `aws.resource.untagged`
+
+**What it detects:** Resources with zero tags
+
+**Resources checked:**
+- EBS volumes
+- S3 buckets
+- CloudWatch log groups
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** Zero tags (always MEDIUM, never HIGH)
+
+**Why this matters:**
+- Ownership ambiguity
+- Compliance violations (SOC2, ISO27001)
+- Cleanup decision paralysis
+
+**Required permissions:**
+- `ec2:DescribeVolumes`
+- `s3:ListAllMyBuckets`
+- `s3:GetBucketTagging`
+- `logs:DescribeLogGroups`
+
+---
+
+## Azure Rules
+
+### Compute Waste
+
+#### Stopped (Not Deallocated) VMs
+
+**Rule ID:** `azure.vm.stopped_not_deallocated`
+
+**What it detects:** VMs in 'Stopped' state (OS-level shutdown) that are not deallocated, still incurring full compute charges
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Power state is 'Stopped' (deterministic state check, zero false positives)
+
+**Risk:** HIGH
+
+**Why HIGH risk:**
+- Stopped-but-not-deallocated VMs incur full compute charges ($30-500+/month depending on SKU)
+- Users often believe their VM is "off" but are paying full price
+- Classic Azure cost trap with significant financial impact
+
+**Why this matters:**
+- Azure distinguishes between 'Stopped' (OS shutdown) and 'Deallocated' (compute released)
+- Only deallocated VMs stop incurring compute charges
+- 100% deterministic state check with zero false positives
+
+**Detection logic:**
+```python
+for vm in virtual_machines.list_all():
+    instance_view = virtual_machines.instance_view(resource_group, vm.name)
+    power_state = get_power_state(instance_view.statuses)  # PowerState/* code
+    if power_state == "PowerState/stopped":
+        confidence = "HIGH"  # Deterministic: stopped but not deallocated
+        risk = "HIGH"  # Full compute charges still applied
+```
+
+**Power states:**
+- `PowerState/running` — active, skip
+- `PowerState/deallocated` — properly stopped, skip
+- `PowerState/stopped` — **FLAGGED** (still incurring compute charges)
+- `PowerState/starting`, `PowerState/stopping`, `PowerState/deallocating` — transitional, skip
+
+**Common causes:**
+- Shutting down the VM from inside the OS (instead of Azure portal/CLI)
+- Using `Stop-AzVM` without `-StayProvisioned false`
+- RDP/SSH shutdown commands
+- Automated scripts that stop but don't deallocate
+
+**Required permission:** `Microsoft.Compute/virtualMachines/read`
+
+---
+
+### Storage Waste
+
+#### Unattached Managed Disks
 
 **Rule ID:** `azure.unattached_managed_disk`
 
@@ -515,7 +612,7 @@ if disk.managed_by is None:  # Not attached
 
 ---
 
-### 2. Old Managed Disk Snapshots
+#### Old Managed Disk Snapshots
 
 **Rule ID:** `azure.old_snapshot`
 
@@ -541,7 +638,9 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 ---
 
-### 3. Unused Public IP Addresses
+### Network Waste
+
+#### Unused Public IP Addresses
 
 **Rule ID:** `azure.public_ip_unused`
 
@@ -567,67 +666,7 @@ if public_ip.ip_configuration is None:
 
 ---
 
-### 4. Untagged Resources
-
-**Rule ID:** `azure.untagged_resource`
-
-**What it detects:** Resources with zero tags
-
-**Resources checked:**
-- Managed disks (7+ days old)
-- Snapshots
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **MEDIUM:** Untagged disk that's also unattached
-- **LOW:** Untagged snapshot or attached disk
-
-**Required permissions:**
-- `Microsoft.Compute/disks/read`
-- `Microsoft.Compute/snapshots/read`
-
----
-
-### 5. Empty App Service Plans
-
-**Rule ID:** `azure.app_service_plan.empty`
-
-**What it detects:** Paid App Service Plans with zero hosted apps (`number_of_sites == 0`)
-
-**Confidence:**
-
-Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
-
-- **HIGH:** Paid tier plan with 0 apps (deterministic state)
-
-**Excluded tiers:**
-- Free and Shared tiers are skipped (no cost signal)
-
-**Why this matters:**
-- Paid App Service Plans incur charges regardless of hosted apps
-- Empty plans are a clear cost optimization signal
-- Common after app deletions or failed deployments
-
-**Detection logic:**
-```python
-if plan.number_of_sites == 0:
-    if plan.sku.tier not in ("Free", "Shared"):
-        confidence = "HIGH"  # Deterministic: zero apps on paid plan
-```
-
-**Common causes:**
-- Apps deleted but plan retained
-- Failed deployments leaving empty plans
-- Scaling plans created but never used
-- Migration leaving old plans behind
-
-**Required permissions:** `Microsoft.Web/serverfarms/read`, `Microsoft.Web/serverfarms/sites/read`
-
----
-
-### 6. Standard Load Balancer with No Backend Members
+#### Standard Load Balancer with No Backend Members
 
 **Rule ID:** `azure.load_balancer.no_backends`
 
@@ -674,7 +713,7 @@ if lb.sku.name == "Standard":
 
 ---
 
-### 7. Application Gateway with No Backend Targets
+#### Application Gateway with No Backend Targets
 
 **Rule ID:** `azure.application_gateway.no_backends`
 
@@ -726,7 +765,7 @@ for gw in application_gateways:
 
 ---
 
-### 8. Idle VNet Gateways (VPN/ExpressRoute)
+#### Idle VNet Gateways (VPN/ExpressRoute)
 
 **Rule ID:** `azure.virtual_network_gateway.idle`
 
@@ -795,57 +834,46 @@ for gw in virtual_network_gateways:
 
 ---
 
-### 9. Stopped (Not Deallocated) VMs
+### Platform Waste
 
-**Rule ID:** `azure.vm.stopped_not_deallocated`
+#### Empty App Service Plans
 
-**What it detects:** VMs in 'Stopped' state (OS-level shutdown) that are not deallocated, still incurring full compute charges
+**Rule ID:** `azure.app_service_plan.empty`
+
+**What it detects:** Paid App Service Plans with zero hosted apps (`number_of_sites == 0`)
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Power state is 'Stopped' (deterministic state check, zero false positives)
+- **HIGH:** Paid tier plan with 0 apps (deterministic state)
 
-**Risk:** HIGH
-
-**Why HIGH risk:**
-- Stopped-but-not-deallocated VMs incur full compute charges ($30-500+/month depending on SKU)
-- Users often believe their VM is "off" but are paying full price
-- Classic Azure cost trap with significant financial impact
+**Excluded tiers:**
+- Free and Shared tiers are skipped (no cost signal)
 
 **Why this matters:**
-- Azure distinguishes between 'Stopped' (OS shutdown) and 'Deallocated' (compute released)
-- Only deallocated VMs stop incurring compute charges
-- 100% deterministic state check with zero false positives
+- Paid App Service Plans incur charges regardless of hosted apps
+- Empty plans are a clear cost optimization signal
+- Common after app deletions or failed deployments
 
 **Detection logic:**
 ```python
-for vm in virtual_machines.list_all():
-    instance_view = virtual_machines.instance_view(resource_group, vm.name)
-    power_state = get_power_state(instance_view.statuses)  # PowerState/* code
-    if power_state == "PowerState/stopped":
-        confidence = "HIGH"  # Deterministic: stopped but not deallocated
-        risk = "HIGH"  # Full compute charges still applied
+if plan.number_of_sites == 0:
+    if plan.sku.tier not in ("Free", "Shared"):
+        confidence = "HIGH"  # Deterministic: zero apps on paid plan
 ```
 
-**Power states:**
-- `PowerState/running` — active, skip
-- `PowerState/deallocated` — properly stopped, skip
-- `PowerState/stopped` — **FLAGGED** (still incurring compute charges)
-- `PowerState/starting`, `PowerState/stopping`, `PowerState/deallocating` — transitional, skip
-
 **Common causes:**
-- Shutting down the VM from inside the OS (instead of Azure portal/CLI)
-- Using `Stop-AzVM` without `-StayProvisioned false`
-- RDP/SSH shutdown commands
-- Automated scripts that stop but don't deallocate
+- Apps deleted but plan retained
+- Failed deployments leaving empty plans
+- Scaling plans created but never used
+- Migration leaving old plans behind
 
-**Required permission:** `Microsoft.Compute/virtualMachines/read`
+**Required permissions:** `Microsoft.Web/serverfarms/read`, `Microsoft.Web/serverfarms/sites/read`
 
 ---
 
-### 10. Idle Azure SQL Databases
+#### Idle Azure SQL Databases
 
 **Rule ID:** `azure.sql_database.idle`
 
@@ -909,6 +937,31 @@ for server in sql_servers:
 
 ---
 
+### Governance
+
+#### Untagged Resources
+
+**Rule ID:** `azure.untagged_resource`
+
+**What it detects:** Resources with zero tags
+
+**Resources checked:**
+- Managed disks (7+ days old)
+- Snapshots
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** Untagged disk that's also unattached
+- **LOW:** Untagged snapshot or attached disk
+
+**Required permissions:**
+- `Microsoft.Compute/disks/read`
+- `Microsoft.Compute/snapshots/read`
+
+---
+
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
@@ -924,11 +977,13 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Empty security groups
+- Stopped EC2 instances (30+ days)
+- Unused security groups
+- Old RDS snapshots (90+ days)
 
 **Azure:**
-- Unused NICs
-- Old images
+- Idle App Services (zero requests 14+ days)
+- Unused Container Registries (no pulls 90+ days)
 
 **Multi-Cloud:**
 - GCP support
