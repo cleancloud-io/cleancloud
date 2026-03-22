@@ -89,6 +89,8 @@ Step 4: Read-Only Permission Validation
 [OK] ec2:DescribeNetworkInterfaces
 [OK] ec2:DescribeImages
 [OK] ec2:DescribeNatGateways
+[OK] ec2:DescribeInstances
+[OK] ec2:DescribeSecurityGroups
 [OK] rds:DescribeDBInstances
 [OK] elasticloadbalancing:DescribeLoadBalancers
 [OK] elasticloadbalancing:DescribeTargetGroups
@@ -102,7 +104,7 @@ VALIDATION SUMMARY
 ======================================================================
 Authentication: AWS CLI Profile (default)
 Security Grade: ACCEPTABLE
-Permissions Tested: 14/14 passed
+Permissions Tested: 18/18 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================

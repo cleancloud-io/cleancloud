@@ -47,10 +47,11 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
     click.echo("\n--- Scan Summary ---")
 
     skipped_rules = summary.get("skipped_rules", [])
-    total_rules = 10  # fixed number of rules per provider
-    executed = total_rules - len(skipped_rules)
+    total_rules = summary.get("total_rules")
     if skipped_rules:
-        click.echo(f"Rules executed: {executed}/{total_rules}")
+        if total_rules:
+            executed = total_rules - len(skipped_rules)
+            click.echo(f"Rules executed: {executed}/{total_rules}")
         click.echo(f"Rules skipped:  {len(skipped_rules)} (missing permissions)")
     click.echo(f"Total findings: {summary['total_findings']}")
 
@@ -134,9 +135,11 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             if missing:
                 click.echo(f"      needs: {missing}")
         click.echo()
+        click.echo("To enable skipped rules, update your IAM policy/role to the latest version:")
         click.echo(
-            "Run 'cleancloud doctor --provider <aws|azure>' to see how to grant full coverage."
+            "  https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json"
         )
+        click.echo("Run 'cleancloud doctor --provider aws' to validate permissions after updating.")
 
     # Multi-account breakdown
     if multi_account_results:

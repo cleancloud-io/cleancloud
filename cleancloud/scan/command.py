@@ -44,8 +44,8 @@ from cleancloud.providers.aws.multi_account import (
     discover_org_accounts,
     scan_multiple_accounts,
 )
-from cleancloud.providers.aws.scan import scan_aws_with_region_selection
-from cleancloud.providers.azure.scan import scan_azure_with_region_selection
+from cleancloud.providers.aws.scan import AWS_RULES, scan_aws_with_region_selection
+from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_selection
 
 
 @click.command("scan")
@@ -376,7 +376,9 @@ def scan(
         # Add provider-specific fields
         if provider == "aws":
             summary["region_selection_mode"] = region_selection_mode
+            summary["total_rules"] = len(AWS_RULES)
         elif provider == "azure":
+            summary["total_rules"] = len(AZURE_RULES)
             summary["subscription_selection_mode"] = subscription_selection_mode
             summary["subscriptions_scanned"] = subscriptions_scanned
             failed_subs = [r for r in azure_sub_results if r.status == "failed"]
@@ -454,6 +456,7 @@ def scan(
         # ========================
         # Exit policy
         # ========================
+
         exit_code = determine_exit_code(
             findings,
             fail_on_findings=fail_on_findings,

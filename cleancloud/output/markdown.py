@@ -46,11 +46,15 @@ def write_markdown(
         regions_str = str(regions)
 
     subscriptions = summary.get("subscriptions_scanned", [])
+    accounts_scanned = summary.get("accounts_scanned")
+
+    lines.append(f"**Provider:** {provider}  ")
     if subscriptions:
-        lines.append(f"**Provider:** {provider}  ")
         lines.append(f"**Subscriptions:** {', '.join(subscriptions)}  ")
+    elif accounts_scanned is not None:
+        lines.append(f"**Accounts:** {accounts_scanned}  ")
+        lines.append(f"**Regions:** {regions_str}  ")
     else:
-        lines.append(f"**Provider:** {provider}  ")
         lines.append(f"**Regions:** {regions_str}  ")
 
     lines.append(f"**Scanned:** {scanned_at}  ")
@@ -89,6 +93,35 @@ def write_markdown(
         if conf_parts:
             lines.append(f"**Confidence:** {' · '.join(conf_parts)}")
             lines.append("")
+
+    # AWS multi-account breakdown
+    per_account = summary.get("per_account")
+    if per_account:
+        lines.append("**Per-account breakdown:**")
+        lines.append("")
+        lines.append("| Account | Findings | Est. Monthly Cost |")
+        lines.append("|---------|--------:|------------------:|")
+        for r in per_account:
+            label = r["name"] if r["name"] != r["id"] else r["id"]
+            cost = r.get("estimated_monthly_waste_usd", 0)
+            cost_str = f"~${cost:,.0f}" if cost else "—"
+            status_str = f" _{r['status']}_" if r["status"] != "success" else ""
+            lines.append(f"| {label} ({r['id']}) | {r['findings']}{status_str} | {cost_str} |")
+        lines.append("")
+
+    # Azure multi-subscription breakdown
+    per_sub = summary.get("per_subscription")
+    if per_sub:
+        lines.append("**Per-subscription breakdown:**")
+        lines.append("")
+        lines.append("| Subscription | Findings | Est. Monthly Cost |")
+        lines.append("|--------------|--------:|------------------:|")
+        for r in per_sub:
+            cost = r.get("estimated_monthly_cost_usd", 0)
+            cost_str = f"~${cost:,.0f}" if cost else "—"
+            status_str = f" _{r['status']}_" if r["status"] != "success" else ""
+            lines.append(f"| {r['name']} ({r['id']}) | {r['findings']}{status_str} | {cost_str} |")
+        lines.append("")
 
     # Footer
     lines.append(

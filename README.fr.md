@@ -22,7 +22,7 @@ Hygiène cloud en lecture seule pour les environnements réglementés & souverai
 
 CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
 
-- **20 règles de détection haut signal :** volumes orphelins, bases de données inactives, load balancers vides, et plus
+- **22 règles de détection haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, load balancers vides, et plus
 - **Gaspillage mensuel estimé :** par finding et en agrégat, détaillé par compte et abonnement
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle avec une seule identité — auto-découverte via Management Group ou tous les accessibles — détail des coûts par abonnement inclus
@@ -288,14 +288,15 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 
 ## Ce que CleanCloud détecte
 
-20 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+22 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
+- Compute : instances arrêtées 30+ jours (charges EBS continuent)
 - Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs
 - Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
-- Gouvernance : ressources sans tags
+- Gouvernance : ressources sans tags, security groups inutilisés
 
 **Azure :**
 - Compute : VMs arrêtées (non désallouées) (HIGH)
@@ -435,7 +436,7 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ## Feuille de route
 
-**Plus de règles AWS** — instances EC2 arrêtées, security groups inutilisés, anciens snapshots RDS, lacunes de cycle de vie S3, et plus
+**Plus de règles AWS** — anciens snapshots RDS, lacunes de cycle de vie S3, et plus
 
 **Plus de règles Azure** — App Services inactifs, Container Registries inutilisés, et plus
 

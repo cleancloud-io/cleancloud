@@ -288,7 +288,9 @@ The IAM Proof Pack includes:
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions"
+        "ec2:DescribeRegions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups"
       ],
       "Resource": "*"
     },
@@ -1149,7 +1151,9 @@ The minimum required permissions are **read-only**:
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions"
+        "ec2:DescribeRegions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups"
       ],
       "Resource": "*"
     },

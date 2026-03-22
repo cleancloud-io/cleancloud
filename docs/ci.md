@@ -1087,11 +1087,11 @@ Check:
 
 ### Pipeline Fails with Exit Code 2
 
-**Issue:** Policy violation - findings detected
+**Issue:** Policy violation - findings detected, or rules skipped due to missing permissions
 
 **This is expected behavior** when using `--fail-on-findings`, `--fail-on-confidence`, or `--fail-on-cost`.
 
-**Options:**
+**Options for findings violations:**
 1. Review findings in uploaded artifacts
 2. Clean up flagged resources
 3. Adjust policy threshold (e.g., `--fail-on-confidence HIGH` instead of `MEDIUM`)

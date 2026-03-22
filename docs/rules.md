@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 20 hygiene rules implemented by CleanCloud.
+Complete reference for all 22 hygiene rules implemented by CleanCloud.
 
 ---
 
@@ -37,6 +37,8 @@ Every finding includes a confidence level:
 
 | Rule ID | Cost Surface | What It Detects |
 |---|---|---|
+| `aws.ec2.instance.stopped` | Compute | EC2 instances stopped 30+ days (EBS charges continue) |
+| `aws.ec2.security_group.unused` | Governance | Security groups with no ENI associations |
 | `aws.ebs.volume.unattached` | Storage | EBS volumes not attached to any instance |
 | `aws.ebs.snapshot.old` | Storage | Snapshots ≥ 90 days old |
 | `aws.ec2.ami.old` | Storage | AMIs older than 180 days |
@@ -66,6 +68,108 @@ Every finding includes a confidence level:
 ---
 
 ## AWS Rules
+
+### Compute Waste
+
+#### Stopped EC2 Instances
+
+**Rule ID:** `aws.ec2.instance.stopped`
+
+**What it detects:** EC2 instances in 'stopped' state for 30+ days
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Stop time parsed from `StateTransitionReason` ≥ 30 days ago (deterministic timestamp)
+- Not flagged: stop time unparseable or < 30 days ago
+
+**Risk:** MEDIUM
+
+**Why this matters:**
+- Stopped EC2 instances do not charge for compute — but every attached EBS volume accrues storage costs at ~$0.10/GB-month, every hour, regardless of instance state
+- A 500 GB root + data volume on a forgotten stopped instance costs ~$50/month indefinitely
+- Any associated Elastic IPs continue to charge ~$0.005/hour while unattached
+- Stopped instances are the most common form of "I meant to clean that up" infrastructure debt
+
+**Detection logic:**
+```python
+for instance in describe_instances(state=stopped):
+    stop_time = parse_state_transition_reason(instance.StateTransitionReason)
+    # Format: "User initiated (YYYY-MM-DD HH:MM:SS UTC)"
+    if stop_time and (now - stop_time).days >= 30:
+        cost = sum(volume.size_gb for volume in attached_volumes) * $0.10
+        confidence = "HIGH"  # Deterministic timestamp, not a heuristic
+```
+
+**Cost estimates:**
+- Based on total attached EBS storage × $0.10/GB-month
+- Example: 2 × 100 GB volumes = ~$20/month in ongoing storage charges
+- Additional Elastic IP charges are tracked separately by the `aws.ec2.elastic_ip.unattached` rule
+
+**Common causes:**
+- Test or dev instances left stopped after a project ended
+- Migration source instances never terminated after cutover
+- Incident response boxes started and never cleaned up
+- Autoscaling warm pools drained but not terminated
+
+**Required permissions:**
+- `ec2:DescribeInstances`
+- `ec2:DescribeVolumes`
+
+---
+
+#### Unused Security Groups
+
+**Rule ID:** `aws.ec2.security_group.unused`
+
+**What it detects:** Security groups not associated with any network interface
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **MEDIUM:** No ENI associations found (service-managed groups may appear unused between deployments)
+
+**Risk:** LOW
+
+**Why this matters:**
+- Security groups with no ENI associations are pure governance debt
+- Each unused group widens the blast radius if a misconfiguration is later introduced
+- Compliance audits (SOC 2, ISO 27001, PCI DSS) flag unused security groups as a control failure
+- In accounts with hundreds of groups, unused ones obscure the real security posture and add friction to every access review
+- Cost is indirect but real: engineer time spent auditing and explaining phantom groups in compliance reviews
+
+**Detection logic:**
+```python
+in_use_sg_ids = {
+    group["GroupId"]
+    for eni in describe_network_interfaces()
+    for group in eni["Groups"]
+}
+for sg in describe_security_groups():
+    if sg.name != "default" and sg.id not in in_use_sg_ids:
+        confidence = "MEDIUM"
+```
+
+**Exclusions:**
+- `default` security groups — AWS prevents deletion of the default group; flagging it is noise
+
+**Caveats:**
+- A security group referenced only in another group's inbound rules (not attached to any ENI) will be flagged. This is intentional.
+- Service-managed groups (RDS, ELB, Lambda) may appear unused briefly between deployments. Review before deleting.
+
+**Common causes:**
+- Leftover groups from deleted EC2 instances, RDS databases, or ELB deployments
+- Test stacks torn down without full cleanup
+- Groups created manually but never attached
+- CloudFormation stacks deleted leaving orphaned groups
+
+**Required permissions:**
+- `ec2:DescribeSecurityGroups`
+- `ec2:DescribeNetworkInterfaces`
+
+---
 
 ### Storage Waste
 
@@ -977,8 +1081,6 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Stopped EC2 instances (30+ days)
-- Unused security groups
 - Old RDS snapshots (90+ days)
 
 **Azure:**
