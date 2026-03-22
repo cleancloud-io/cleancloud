@@ -85,6 +85,7 @@ def _run_print_summary(summary):
 def _base_summary(skipped_rules=None):
     s = {
         "total_findings": 1,
+        "total_rules": 10,
         "by_risk": {},
         "by_confidence": {},
         "regions_scanned": ["us-east-1"],
