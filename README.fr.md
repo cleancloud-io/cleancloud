@@ -435,9 +435,15 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ## Feuille de route
 
-- Règles AWS supplémentaires (cycle de vie S3, instances EC2 arrêtées)
-- Policy-as-code dans `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` en config)
-- Filtrage de règles (flag `--rules`)
+**Plus de règles AWS** — instances EC2 arrêtées, security groups inutilisés, anciens snapshots RDS, lacunes de cycle de vie S3, et plus
+
+**Plus de règles Azure** — App Services inactifs, Container Registries inutilisés, et plus
+
+**Support GCP** — authentification, énumération de projets, et un premier ensemble de règles d'hygiène. Complète le tableau multi-cloud.
+
+**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config
+
+**Filtrage de règles** — flag `--rules` pour exécuter un sous-ensemble de règles
 
 ---
 
