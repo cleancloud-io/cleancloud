@@ -10,9 +10,9 @@
 
 | Scenario | What you need |
 |---|---|
-| Single-account scan | [16 read-only permissions](#iam-policy-minimum-required-permissions) |
-| Multi-account — spoke accounts | Same 16 permissions (no changes needed) |
-| Multi-account — hub account | Same 16 + `sts:AssumeRole` on spoke roles |
+| Single-account scan | [18 read-only permissions](#iam-policy-minimum-required-permissions) |
+| Multi-account — spoke accounts | Same 18 permissions (no changes needed) |
+| Multi-account — hub account | Same 18 + `sts:AssumeRole` on spoke roles |
 | `--org` auto-discovery (hub only) | Above + `organizations:ListAccounts` |
 
 All permissions are read-only. No `Delete*`, `Create*`, or `Tag*` actions — ever.
@@ -265,7 +265,9 @@ Attach this policy to your IAM role or user:
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions"
+        "ec2:DescribeRegions",
+        "ec2:DescribeInstances",
+        "ec2:DescribeSecurityGroups"
       ],
       "Resource": "*"
     },
@@ -720,7 +722,7 @@ cleancloud doctor --provider aws --region us-east-1
 - Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
 - CI/CD readiness and compliance compatibility
 - Account ID, User ID, and ARN
-- All 14 required read-only permissions
+- All 18 required read-only permissions
 
 **Example output:**
 ```
@@ -767,6 +769,8 @@ Step 4: Read-Only Permission Validation
 [OK] ec2:DescribeNetworkInterfaces
 [OK] ec2:DescribeImages
 [OK] ec2:DescribeNatGateways
+[OK] ec2:DescribeInstances
+[OK] ec2:DescribeSecurityGroups
 [OK] rds:DescribeDBInstances
 [OK] elasticloadbalancing:DescribeLoadBalancers
 [OK] elasticloadbalancing:DescribeTargetGroups
@@ -780,7 +784,7 @@ VALIDATION SUMMARY
 ======================================================================
 Authentication: OIDC (AssumeRoleWithWebIdentity)
 Security Grade: EXCELLENT
-Permissions Tested: 14/14 passed
+Permissions Tested: 18/18 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================

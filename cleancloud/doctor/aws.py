@@ -228,6 +228,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  ec2:DescribeImages")
         info("  ec2:DescribeNatGateways")
         info("  ec2:DescribeInstances")
+        info("  ec2:DescribeSecurityGroups")
         info("  rds:DescribeDBInstances")
         info("  elasticloadbalancing:DescribeLoadBalancers")
         info("  elasticloadbalancing:DescribeTargetGroups")
@@ -437,6 +438,22 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         except Exception as e:
             permissions_failed.append(("ec2:DescribeNatGateways", str(e)))
             warn(f"ec2:DescribeNatGateways - {e}")
+
+        try:
+            ec2.describe_instances(MaxResults=5)
+            permissions_tested.append("ec2:DescribeInstances")
+            success("ec2:DescribeInstances")
+        except Exception as e:
+            permissions_failed.append(("ec2:DescribeInstances", str(e)))
+            warn(f"ec2:DescribeInstances - {e}")
+
+        try:
+            ec2.describe_security_groups(MaxResults=5)
+            permissions_tested.append("ec2:DescribeSecurityGroups")
+            success("ec2:DescribeSecurityGroups")
+        except Exception as e:
+            permissions_failed.append(("ec2:DescribeSecurityGroups", str(e)))
+            warn(f"ec2:DescribeSecurityGroups - {e}")
 
         # Test RDS permissions
         try:

@@ -11,6 +11,48 @@ _NOW = datetime(2026, 2, 24, 14, 32, 0, tzinfo=timezone.utc)
 AWS_FINDINGS: List[Finding] = [
     Finding(
         provider="aws",
+        rule_id="aws.ec2.instance.stopped",
+        resource_type="aws.ec2.instance",
+        resource_id="i-0a3f2c1d4e5b67890",
+        region="us-east-1",
+        title="Stopped EC2 Instance (55 Days)",
+        summary=(
+            "EC2 instance 'i-0a3f2c1d4e5b67890' (t3.xlarge) has been stopped for "
+            "55 days. Attached EBS volumes continue to accrue storage charges even "
+            "while the instance is off."
+        ),
+        reason="Instance has been in 'stopped' state for 55+ days",
+        risk=RiskLevel.MEDIUM,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "instance_type": "t3.xlarge",
+            "availability_zone": "us-east-1b",
+            "stop_time": "2025-12-31T09:15:00+00:00",
+            "days_stopped": 55,
+            "attached_volume_ids": ["vol-0root123abc", "vol-0data456def"],
+            "total_ebs_gb": 250,
+            "days_stopped_threshold": 30,
+            "tags": {"Name": "migration-source", "Project": "platform-rewrite"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Instance has been in 'stopped' state for 55 days",
+                "Stopped at: 2025-12-31 09:15 UTC",
+                "Instance type: t3.xlarge",
+                "2 attached EBS volumes (250 GB total) — accruing ~$25.0/month in storage charges",
+            ],
+            signals_not_checked=[
+                "Planned reactivation or standby use",
+                "Disaster recovery intent",
+                "Pending migration or handoff",
+            ],
+            time_window="55 days",
+        ),
+        estimated_monthly_cost_usd=25.0,
+    ),
+    Finding(
+        provider="aws",
         rule_id="aws.ebs.volume.unattached",
         resource_type="aws.ebs.volume",
         resource_id="vol-0a1b2c3d4e5f67890",
@@ -110,6 +152,44 @@ AWS_FINDINGS: List[Finding] = [
         evidence=Evidence(
             signals_used=["no association found", "allocation age 92 days"],
             signals_not_checked=[],
+        ),
+        estimated_monthly_cost_usd=None,
+    ),
+    Finding(
+        provider="aws",
+        rule_id="aws.ec2.security_group.unused",
+        resource_type="aws.ec2.security_group",
+        resource_id="sg-0c9d8e7f6a5b4c3d2",
+        region="us-east-1",
+        title="Unused Security Group",
+        summary=(
+            "Security group 'app-server-sg' (sg-0c9d8e7f6a5b4c3d2) in VPC vpc-0abc123 "
+            "is not associated with any network interface."
+        ),
+        reason="Security group has no ENI associations",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.MEDIUM,
+        detected_at=_NOW,
+        details={
+            "sg_name": "app-server-sg",
+            "vpc_id": "vpc-0abc123",
+            "description": "App server inbound rules — legacy stack",
+            "rule_count": 4,
+            "tags": {"Project": "legacy-api", "Owner": "platform"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "No ENI associations found for this security group",
+                "Security group name: 'app-server-sg' (sg-0c9d8e7f6a5b4c3d2)",
+                "VPC: vpc-0abc123",
+                "Group has 4 rule(s) defined but no attached interfaces",
+            ],
+            signals_not_checked=[
+                "Groups referenced only in other groups' inbound rules (no ENI attachment)",
+                "Service-managed groups (RDS, ELB, Lambda) between deployments",
+                "Recently created groups awaiting resource association",
+            ],
+            time_window=None,
         ),
         estimated_monthly_cost_usd=None,
     ),

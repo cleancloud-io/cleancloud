@@ -44,8 +44,8 @@ from cleancloud.providers.aws.multi_account import (
     discover_org_accounts,
     scan_multiple_accounts,
 )
-from cleancloud.providers.aws.scan import scan_aws_with_region_selection
-from cleancloud.providers.azure.scan import scan_azure_with_region_selection
+from cleancloud.providers.aws.scan import AWS_RULES, scan_aws_with_region_selection
+from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_selection
 
 
 @click.command("scan")
@@ -163,6 +163,12 @@ from cleancloud.providers.azure.scan import scan_azure_with_region_selection
     help="Detect active regions per account instead of once on the hub (slower but accurate if accounts use different regions)",
 )
 @click.option(
+    "--fail-on-skipped-rules",
+    is_flag=True,
+    default=False,
+    help="Fail if any rules were skipped due to missing IAM permissions (useful to assert full coverage after a policy update)",
+)
+@click.option(
     "--no-feedback",
     is_flag=True,
     default=False,
@@ -183,6 +189,7 @@ def scan(
     fail_on_cost: Optional[float],
     config: Optional[str],
     ignore_tag: List[str],
+    fail_on_skipped_rules: bool,
     no_feedback: bool,
     multi_account_file: Optional[str],
     accounts_inline: Optional[str],
@@ -376,7 +383,9 @@ def scan(
         # Add provider-specific fields
         if provider == "aws":
             summary["region_selection_mode"] = region_selection_mode
+            summary["total_rules"] = len(AWS_RULES)
         elif provider == "azure":
+            summary["total_rules"] = len(AZURE_RULES)
             summary["subscription_selection_mode"] = subscription_selection_mode
             summary["subscriptions_scanned"] = subscriptions_scanned
             failed_subs = [r for r in azure_sub_results if r.status == "failed"]
@@ -454,6 +463,15 @@ def scan(
         # ========================
         # Exit policy
         # ========================
+        if fail_on_skipped_rules and skipped_rules:
+            click.echo(
+                f"\nPolicy violation: {len(skipped_rules)} rule(s) skipped due to missing permissions."
+            )
+            click.echo(
+                "Update your IAM policy to the latest version and re-run, or remove --fail-on-skipped-rules."
+            )
+            sys.exit(EXIT_POLICY_VIOLATION)
+
         exit_code = determine_exit_code(
             findings,
             fail_on_findings=fail_on_findings,

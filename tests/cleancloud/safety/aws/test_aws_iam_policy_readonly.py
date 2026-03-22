@@ -5,7 +5,7 @@ import pytest
 
 from cleancloud.safety.aws.allowlist import FORBIDDEN_AWS_API_PREFIXES
 
-POLICY_PATH = Path("cleancloud/security/aws-readonly-policy.json")
+POLICY_PATH = Path("security/aws-readonly-policy.json")
 
 
 @pytest.mark.safety

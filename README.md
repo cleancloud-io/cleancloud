@@ -22,7 +22,7 @@ Read-only cloud hygiene for regulated & sovereign environments.
 
 CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
 
-- **20 high-signal detection rules:** orphaned volumes, idle databases, empty load balancers, and more
+- **22 high-signal detection rules:** orphaned volumes, idle databases, stopped instances, empty load balancers, and more
 - **Estimated monthly waste:** per finding and aggregate, broken down per account and subscription
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in minutes — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel with one identity — auto-discovery via Management Group or all accessible — per-subscription cost breakdown included
@@ -290,14 +290,15 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 
 ## What CleanCloud Detects
 
-20 rules across AWS and Azure — conservative, high-signal, designed to avoid false positives in IaC environments.
+22 rules across AWS and Azure — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
+- Compute: stopped instances 30+ days (EBS charges continue)
 - Storage: unattached EBS volumes (HIGH), old EBS snapshots, old AMIs
 - Network: unattached Elastic IPs (HIGH), detached ENIs, idle NAT Gateways, idle load balancers (HIGH)
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
-- Governance: untagged resources
+- Governance: untagged resources, unused security groups
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)
@@ -437,7 +438,7 @@ Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subsc
 
 ## Roadmap
 
-**More AWS rules** — stopped EC2 instances, unused security groups, old RDS snapshots, S3 lifecycle gaps, and more
+**More AWS rules** — old RDS snapshots, S3 lifecycle gaps, and more
 
 **More Azure rules** — idle App Services, unused Container Registries, and more
 

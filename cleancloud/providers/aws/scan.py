@@ -13,6 +13,8 @@ from cleancloud.providers.aws.rules.cloudwatch_inactive import (
 )
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
+from cleancloud.providers.aws.rules.ec2_sg_unused import find_unused_security_groups
+from cleancloud.providers.aws.rules.ec2_stopped import find_stopped_ec2_instances
 from cleancloud.providers.aws.rules.elastic_ip_unattached import (
     find_unattached_elastic_ips,
 )
@@ -37,6 +39,8 @@ AWS_RULES: List[Callable] = [
     find_idle_nat_gateways,
     find_idle_rds_instances,
     find_idle_load_balancers,
+    find_stopped_ec2_instances,
+    find_unused_security_groups,
 ]
 
 
