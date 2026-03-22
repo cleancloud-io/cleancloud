@@ -437,9 +437,15 @@ Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subsc
 
 ## Roadmap
 
-- Additional AWS rules (S3 lifecycle, stopped EC2 instances)
-- Policy-as-code in `cleancloud.yaml` (`fail_on_confidence`, `fail_on_cost` in config)
-- Rule filtering (`--rules` flag)
+**More AWS rules** — stopped EC2 instances, unused security groups, old RDS snapshots, S3 lifecycle gaps, and more
+
+**More Azure rules** — idle App Services, unused Container Registries, and more
+
+**GCP support** — auth, project enumeration, and an initial set of hygiene rules. Completes the multi-cloud picture.
+
+**Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config
+
+**Rule filtering** — `--rules` flag to run a subset of rules
 
 ---
 
