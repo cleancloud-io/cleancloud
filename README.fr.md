@@ -291,28 +291,18 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 20 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
-- Volumes EBS non attachés (HIGH)
-- Anciens snapshots EBS
-- Logs CloudWatch à rétention infinie
-- Elastic IPs non attachées (HIGH)
-- ENI détachées
-- Ressources sans tags
-- Anciennes AMIs
-- NAT Gateways inactives
-- Instances RDS inactives (HIGH)
-- Load Balancers inactifs (HIGH)
+- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs
+- Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
+- Plateforme : instances RDS inactives (HIGH)
+- Observabilité : logs CloudWatch à rétention infinie
+- Gouvernance : ressources sans tags
 
 **Azure :**
-- Disques managés non attachés
-- Anciens snapshots
-- Adresses IP publiques inutilisées (HIGH)
-- Load Balancers vides (HIGH)
-- App Gateways vides (HIGH)
-- App Service Plans vides (HIGH)
-- VNet Gateways inactives
-- VMs arrêtées (non désallouées) (HIGH)
-- Bases de données SQL inactives (HIGH)
-- Ressources sans tags
+- Compute : VMs arrêtées (non désallouées) (HIGH)
+- Stockage : disques managés non attachés (HIGH), anciens snapshots
+- Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
+- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH)
+- Gouvernance : ressources sans tags
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 

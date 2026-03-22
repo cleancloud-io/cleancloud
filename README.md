@@ -293,28 +293,18 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 20 rules across AWS and Azure — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
-- Unattached EBS volumes (HIGH)
-- Old EBS snapshots
-- Infinite retention CloudWatch Logs
-- Unattached Elastic IPs (HIGH)
-- Detached ENIs
-- Untagged resources
-- Old AMIs
-- Idle NAT Gateways
-- Idle RDS instances (HIGH)
-- Idle load balancers (HIGH)
+- Storage: unattached EBS volumes (HIGH), old EBS snapshots, old AMIs
+- Network: unattached Elastic IPs (HIGH), detached ENIs, idle NAT Gateways, idle load balancers (HIGH)
+- Platform: idle RDS instances (HIGH)
+- Observability: infinite retention CloudWatch Logs
+- Governance: untagged resources
 
 **Azure:**
-- Unattached managed disks
-- Old snapshots
-- Unused public IPs (HIGH)
-- Empty load balancers (HIGH)
-- Empty App Gateways (HIGH)
-- Empty App Service Plans (HIGH)
-- Idle VNet Gateways
-- Stopped (not deallocated) VMs (HIGH)
-- Idle SQL databases (HIGH)
-- Untagged resources
+- Compute: stopped (not deallocated) VMs (HIGH)
+- Storage: unattached managed disks (HIGH), old snapshots
+- Network: unused public IPs, empty load balancers (HIGH), empty App Gateways (HIGH), idle VNet Gateways
+- Platform: empty App Service Plans (HIGH), idle SQL databases (HIGH)
+- Governance: untagged resources
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 
