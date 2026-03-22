@@ -14,6 +14,8 @@ from cleancloud.core.risk import RiskLevel
 #   "User initiated (YYYY-MM-DD HH:MM:SS UTC)"      — manual stop via console/CLI
 #   "Instance initiated (YYYY-MM-DD HH:MM:SS UTC)"  — OS-initiated shutdown
 #   "Server.ScheduledStop (YYYY-MM-DD HH:MM:SS UTC)"— AWS scheduled maintenance
+# If AWS adds a new format, stop_time will be None → instance flagged at MEDIUM confidence,
+# not missed. Unrecognised formats are under-confident, not false negatives.
 _STATE_TRANSITION_RE = re.compile(
     r"(?:User initiated|Instance initiated|Server\.ScheduledStop)"
     r" \((\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) UTC\)"

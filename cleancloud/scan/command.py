@@ -163,12 +163,6 @@ from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_
     help="Detect active regions per account instead of once on the hub (slower but accurate if accounts use different regions)",
 )
 @click.option(
-    "--fail-on-skipped-rules",
-    is_flag=True,
-    default=False,
-    help="Fail if any rules were skipped due to missing IAM permissions (useful to assert full coverage after a policy update)",
-)
-@click.option(
     "--no-feedback",
     is_flag=True,
     default=False,
@@ -189,7 +183,6 @@ def scan(
     fail_on_cost: Optional[float],
     config: Optional[str],
     ignore_tag: List[str],
-    fail_on_skipped_rules: bool,
     no_feedback: bool,
     multi_account_file: Optional[str],
     accounts_inline: Optional[str],
@@ -463,14 +456,6 @@ def scan(
         # ========================
         # Exit policy
         # ========================
-        if fail_on_skipped_rules and skipped_rules:
-            click.echo(
-                f"\nPolicy violation: {len(skipped_rules)} rule(s) skipped due to missing permissions."
-            )
-            click.echo(
-                "Update your IAM policy to the latest version and re-run, or remove --fail-on-skipped-rules."
-            )
-            sys.exit(EXIT_POLICY_VIOLATION)
 
         exit_code = determine_exit_code(
             findings,

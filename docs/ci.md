@@ -284,40 +284,6 @@ cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH --fa
 
 **Recommendation:** Use `--fail-on-confidence HIGH` for most pipelines. Add `--fail-on-cost` to set a waste budget.
 
-### Assert full permission coverage
-
-CleanCloud never crashes when IAM permissions are missing — it skips the affected rule and continues. This is intentional: scans degrade gracefully so you always get partial results rather than a hard failure.
-
-The trade-off is that a scan can silently miss coverage if your IAM policy is out of date. `--fail-on-skipped-rules` closes this gap: the scan exits `2` if any rules were skipped due to missing permissions.
-
-**Recommended upgrade workflow when CleanCloud adds new rules:**
-
-1. Update your IAM policy to the [latest version](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json)
-2. Run `cleancloud doctor --provider aws` to confirm the new permissions are active
-3. Add `--fail-on-skipped-rules` to your CI scan step to assert full coverage going forward
-
-```bash
-# Fails if any rules were skipped due to missing IAM permissions
-cleancloud scan \
-  --provider aws \
-  --all-regions \
-  --fail-on-confidence HIGH \
-  --fail-on-skipped-rules
-```
-
-```yaml
-# GitHub Action equivalent
-- uses: cleancloud-io/scan-action@v1
-  with:
-    provider: aws
-    all-regions: 'true'
-    fail-on-confidence: HIGH
-    fail-on-skipped-rules: 'true'
-```
-
-> **Without this flag:** scans complete with partial coverage and list skipped rules in the output — useful for teams that can't update IAM immediately.
-> **With this flag:** the scan fails if full coverage is not confirmed — useful for asserting a policy update landed correctly.
-
 ---
 
 ## GitHub Actions
@@ -1123,18 +1089,13 @@ Check:
 
 **Issue:** Policy violation - findings detected, or rules skipped due to missing permissions
 
-**This is expected behavior** when using `--fail-on-findings`, `--fail-on-confidence`, `--fail-on-cost`, or `--fail-on-skipped-rules`.
+**This is expected behavior** when using `--fail-on-findings`, `--fail-on-confidence`, or `--fail-on-cost`.
 
 **Options for findings violations:**
 1. Review findings in uploaded artifacts
 2. Clean up flagged resources
 3. Adjust policy threshold (e.g., `--fail-on-confidence HIGH` instead of `MEDIUM`)
 4. Use tag filtering to exclude known/acceptable resources
-
-**Options for skipped rules (`--fail-on-skipped-rules`):**
-1. Update your IAM policy to the [latest version](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json)
-2. Run `cleancloud doctor --provider aws` to confirm new permissions are active
-3. Re-run the scan — it should pass once the policy is updated
 
 ### Scan Takes Too Long
 

@@ -12,6 +12,9 @@ from cleancloud.core.risk import RiskLevel
 # Naming prefixes that indicate AWS-managed security groups.
 # These are created by managed services (RDS, Lambda, ELB, EKS, ECS, Beanstalk)
 # and may temporarily have no ENIs between deployments — not safe to blindly delete.
+# Known prefixes for AWS service-managed security groups.
+# Used only to calibrate confidence (MEDIUM instead of HIGH) — SGs are still flagged
+# regardless. A missing prefix means over-confidence, not a false negative.
 _SERVICE_MANAGED_PREFIXES = (
     "rds-",
     "lambda-",
