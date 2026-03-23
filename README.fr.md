@@ -14,22 +14,21 @@
 
 ---
 
-**Applique la politique d'hygiène cloud en CI et donne aux équipes engineering, finance et ops une vue unifiée du gaspillage.**
+**Findings d'hygiène cloud actionnables pour les équipes platform et FinOps. Pas un tableau de bord de plus — des ressources spécifiques à nettoyer, avec des estimations de coût déterministes.**
 
 **Supporte :** AWS · Azure — GCP bientôt disponible
 
-Hygiène cloud en lecture seule pour les environnements réglementés & souverains.
+Le gaspillage cloud a atteint 29% des dépenses en 2026 — première hausse en cinq ans (Flexera). La plupart des équipes ont déjà des tableaux de bord de coûts. Ce qui manque : un outil qui indique *exactement quelles ressources* gaspillent de l'argent et combien, sans nécessiter qu'un fournisseur SaaS accède à votre compte cloud.
 
-CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
+CleanCloud scanne vos environnements AWS et Azure et retourne des findings spécifiques et actionnables. Exécutez-le une fois pour un audit ponctuel, ou planifiez-le comme job d'hygiène hebdomadaire pour une gouvernance continue.
 
-- **22 règles de détection haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, load balancers vides, et plus
-- **Gaspillage mensuel estimé :** par finding et en agrégat, détaillé par compte et abonnement
-- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
-- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle avec une seule identité — auto-découverte via Management Group ou tous les accessibles — détail des coûts par abonnement inclus
-- **Application de politique CI/CD (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` gate votre pipeline
-- **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub ou Slack)
-- **Lecture seule par conception :** aucune suppression, aucune modification de tags, aucune mutation — jamais
-- **Aucun agent. Zéro télémétrie. Pas de SaaS.** S'exécute dans votre environnement, les données ne quittent jamais votre périmètre
+- **25 règles de détection haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — chacune avec une estimation de coût déterministe
+- **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
+- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
+- **Sûr pour les environnements réglementés :** lecture seule, aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre propre infrastructure. Adapté aux comptes de services financiers, de santé et gouvernementaux où l'accès SaaS tiers est restreint
+- **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub, Jira ou Slack)
+- **Aucun agent. Zéro télémétrie. Pas de SaaS.** Les données ne quittent jamais votre environnement
 
 ### Ce que CleanCloud ne fait PAS
 
@@ -41,10 +40,16 @@ CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'arg
 
 Toutes les opérations sont en lecture seule. Sûr pour les comptes de production, environnements air-gapped, et pipelines soumis à revue de sécurité.
 
+**À qui s'adresse CleanCloud :**
+- **Équipes platform et FinOps** — scans d'hygiène hebdomadaires sur votre AWS Org ou tenant Azure, application de seuils de gaspillage, détection de la dérive avant qu'elle ne s'accumule
+- **Industries réglementées** — services financiers, santé et gouvernement qui ne peuvent pas envoyer les données de compte cloud à un fournisseur SaaS
+- **Équipes mid-market** — trop grandes pour ignorer le gaspillage cloud, trop légères pour des plateformes FinOps enterprise. Les outils natifs montrent les factures ; CleanCloud montre ce qu'il faut corriger
+- **Consultants cloud et MSPs** — audit en lecture seule d'un compte client en quelques minutes, export des findings en markdown ou JSON
+
 **Cas d'usage :**
 - Audit ponctuel de gaspillage cloud — exécutez dans CloudShell, findings visibles en 60 secondes
-- Analyses d'hygiène planifiées — cron ou CI hebdomadaire pour détecter la dérive
-- Gate CI/CD — bloquer un build si le gaspillage dépasse votre seuil
+- Gouvernance d'hygiène planifiée — job hebdomadaire qui détecte les nouveaux gaspillages et applique les seuils sur tous les comptes
+- Rapports pré-revue — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
 
 ```
 6 problèmes d'hygiène détectés :
@@ -288,11 +293,11 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 
 ## Ce que CleanCloud détecte
 
-22 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+25 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
-- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs
+- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs, anciens snapshots RDS 90+ jours
 - Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
@@ -302,7 +307,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Compute : VMs arrêtées (non désallouées) (HIGH)
 - Stockage : disques managés non attachés (HIGH), anciens snapshots
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
-- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH)
+- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
@@ -436,13 +441,11 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ## Feuille de route
 
-**Plus de règles AWS** — anciens snapshots RDS, lacunes de cycle de vie S3, et plus
-
-**Plus de règles Azure** — App Services inactifs, Container Registries inutilisés, et plus
-
 **Support GCP** — authentification, énumération de projets, et un premier ensemble de règles d'hygiène. Complète le tableau multi-cloud.
 
-**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config
+**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
+
+**Plus de règles** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Azure Firewall inactif, Redshift inactif
 
 **Filtrage de règles** — flag `--rules` pour exécuter un sous-ensemble de règles
 

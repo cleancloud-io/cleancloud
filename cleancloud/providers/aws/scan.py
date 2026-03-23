@@ -22,6 +22,7 @@ from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
+from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -41,6 +42,7 @@ AWS_RULES: List[Callable] = [
     find_idle_load_balancers,
     find_stopped_ec2_instances,
     find_unused_security_groups,
+    find_old_rds_snapshots,
 ]
 
 

@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 22 hygiene rules implemented by CleanCloud.
+Complete reference for all 25 hygiene rules implemented by CleanCloud.
 
 ---
 
@@ -47,6 +47,7 @@ Every finding includes a confidence level:
 | `aws.ec2.nat_gateway.idle` | Network | NAT Gateways with zero traffic 14+ days |
 | `aws.elbv2.alb.idle` / `aws.elbv2.nlb.idle` / `aws.elb.clb.idle` | Network | Load balancers with zero traffic 14+ days |
 | `aws.rds.instance.idle` | Platform | RDS instances with zero connections 14+ days |
+| `aws.rds.snapshot.old` | Storage | Manual RDS snapshots older than 90 days |
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
 
@@ -62,7 +63,9 @@ Every finding includes a confidence level:
 | `azure.application_gateway.no_backends` | Network | App Gateways with zero backend targets |
 | `azure.virtual_network_gateway.idle` | Network | VPN/ExpressRoute Gateways with no connections |
 | `azure.app_service_plan.empty` | Platform | Paid App Service Plans with zero apps |
+| `azure.app_service.idle` | Platform | App Services with zero HTTP requests 14+ days |
 | `azure.sql_database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
+| `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
 | `azure.untagged_resource` | Governance | Disks and snapshots with zero tags |
 
 ---
@@ -571,6 +574,51 @@ for instance in describe_db_instances():
 
 ---
 
+#### Old Manual RDS Snapshots
+
+**Rule ID:** `aws.rds.snapshot.old`
+
+**What it detects:** Manual RDS snapshots older than 90 days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Snapshot age is known and exceeds threshold (deterministic)
+
+**Risk:** LOW
+
+**Why this matters:**
+- Manual RDS snapshots are retained indefinitely until explicitly deleted
+- Storage charges accrue at ~$0.095/GB-month regardless of whether the source DB still exists
+- Snapshots older than 90 days are rarely needed for active recovery
+
+**Detection logic:**
+```python
+for snapshot in describe_db_snapshots(SnapshotType="manual"):
+    if snapshot.status == "available":
+        age_days = (now - snapshot.create_time).days
+        if age_days >= days_old:
+            confidence = "HIGH"
+            risk = "LOW"
+```
+
+**Exclusions:**
+- Automated snapshots (`SnapshotType=automated`) — managed by RDS retention policy, auto-deleted
+- Snapshots in non-`available` states
+
+**Common causes:**
+- Pre-migration snapshots never cleaned up
+- Manual backups taken before schema changes and forgotten
+- Snapshots of deleted databases retained for compliance but past their useful life
+
+**Cost estimate:** ~$0.095/GB-month based on `AllocatedStorage` (the provisioned DB size). RDS snapshots are incremental so actual storage used may be lower — treat this as a ceiling estimate, not an exact figure.
+
+**Required permissions:**
+- `rds:DescribeDBSnapshots`
+
+---
+
 ### Observability Waste
 
 #### CloudWatch Log Groups (Infinite Retention)
@@ -1037,6 +1085,111 @@ for server in sql_servers:
 **Required permissions:**
 - `Microsoft.Sql/servers/read`
 - `Microsoft.Sql/servers/databases/read`
+- `Microsoft.Insights/metrics/read`
+
+---
+
+#### Idle App Services
+
+**Rule ID:** `azure.app_service.idle`
+
+**What it detects:** Running App Service web apps with zero HTTP requests for 14+ days on paid plans
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero requests for 14+ days (Azure Monitor `Requests` metric, strong idle signal)
+
+**Risk:** MEDIUM
+
+**Why this matters:**
+- App Service Plans on paid tiers bill compute charges continuously regardless of traffic
+- An app with zero requests for 14+ days is a strong signal of abandonment
+- Common for dev/staging apps that were never decommissioned
+
+**Detection logic:**
+```python
+for app in web_apps.list():
+    if app.state == "Running" and app.sku.tier not in ("Free", "Shared", "Dynamic"):
+        requests = monitor.metrics("Requests", period=days_idle)
+        if requests == 0:
+            confidence = "HIGH"
+            risk = "MEDIUM"
+```
+
+**Excluded tiers:**
+- Free, Shared, Dynamic (Consumption/serverless) — no meaningful idle cost
+
+**Common causes:**
+- Dev or staging apps left running after project end
+- Feature branches deployed and never torn down
+- Apps migrated to containers but old App Service not removed
+
+**Cost estimates by tier (single instance):**
+- Basic: ~$55/month
+- Standard: ~$73/month
+- Premium/PremiumV2/V3: ~$146/month
+- Isolated/IsolatedV2: ~$298/month
+
+Cost assumes one instance. Scaled-out plans (multiple instances) will cost proportionally more — treat these as minimum estimates.
+
+**Not detected:**
+- Non-HTTP workloads such as WebJobs or background services with no inbound HTTP traffic — these produce zero `Requests` metric data even when active. Review before deleting.
+
+**Required permissions:**
+- `Microsoft.Web/sites/read`
+- `Microsoft.Web/serverfarms/read`
+- `Microsoft.Insights/metrics/read`
+
+---
+
+#### Unused Container Registries
+
+**Rule ID:** `azure.container_registry.unused`
+
+**What it detects:** Container registries with zero image pulls for 90+ days (default, configurable)
+
+**Confidence:**
+
+Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
+
+- **HIGH:** Zero successful pulls AND zero successful pushes for 90+ days (Azure Monitor `SuccessfulPullCount` and `SuccessfulPushCount` metrics)
+
+**Risk:** LOW
+
+**Why this matters:**
+- Container registries accrue storage and per-operation charges regardless of usage
+- A registry with no pulls and no pushes for 90+ days signals complete abandonment
+- Common after workload migrations to other registries or container platforms
+
+**Detection logic:**
+```python
+for registry in registries.list():
+    if registry.provisioning_state == "Succeeded":
+        pulls = monitor.metrics("SuccessfulPullCount", period=days_unused)
+        pushes = monitor.metrics("SuccessfulPushCount", period=days_unused)
+        if pulls == 0 and pushes == 0:
+            confidence = "HIGH"
+            risk = "LOW"
+```
+
+Registries with active push activity (e.g. CI pipelines writing images) but zero pulls are **not** flagged — they are in active use.
+
+**Common causes:**
+- Workloads migrated to another registry (e.g., Docker Hub → ACR → GHCR)
+- Projects retired without cleaning up the registry
+- Old build artifacts never consumed by any deployment
+
+**Cost estimates by SKU (base fee only):**
+- Basic: ~$5/month + storage
+- Standard: ~$20/month + storage
+- Premium: ~$50/month + storage
+
+These are floor estimates. ACR also charges per GB of stored images (~$0.003/GB-day). For registries with large image layers, storage can exceed the base fee — actual cost may be significantly higher.
+
+**Required permissions:**
+- `Microsoft.ContainerRegistry/registries/read`
 - `Microsoft.Insights/metrics/read`
 
 ---

@@ -31,7 +31,8 @@
       "Sid": "RDSReadOnly",
       "Effect": "Allow",
       "Action": [
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSnapshots"
       ],
       "Resource": "*"
     },

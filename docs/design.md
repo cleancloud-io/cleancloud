@@ -14,9 +14,10 @@ Cloud waste is often invisible:
 
 - Native tools (AWS Trusted Advisor, Azure Advisor) raise noisy, shallow alerts that miss cross-service signals
 - Automation tools can delete IaC-managed resources, cause outages, and require elevated permissions that security teams won't approve
-- Teams need a safe middle ground: deep detection with zero mutation risk
+- SaaS FinOps platforms are off-limits for regulated industries (FSI, healthcare, government) due to data residency and compliance requirements
+- Teams need a safe middle ground: deep detection with zero mutation risk, that runs inside their own environment
 
-CleanCloud fills that gap. It runs in CI/CD, requires only read access, and produces actionable findings with explicit confidence levels — so teams can make informed decisions without fear.
+CleanCloud fills that gap. It requires only read access, produces actionable findings with explicit confidence levels, and can scan a single account or an entire AWS Organization / Azure tenant in one run — so teams can make informed decisions without fear.
 
 ---
 
@@ -112,15 +113,33 @@ This is why CleanCloud can be trusted in environments where automation tools can
 
 ---
 
+## Multi-Account and Multi-Subscription Scanning
+
+CleanCloud scans entire AWS Organizations and Azure tenants in a single run — not just individual accounts.
+
+**AWS:**
+- `--org` — auto-discover all accounts in the AWS Organization
+- `--multi-account accounts.yaml` — scan a defined list of accounts via cross-account IAM roles
+- `--accounts 111,222,333` — inline account list
+
+**Azure:**
+- Omit `--subscription` — scans all subscriptions the identity has Reader on
+- `--management-group <ID>` — auto-discover all subscriptions under a Management Group
+
+Findings from all accounts/subscriptions are aggregated into a single report with a per-account breakdown and combined cost estimate. No extra credentials or cross-account complexity for Azure — assign Reader at the Management Group level once and it inherits automatically.
+
+---
+
 ## Who This Is For
 
 | Persona | Why CleanCloud helps |
 |---|---|
-| **Platform teams** | Enforce cloud hygiene standards across accounts in CI/CD |
+| **Platform teams** | Enforce cloud hygiene standards across AWS Orgs and Azure tenants with scheduled governance scans |
+| **FinOps practitioners** | Quantify waste with deterministic cost estimates and track trends over time |
 | **SREs** | Catch orphaned resources before they cause cost surprises or config drift |
-| **FinOps practitioners** | Quantify waste with cost estimates and track trends over time |
 | **Security teams** | Approve and run read-only tooling without elevated permission risk |
-| **Engineering managers** | Set policy thresholds (`--fail-on-confidence HIGH`) without manual review |
+| **Regulated industries** | Run inside your own environment — no data leaves your cloud account, no SaaS dependency |
+| **MSPs** | Scan multiple customer accounts in a single run with per-account cost breakdowns |
 
 ---
 

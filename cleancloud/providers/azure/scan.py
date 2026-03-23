@@ -11,8 +11,12 @@ from cleancloud.output.progress import advance
 from cleancloud.providers.azure.rules.app_gateway_no_backends import (
     find_app_gateway_no_backends,
 )
+from cleancloud.providers.azure.rules.app_service_idle import find_idle_app_services
 from cleancloud.providers.azure.rules.app_service_plan_empty import (
     find_empty_app_service_plans,
+)
+from cleancloud.providers.azure.rules.container_registry_unused import (
+    find_unused_container_registries,
 )
 from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
@@ -64,6 +68,8 @@ AZURE_RULES: List[Callable] = [
     find_idle_vnet_gateways,
     find_stopped_not_deallocated_vms,
     find_idle_sql_databases,
+    find_idle_app_services,
+    find_unused_container_registries,
 ]
 
 _TRANSIENT_STATUS_CODES = {429, 500, 503}
