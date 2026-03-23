@@ -14,20 +14,31 @@
 
 ---
 
-**Actionable cloud hygiene findings for platform and FinOps teams. Not another dashboard — specific resources to clean up, with deterministic cost estimates.**
+**CleanCloud is the Cloud Hygiene Engine — the missing layer between cost visibility and cleanup.**
 
 **Supports:** AWS · Azure — GCP coming soon
 
-Cloud waste increased to 29% of spend in 2026 — the first rise in five years (Flexera). Most teams already have cost dashboards. What they're missing is a tool that says *exactly which resources* are wasting money and by how much, without requiring a SaaS vendor to touch their cloud account.
+Cloud waste hit 29% of spend in 2026 — the first rise in five years (Flexera). Most teams already have cost dashboards. Dashboards show spend trends; they don't tell engineers what to clean up. SaaS FinOps platforms require vendor access to your cloud account — a non-starter for regulated industries. And as cloud environments scale across accounts and subscriptions, unused resources are no longer exceptions — they are continuous drift. Platform teams need a deterministic, enforceable process to turn that drift into a list of exactly what to act on.
 
-CleanCloud scans your AWS and Azure environments and returns specific, actionable findings. Run it once for a quick audit, or schedule it as a weekly hygiene job for ongoing governance enforcement.
+That's CleanCloud. Scan your AWS and Azure environments, get specific actionable findings with per-resource cost estimates, and enforce waste thresholds on a schedule — no agents, no SaaS, no data leaving your environment.
 
-- **25 high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — each with a deterministic cost estimate
+| | AWS/Azure native cost tools | FinOps SaaS platforms | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Shows cost trends | ✅ | ✅ | — |
+| Names exactly which resources to clean up | ❌ | partial | ✅ |
+| Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
+| Read-only, no agents | ✅ | ❌ | ✅ |
+| Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
+| No SaaS account or vendor access required | ❌ | ❌ | ✅ |
+| Multi-account / multi-subscription hygiene | ❌ | ✅ | ✅ |
+| CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
+
+- **25 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Safe for regulated environments:** read-only, no agents, no telemetry, no SaaS — runs entirely inside your own infrastructure. Suitable for financial services, healthcare, and government accounts where third-party SaaS access is restricted
-- **Multiple output formats:** human-readable, JSON, CSV, and markdown (paste into GitHub PRs, Jira, or Slack)
+- **Ecosystem-ready output:** JSON for Slack alerts, cost dashboards, and ticketing automation — CSV for spreadsheet workflows — markdown to paste directly into GitHub PRs, Jira, or Confluence
 - **No agents. No telemetry. No SaaS.** Data never leaves your environment
 
 ### What CleanCloud does NOT do
@@ -500,7 +511,7 @@ Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subsc
 
 ## Roadmap
 
-**GCP support** — auth, project enumeration, and an initial set of hygiene rules. Completes the multi-cloud picture.
+**GCP support** — auth (Application Default Credentials + Workload Identity), project enumeration, and an initial rule set covering compute, storage, and network waste (5–8 rules). Completes the multi-cloud picture for AWS + Azure + GCP environments.
 
 **Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config — the top FinOps governance ask for 2025/2026
 

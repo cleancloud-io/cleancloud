@@ -14,20 +14,31 @@
 
 ---
 
-**Findings d'hygiène cloud actionnables pour les équipes platform et FinOps. Pas un tableau de bord de plus — des ressources spécifiques à nettoyer, avec des estimations de coût déterministes.**
+**CleanCloud est le moteur d'hygiène cloud — la couche manquante entre la visibilité des coûts et le nettoyage.**
 
 **Supporte :** AWS · Azure — GCP bientôt disponible
 
-Le gaspillage cloud a atteint 29% des dépenses en 2026 — première hausse en cinq ans (Flexera). La plupart des équipes ont déjà des tableaux de bord de coûts. Ce qui manque : un outil qui indique *exactement quelles ressources* gaspillent de l'argent et combien, sans nécessiter qu'un fournisseur SaaS accède à votre compte cloud.
+Le gaspillage cloud a atteint 29% des dépenses en 2026 — première hausse en cinq ans (Flexera). La plupart des équipes ont déjà des tableaux de bord de coûts. Les tableaux de bord montrent les tendances de dépenses — ils n'indiquent pas aux ingénieurs ce qu'il faut nettoyer. Les plateformes FinOps SaaS nécessitent un accès vendor à votre compte cloud — exclu pour les industries réglementées. Et à mesure que les environnements cloud s'étendent sur plusieurs comptes et abonnements, les ressources inutilisées ne sont plus des exceptions — elles sont une dérive continue. Les équipes platform ont besoin d'un processus déterministe et applicable pour transformer cette dérive en une liste précise de ce sur quoi agir.
 
-CleanCloud scanne vos environnements AWS et Azure et retourne des findings spécifiques et actionnables. Exécutez-le une fois pour un audit ponctuel, ou planifiez-le comme job d'hygiène hebdomadaire pour une gouvernance continue.
+C'est CleanCloud. Scannez vos environnements AWS et Azure, obtenez des findings actionnables avec des estimations de coût par ressource, et appliquez des seuils de gaspillage sur un planning — aucun agent, aucun SaaS, aucune donnée ne quitte votre environnement.
 
-- **25 règles de détection haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — chacune avec une estimation de coût déterministe
+| | Outils natifs AWS/Azure | Plateformes FinOps SaaS | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Affiche les tendances de coûts | ✅ | ✅ | — |
+| Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
+| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
+| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
+| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
+| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
+| Hygiène multi-comptes / multi-abonnements | ❌ | ✅ | ✅ |
+| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
+
+- **25 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Sûr pour les environnements réglementés :** lecture seule, aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre propre infrastructure. Adapté aux comptes de services financiers, de santé et gouvernementaux où l'accès SaaS tiers est restreint
-- **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub, Jira ou Slack)
+- **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord de coûts et automatisation des tickets — CSV pour les workflows tableur — markdown à coller directement dans vos PRs GitHub, Jira ou Confluence
 - **Aucun agent. Zéro télémétrie. Pas de SaaS.** Les données ne quittent jamais votre environnement
 
 ### Ce que CleanCloud ne fait PAS
@@ -498,7 +509,7 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ## Feuille de route
 
-**Support GCP** — authentification, énumération de projets, et un premier ensemble de règles d'hygiène. Complète le tableau multi-cloud.
+**Support GCP** — authentification (Application Default Credentials + Workload Identity), énumération de projets, et un premier ensemble de règles couvrant le gaspillage compute, stockage et réseau (5–8 règles). Complète le tableau multi-cloud pour les environnements AWS + Azure + GCP.
 
 **Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 

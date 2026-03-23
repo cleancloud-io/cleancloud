@@ -216,6 +216,15 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 - **MEDIUM:** Age ≥ 90 days (conservative — age alone is a moderate signal)
 
+**Detection logic:**
+```python
+for snapshot in describe_snapshots(OwnerIds=["self"]):
+    age_days = (now - snapshot.StartTime).days
+    if age_days >= days_old:  # default 90
+        confidence = "MEDIUM"  # age alone is a moderate signal
+        risk = "LOW"
+```
+
 **Limitations:**
 - Does NOT check AMI linkage (by design, avoids false positives)
 - Does NOT verify snapshot is unused (conservative approach)
@@ -745,14 +754,19 @@ for vm in virtual_machines.list_all():
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Unattached ≥ 14 days
-- **MEDIUM:** Unattached 7-13 days
+- **MEDIUM:** Unattached ≥ 7 days (conservative for all ages — unattached state is deterministic but attachment intent is not)
 - Not flagged: < 7 days
 
 **Detection logic:**
-```
-if disk.managed_by is None:  # Not attached
-    age_days = calculate_age(disk.time_created)
+```python
+for disk in disks.list():
+    if disk.managed_by is not None:
+        continue  # attached to a VM
+    age_days = (now - disk.time_created).days
+    if age_days >= 7:
+        confidence = "MEDIUM"  # conservative regardless of age
+    else:
+        continue  # too new to flag
 ```
 
 **Common causes:**
@@ -774,8 +788,20 @@ if disk.managed_by is None:  # Not attached
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Age ≥ 90 days
-- **MEDIUM:** Age ≥ 30 days
+- **MEDIUM:** Age ≥ 30 days (conservative for all ages — age alone is a moderate signal)
+- Not flagged: < 30 days
+
+**Detection logic:**
+```python
+for snapshot in snapshots.list():
+    age_days = (now - snapshot.time_created).days
+    if age_days >= 90:
+        confidence = "MEDIUM"  # conservative even at high age
+    elif age_days >= 30:
+        confidence = "MEDIUM"
+    else:
+        continue  # too new to flag
+```
 
 **Limitations:**
 - Does NOT check if snapshot is referenced by images
