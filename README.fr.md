@@ -113,7 +113,7 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 --output human|json|csv|markdown  Format de sortie (défaut : human)
 --output-file FILE            Écrit la sortie dans un fichier
 
-# Application CI/CD (optionnel, tous retournent exit code 2)
+# Seuils d'application (optionnel, tous retournent exit code 2)
 --fail-on-confidence HIGH     Échec sur findings HIGH confidence
 --fail-on-confidence MEDIUM   Échec sur findings MEDIUM ou supérieur
 --fail-on-cost N              Échec si gaspillage mensuel estimé >= $N
@@ -129,7 +129,7 @@ pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell apr�
 cleancloud demo        # visualisez des findings sans aucun credential cloud
 ```
 
-**Via Docker (recommandé pour CI/CD — Python non requis) :**
+**Via Docker (Python non requis — fonctionne partout : CI/CD, jobs planifiés, serveurs) :**
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
@@ -316,9 +316,66 @@ Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuri
 
 ---
 
-## Application de politique CI/CD
+## Comment les équipes utilisent CleanCloud
 
-Les scans se terminent avec `0` par défaut. Activez l'application de politique :
+Les scans se terminent avec `0` par défaut — ils reportent les findings sans jamais bloquer quoi que ce soit, sauf si vous le demandez explicitement. Trois patterns courants :
+
+---
+
+**Scan de gouvernance hebdomadaire** — le setup le plus courant pour les équipes platform et FinOps. Exécuté sur un planning, indépendamment des déploiements de code. Détecte le nouveau gaspillage avant qu'il ne s'accumule et applique un seuil de coût sur tous les comptes ou abonnements.
+
+```yaml
+# .github/workflows/cleancloud-weekly.yml
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # chaque lundi à 9h
+```
+
+```bash
+# AWS — scan de toute l'org, alerte si le gaspillage mensuel dépasse 500$
+cleancloud scan --provider aws --org --all-regions \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+
+# Azure — scan de tous les abonnements sous un Management Group
+cleancloud scan --provider azure --management-group <MGMT_GROUP_ID> \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+```
+
+La sortie JSON peut alimenter des alertes Slack, des tickets Jira ou un tableau de bord de coûts. Aucun agent, aucun SaaS — s'exécute entièrement dans votre propre infrastructure.
+
+---
+
+**Audit ponctuel** — exécutez depuis CloudShell ou votre terminal pour une vue immédiate à un instant T. Sans installation supplémentaire, sans configuration, findings en moins de 60 secondes. Utile avant une revue trimestrielle des coûts, une migration cloud, ou un audit de sécurité.
+
+```bash
+# AWS CloudShell — utilise votre session portail, pas d'auth supplémentaire
+pip install --upgrade cleancloud
+cleancloud scan --provider aws --all-regions
+
+# Azure Cloud Shell — utilise votre session portail, pas d'auth supplémentaire
+pip install --upgrade --user cleancloud && export PATH="$HOME/.local/bin:$PATH"
+cleancloud scan --provider azure
+```
+
+---
+
+**En CI/CD** — exécutez comme étape dans votre workflow de déploiement pour détecter le gaspillage évident avant qu'il ne soit livré. Utilisez les flags d'application pour bloquer ou alerter.
+
+```bash
+# AWS
+cleancloud scan --provider aws --region us-east-1 \
+  --fail-on-confidence HIGH   # exit 2 si gaspillage HIGH confidence détecté
+
+# Azure
+cleancloud scan --provider azure \
+  --fail-on-confidence HIGH
+```
+
+---
+
+**Seuils d'application** — les scans retournent toujours `0` sauf si vous activez l'application :
 
 | Flag | Comportement | Code de sortie |
 |------|-------------|----------------|
@@ -330,9 +387,9 @@ Les scans se terminent avec `0` par défaut. Activez l'application de politique 
 
 Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure (Workload Identity) — incluant la configuration OIDC, les politiques IAM/RBAC, et les patterns d'application :
 
-**[Guide CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
+**[Guide automatisation & CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
 
-**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion CI/CD →](https://github.com/cleancloud-io/cleancloud/discussions/98)
+**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
@@ -445,7 +502,9 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 **Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 
-**Plus de règles** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Azure Firewall inactif, Redshift inactif
+**Plus de règles AWS** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Redshift inactif
+
+**Plus de règles Azure** — Azure Firewall inactif, pools de nœuds AKS inactifs, pools Azure Batch inutilisés
 
 **Filtrage de règles** — flag `--rules` pour exécuter un sous-ensemble de règles
 
@@ -456,7 +515,7 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 - [`docs/rules.md`](docs/rules.md) — Règles de détection, signaux et preuves
 - [`docs/aws.md`](docs/aws.md) — Politique IAM AWS et configuration OIDC
 - [`docs/azure.md`](docs/azure.md) — RBAC Azure et configuration Workload Identity
-- [`docs/ci.md`](docs/ci.md) — Guide d'intégration CI/CD
+- [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, modèle de menace

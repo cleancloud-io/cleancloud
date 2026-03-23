@@ -135,11 +135,21 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             if missing:
                 click.echo(f"      needs: {missing}")
         click.echo()
+        # Azure skipped entries carry subscription_id; AWS entries carry missing_permissions with IAM names
+        has_azure = any("subscription_id" in s for s in skipped_rules)
+        has_aws = any("subscription_id" not in s for s in skipped_rules)
+
         click.echo("To enable skipped rules, update your IAM policy/role to the latest version:")
-        click.echo(
-            "  https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json"
-        )
-        click.echo("Run 'cleancloud doctor --provider aws' to validate permissions after updating.")
+        if has_aws:
+            click.echo(
+                "  AWS:   https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json"
+            )
+            click.echo("  Run 'cleancloud doctor --provider aws' to validate permissions after updating.")
+        if has_azure:
+            click.echo(
+                "  Azure: https://github.com/cleancloud-io/cleancloud/blob/main/security/azure-readonly-role.json"
+            )
+            click.echo("  Run 'cleancloud doctor --provider azure' to validate permissions after updating.")
 
     # Multi-account breakdown
     if multi_account_results:
