@@ -144,12 +144,16 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             click.echo(
                 "  AWS:   https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json"
             )
-            click.echo("  Run 'cleancloud doctor --provider aws' to validate permissions after updating.")
+            click.echo(
+                "  Run 'cleancloud doctor --provider aws' to validate permissions after updating."
+            )
         if has_azure:
             click.echo(
                 "  Azure: https://github.com/cleancloud-io/cleancloud/blob/main/security/azure-readonly-role.json"
             )
-            click.echo("  Run 'cleancloud doctor --provider azure' to validate permissions after updating.")
+            click.echo(
+                "  Run 'cleancloud doctor --provider azure' to validate permissions after updating."
+            )
 
     # Multi-account breakdown
     if multi_account_results:
