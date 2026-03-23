@@ -193,6 +193,49 @@ AWS_FINDINGS: List[Finding] = [
         ),
         estimated_monthly_cost_usd=None,
     ),
+    Finding(
+        provider="aws",
+        rule_id="aws.rds.snapshot.old",
+        resource_type="aws.rds.snapshot",
+        resource_id="rds:prod-mysql-2025-10-04-03-27",
+        region="us-east-1",
+        title="Old Manual RDS Snapshot (112 Days)",
+        summary=(
+            "Manual RDS snapshot 'rds:prod-mysql-2025-10-04-03-27' of 'prod-mysql' "
+            "is 112 days old and accruing storage charges."
+        ),
+        reason="Manual RDS snapshot exceeds 90-day retention threshold",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "db_instance_id": "prod-mysql",
+            "engine": "mysql",
+            "size_gb": 200,
+            "age_days": 112,
+            "age_threshold_days": 90,
+            "create_time": "2025-10-04T03:27:00+00:00",
+            "tags": {"Project": "platform", "Env": "prod"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Manual RDS snapshot is 112 days old (threshold: 90 days)",
+                "Created at: 2025-10-04",
+                "Source DB instance: prod-mysql",
+                "Engine: mysql",
+                "Size: 200 GB",
+                "Accruing ~$19.0/month in snapshot storage (~$0.095/GB-month)",
+            ],
+            signals_not_checked=[
+                "Compliance or audit retention requirements",
+                "Disaster recovery intent",
+                "Referenced by application or runbook",
+                "Cross-region restore dependency",
+            ],
+            time_window="112 days",
+        ),
+        estimated_monthly_cost_usd=19.0,
+    ),
 ]
 
 AZURE_FINDINGS: List[Finding] = [
@@ -266,6 +309,85 @@ AZURE_FINDINGS: List[Finding] = [
             signals_not_checked=[],
         ),
         estimated_monthly_cost_usd=70.08,
+    ),
+    Finding(
+        provider="azure",
+        rule_id="azure.app_service.idle",
+        resource_type="azure.app_service",
+        resource_id=(
+            "/subscriptions/29d91ee0-922f-483a-a81f-1a5eff4ecfa2"
+            "/resourceGroups/rg-staging/providers/Microsoft.Web/sites/api-staging"
+        ),
+        region="eastus",
+        title="Idle App Service (21 Days)",
+        summary=(
+            "App Service 'api-staging' has received zero HTTP requests for 21 days "
+            "but continues to accrue Standard tier charges."
+        ),
+        reason="Zero HTTP requests over 21-day window on a paid App Service plan",
+        risk=RiskLevel.MEDIUM,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "app_name": "api-staging",
+            "sku_tier": "Standard",
+            "state": "Running",
+            "kind": "app",
+            "idle_threshold_days": 14,
+            "tags": {"Env": "staging", "Team": "backend"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Azure Monitor Requests metric: 0 total over 21 days",
+                "App Service plan tier: Standard (paid)",
+                "App state: Running",
+            ],
+            signals_not_checked=[
+                "Background jobs or webjobs with no HTTP traffic",
+                "Internal VNet-only traffic not captured by Requests metric",
+                "Planned reactivation or seasonal use",
+            ],
+            time_window="21 days",
+        ),
+        estimated_monthly_cost_usd=73.0,
+    ),
+    Finding(
+        provider="azure",
+        rule_id="azure.container_registry.unused",
+        resource_type="azure.container_registry",
+        resource_id=(
+            "/subscriptions/29d91ee0-922f-483a-a81f-1a5eff4ecfa2"
+            "/resourceGroups/rg-platform/providers"
+            "/Microsoft.ContainerRegistry/registries/acrlegacybuild"
+        ),
+        region="westeurope",
+        title="Unused Container Registry (95 Days)",
+        summary=(
+            "Container registry 'acrlegacybuild' has had zero image pulls for 95 days "
+            "and is accruing Standard tier charges."
+        ),
+        reason="No image pulls detected for 95 days (threshold: 90 days)",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "registry_name": "acrlegacybuild",
+            "sku": "Standard",
+            "days_unused_threshold": 90,
+            "tags": {"Project": "legacy-build", "Team": "platform"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Azure Monitor SuccessfulPullCount: 0 over 95 days",
+                "ACR SKU: Standard",
+            ],
+            signals_not_checked=[
+                "Push activity (images may still be written but not pulled)",
+                "Geo-replication or audit retention requirements",
+            ],
+            time_window="95 days",
+        ),
+        estimated_monthly_cost_usd=20.0,
     ),
 ]
 

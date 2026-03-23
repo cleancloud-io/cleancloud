@@ -14,22 +14,32 @@
 
 ---
 
-**Applique la politique d'hygiène cloud en CI et donne aux équipes engineering, finance et ops une vue unifiée du gaspillage.**
+**CleanCloud est le moteur d'hygiène cloud — la couche manquante entre la visibilité des coûts et le nettoyage.**
 
 **Supporte :** AWS · Azure — GCP bientôt disponible
 
-Hygiène cloud en lecture seule pour les environnements réglementés & souverains.
+Le gaspillage cloud a atteint 29% des dépenses en 2026 — première hausse en cinq ans (Flexera). La plupart des équipes ont déjà des tableaux de bord de coûts. Les tableaux de bord montrent les tendances de dépenses — ils n'indiquent pas aux ingénieurs ce qu'il faut nettoyer. Les plateformes FinOps SaaS nécessitent un accès vendor à votre compte cloud — exclu pour les industries réglementées. Et à mesure que les environnements cloud s'étendent sur plusieurs comptes et abonnements, les ressources inutilisées ne sont plus des exceptions — elles sont une dérive continue. Les équipes platform ont besoin d'un processus déterministe et applicable pour transformer cette dérive en une liste précise de ce sur quoi agir.
 
-CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'argent. Exécutez-le une fois pour un audit ponctuel, planifiez-le, ou intégrez-le en CI/CD pour bloquer les builds sur des violations de politique.
+C'est CleanCloud. Scannez vos environnements AWS et Azure, obtenez des findings actionnables avec des estimations de coût par ressource, et appliquez des seuils de gaspillage sur un planning — aucun agent, aucun SaaS, aucune donnée ne quitte votre environnement.
 
-- **22 règles de détection haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, load balancers vides, et plus
-- **Gaspillage mensuel estimé :** par finding et en agrégat, détaillé par compte et abonnement
-- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en quelques minutes — fichier de config, IDs inline, ou auto-découverte via `--org`
-- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle avec une seule identité — auto-découverte via Management Group ou tous les accessibles — détail des coûts par abonnement inclus
-- **Application de politique CI/CD (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` gate votre pipeline
-- **Formats de sortie multiples :** lisible, JSON, CSV, et markdown (à coller dans vos PRs GitHub ou Slack)
-- **Lecture seule par conception :** aucune suppression, aucune modification de tags, aucune mutation — jamais
-- **Aucun agent. Zéro télémétrie. Pas de SaaS.** S'exécute dans votre environnement, les données ne quittent jamais votre périmètre
+| | Outils natifs AWS/Azure | Plateformes FinOps SaaS | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Affiche les tendances de coûts | ✅ | ✅ | — |
+| Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
+| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
+| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
+| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
+| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
+| Hygiène multi-comptes / multi-abonnements | ❌ | ✅ | ✅ |
+| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
+
+- **25 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
+- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
+- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
+- **Sûr pour les environnements réglementés :** lecture seule, aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre propre infrastructure. Adapté aux comptes de services financiers, de santé et gouvernementaux où l'accès SaaS tiers est restreint
+- **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord de coûts et automatisation des tickets — CSV pour les workflows tableur — markdown à coller directement dans vos PRs GitHub, Jira ou Confluence
+- **Aucun agent. Zéro télémétrie. Pas de SaaS.** Les données ne quittent jamais votre environnement
 
 ### Ce que CleanCloud ne fait PAS
 
@@ -41,10 +51,16 @@ CleanCloud scanne votre environnement cloud et rapporte ce qui gaspille de l'arg
 
 Toutes les opérations sont en lecture seule. Sûr pour les comptes de production, environnements air-gapped, et pipelines soumis à revue de sécurité.
 
+**À qui s'adresse CleanCloud :**
+- **Équipes platform et FinOps** — scans d'hygiène hebdomadaires sur votre AWS Org ou tenant Azure, application de seuils de gaspillage, détection de la dérive avant qu'elle ne s'accumule
+- **Industries réglementées** — services financiers, santé et gouvernement qui ne peuvent pas envoyer les données de compte cloud à un fournisseur SaaS
+- **Équipes mid-market** — trop grandes pour ignorer le gaspillage cloud, trop légères pour des plateformes FinOps enterprise. Les outils natifs montrent les factures ; CleanCloud montre ce qu'il faut corriger
+- **Consultants cloud et MSPs** — audit en lecture seule d'un compte client en quelques minutes, export des findings en markdown ou JSON
+
 **Cas d'usage :**
 - Audit ponctuel de gaspillage cloud — exécutez dans CloudShell, findings visibles en 60 secondes
-- Analyses d'hygiène planifiées — cron ou CI hebdomadaire pour détecter la dérive
-- Gate CI/CD — bloquer un build si le gaspillage dépasse votre seuil
+- Gouvernance d'hygiène planifiée — job hebdomadaire qui détecte les nouveaux gaspillages et applique les seuils sur tous les comptes
+- Rapports pré-revue — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
 
 ```
 6 problèmes d'hygiène détectés :
@@ -108,7 +124,7 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 --output human|json|csv|markdown  Format de sortie (défaut : human)
 --output-file FILE            Écrit la sortie dans un fichier
 
-# Application CI/CD (optionnel, tous retournent exit code 2)
+# Seuils d'application (optionnel, tous retournent exit code 2)
 --fail-on-confidence HIGH     Échec sur findings HIGH confidence
 --fail-on-confidence MEDIUM   Échec sur findings MEDIUM ou supérieur
 --fail-on-cost N              Échec si gaspillage mensuel estimé >= $N
@@ -124,7 +140,7 @@ pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell apr�
 cleancloud demo        # visualisez des findings sans aucun credential cloud
 ```
 
-**Via Docker (recommandé pour CI/CD — Python non requis) :**
+**Via Docker (Python non requis — fonctionne partout : CI/CD, jobs planifiés, serveurs) :**
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
@@ -288,11 +304,11 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 
 ## Ce que CleanCloud détecte
 
-22 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+25 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
-- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs
+- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs, anciens snapshots RDS 90+ jours
 - Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
@@ -302,7 +318,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Compute : VMs arrêtées (non désallouées) (HIGH)
 - Stockage : disques managés non attachés (HIGH), anciens snapshots
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
-- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH)
+- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
@@ -311,9 +327,66 @@ Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuri
 
 ---
 
-## Application de politique CI/CD
+## Comment les équipes utilisent CleanCloud
 
-Les scans se terminent avec `0` par défaut. Activez l'application de politique :
+Les scans se terminent avec `0` par défaut — ils reportent les findings sans jamais bloquer quoi que ce soit, sauf si vous le demandez explicitement. Trois patterns courants :
+
+---
+
+**Scan de gouvernance hebdomadaire** — le setup le plus courant pour les équipes platform et FinOps. Exécuté sur un planning, indépendamment des déploiements de code. Détecte le nouveau gaspillage avant qu'il ne s'accumule et applique un seuil de coût sur tous les comptes ou abonnements.
+
+```yaml
+# .github/workflows/cleancloud-weekly.yml
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # chaque lundi à 9h
+```
+
+```bash
+# AWS — scan de toute l'org, alerte si le gaspillage mensuel dépasse 500$
+cleancloud scan --provider aws --org --all-regions \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+
+# Azure — scan de tous les abonnements sous un Management Group
+cleancloud scan --provider azure --management-group <MGMT_GROUP_ID> \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+```
+
+La sortie JSON peut alimenter des alertes Slack, des tickets Jira ou un tableau de bord de coûts. Aucun agent, aucun SaaS — s'exécute entièrement dans votre propre infrastructure.
+
+---
+
+**Audit ponctuel** — exécutez depuis CloudShell ou votre terminal pour une vue immédiate à un instant T. Sans installation supplémentaire, sans configuration, findings en moins de 60 secondes. Utile avant une revue trimestrielle des coûts, une migration cloud, ou un audit de sécurité.
+
+```bash
+# AWS CloudShell — utilise votre session portail, pas d'auth supplémentaire
+pip install --upgrade cleancloud
+cleancloud scan --provider aws --all-regions
+
+# Azure Cloud Shell — utilise votre session portail, pas d'auth supplémentaire
+pip install --upgrade --user cleancloud && export PATH="$HOME/.local/bin:$PATH"
+cleancloud scan --provider azure
+```
+
+---
+
+**En CI/CD** — exécutez comme étape dans votre workflow de déploiement pour détecter le gaspillage évident avant qu'il ne soit livré. Utilisez les flags d'application pour bloquer ou alerter.
+
+```bash
+# AWS
+cleancloud scan --provider aws --region us-east-1 \
+  --fail-on-confidence HIGH   # exit 2 si gaspillage HIGH confidence détecté
+
+# Azure
+cleancloud scan --provider azure \
+  --fail-on-confidence HIGH
+```
+
+---
+
+**Seuils d'application** — les scans retournent toujours `0` sauf si vous activez l'application :
 
 | Flag | Comportement | Code de sortie |
 |------|-------------|----------------|
@@ -325,9 +398,9 @@ Les scans se terminent avec `0` par défaut. Activez l'application de politique 
 
 Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure (Workload Identity) — incluant la configuration OIDC, les politiques IAM/RBAC, et les patterns d'application :
 
-**[Guide CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
+**[Guide automatisation & CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
 
-**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion CI/CD →](https://github.com/cleancloud-io/cleancloud/discussions/98)
+**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
@@ -436,13 +509,13 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ## Feuille de route
 
-**Plus de règles AWS** — anciens snapshots RDS, lacunes de cycle de vie S3, et plus
+**Support GCP** — authentification (Application Default Credentials + Workload Identity), énumération de projets, et un premier ensemble de règles couvrant le gaspillage compute, stockage et réseau (5–8 règles). Complète le tableau multi-cloud pour les environnements AWS + Azure + GCP.
 
-**Plus de règles Azure** — App Services inactifs, Container Registries inutilisés, et plus
+**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 
-**Support GCP** — authentification, énumération de projets, et un premier ensemble de règles d'hygiène. Complète le tableau multi-cloud.
+**Plus de règles AWS** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Redshift inactif
 
-**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config
+**Plus de règles Azure** — Azure Firewall inactif, pools de nœuds AKS inactifs, pools Azure Batch inutilisés
 
 **Filtrage de règles** — flag `--rules` pour exécuter un sous-ensemble de règles
 
@@ -453,7 +526,7 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 - [`docs/rules.md`](docs/rules.md) — Règles de détection, signaux et preuves
 - [`docs/aws.md`](docs/aws.md) — Politique IAM AWS et configuration OIDC
 - [`docs/azure.md`](docs/azure.md) — RBAC Azure et configuration Workload Identity
-- [`docs/ci.md`](docs/ci.md) — Guide d'intégration CI/CD
+- [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, modèle de menace

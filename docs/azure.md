@@ -233,7 +233,7 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
-**What Reader allows (all 14 permissions CleanCloud uses):**
+**What Reader allows (all 16 permissions CleanCloud uses):**
 
 | Permission | Rule |
 |---|---|
@@ -247,9 +247,11 @@ az role assignment create \
 | `Microsoft.Network/connections/read` | Gateway connection status |
 | `Microsoft.Web/serverfarms/read` | Empty App Service Plans |
 | `Microsoft.Web/serverfarms/sites/read` | Empty App Service Plans (app count) |
+| `Microsoft.Web/sites/read` | Idle App Services |
+| `Microsoft.ContainerRegistry/registries/read` | Unused Container Registries |
 | `Microsoft.Sql/servers/read` | SQL server discovery |
 | `Microsoft.Sql/servers/databases/read` | Idle SQL databases |
-| `Microsoft.Insights/metrics/read` | SQL connection metrics |
+| `Microsoft.Insights/metrics/read` | SQL connection metrics, idle App Services, unused Container Registries |
 | `Microsoft.Resources/subscriptions/read` | Subscription discovery |
 | `Microsoft.Resources/resources/read` | Resource discovery |
 
@@ -269,14 +271,16 @@ az role assignment create \
   "Actions": [
     "Microsoft.Compute/disks/read",
     "Microsoft.Compute/snapshots/read",
+    "Microsoft.Compute/virtualMachines/read",
     "Microsoft.Network/publicIPAddresses/read",
-    "Microsoft.Web/serverfarms/read",
-    "Microsoft.Web/serverfarms/sites/read",
     "Microsoft.Network/loadBalancers/read",
     "Microsoft.Network/applicationGateways/read",
     "Microsoft.Network/virtualNetworkGateways/read",
-    "Microsoft.Compute/virtualMachines/read",
     "Microsoft.Network/connections/read",
+    "Microsoft.Web/serverfarms/read",
+    "Microsoft.Web/serverfarms/sites/read",
+    "Microsoft.Web/sites/read",
+    "Microsoft.ContainerRegistry/registries/read",
     "Microsoft.Sql/servers/read",
     "Microsoft.Sql/servers/databases/read",
     "Microsoft.Insights/metrics/read",

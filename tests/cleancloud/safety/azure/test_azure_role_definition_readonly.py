@@ -5,7 +5,7 @@ import pytest
 
 FORBIDDEN_ACTIONS = ("*/delete", "*/write", "*/create", "*/update")
 
-ROLE_PATH = Path("cleancloud/security/azure-readonly-role.json")
+ROLE_PATH = Path("security/azure-readonly-role.json")
 
 
 @pytest.mark.safety

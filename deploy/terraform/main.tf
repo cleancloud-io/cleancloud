@@ -51,6 +51,8 @@ resource "aws_iam_role_policy" "cleancloud" {
           "ec2:DescribeNetworkInterfaces",
           "ec2:DescribeNatGateways",
           "ec2:DescribeRegions",
+          "ec2:DescribeInstances",
+          "ec2:DescribeSecurityGroups",
         ]
         Resource = "*"
       },
@@ -65,9 +67,12 @@ resource "aws_iam_role_policy" "cleancloud" {
         Resource = "*"
       },
       {
-        Sid      = "RDSReadOnly"
-        Effect   = "Allow"
-        Action   = ["rds:DescribeDBInstances"]
+        Sid    = "RDSReadOnly"
+        Effect = "Allow"
+        Action = [
+          "rds:DescribeDBInstances",
+          "rds:DescribeDBSnapshots",
+        ]
         Resource = "*"
       },
       {

@@ -2,8 +2,8 @@
 
 **CleanCloud Security Assessment for Enterprise Information Security Teams**
 
-**Version:** 1.2
-**Last Updated:** 2026-02-14
+**Version:** 1.3
+**Last Updated:** 2026-03-23
 **Classification:** Public
 
 ---
@@ -268,77 +268,7 @@ The IAM Proof Pack includes:
 
 #### 1. AWS IAM Policy (Read-Only)
 
-**File:** `security/aws-readonly-policy.json`
-
-**Location in repo:** [`security/aws-readonly-policy.json`](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json)
-
-**Policy:**
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "EC2ReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeVolumes",
-        "ec2:DescribeSnapshots",
-        "ec2:DescribeImages",
-        "ec2:DescribeAddresses",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions",
-        "ec2:DescribeInstances",
-        "ec2:DescribeSecurityGroups"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "ELBReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeTargetGroups",
-        "elasticloadbalancing:DescribeTargetHealth"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "RDSReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "rds:DescribeDBInstances"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "CloudWatchReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "cloudwatch:GetMetricStatistics"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "S3ReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListAllMyBuckets",
-        "s3:GetBucketTagging"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "STSIdentity",
-      "Effect": "Allow",
-      "Action": "sts:GetCallerIdentity",
-      "Resource": "*"
-    }
-  ]
-}
-```
+**Policy:** [`security/aws-readonly-policy.json`](../security/aws-readonly-policy.json)
 
 **Verification:**
 
@@ -1135,73 +1065,7 @@ CleanCloud output may contain:
 
 #### AWS IAM Policy
 
-The minimum required permissions are **read-only**:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "EC2ReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "ec2:DescribeVolumes",
-        "ec2:DescribeSnapshots",
-        "ec2:DescribeImages",
-        "ec2:DescribeAddresses",
-        "ec2:DescribeNetworkInterfaces",
-        "ec2:DescribeNatGateways",
-        "ec2:DescribeRegions",
-        "ec2:DescribeInstances",
-        "ec2:DescribeSecurityGroups"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "ELBReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeTargetGroups",
-        "elasticloadbalancing:DescribeTargetHealth"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "RDSReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "rds:DescribeDBInstances"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "CloudWatchReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "cloudwatch:GetMetricStatistics"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "S3ReadOnly",
-      "Effect": "Allow",
-      "Action": [
-        "s3:ListAllMyBuckets",
-        "s3:GetBucketTagging"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "STSIdentity",
-      "Effect": "Allow",
-      "Action": "sts:GetCallerIdentity",
-      "Resource": "*"
-    }
-  ]
-}
-```
+The minimum required permissions are **read-only** — see [`security/aws-readonly-policy.json`](../security/aws-readonly-policy.json) for the canonical policy.
 
 **Characteristics:**
 - Zero `Delete*`, `Put*`, `Create*`, `Update*`, or `Tag*` permissions
@@ -1414,12 +1278,15 @@ aws cloudtrail lookup-events \
 ```
 "DescribeAddresses"
 "DescribeDBInstances"
+"DescribeDBSnapshots"
 "DescribeImages"
+"DescribeInstances"
 "DescribeLoadBalancers"
 "DescribeLogGroups"
 "DescribeNatGateways"
 "DescribeNetworkInterfaces"
 "DescribeRegions"
+"DescribeSecurityGroups"
 "DescribeSnapshots"
 "DescribeTargetGroups"
 "DescribeTargetHealth"
@@ -1884,6 +1751,7 @@ Documentation: https://github.com/cleancloud-io/cleancloud/tree/main/docs
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3 | 2026-03-23 | Updated IAM policy (19 permissions: added rds:DescribeDBSnapshots, ec2:DescribeInstances, ec2:DescribeSecurityGroups), updated CloudTrail expected events |
 | 1.2 | 2026-02-14 | Updated IAM policy (15 permissions: added ELB, RDS), updated CloudTrail expected events, added Azure VM rule |
 | 1.1 | 2026-02-08 | Updated IAM policy (12 permissions), fixed safety test paths, updated dependencies, updated SBOM |
 | 1.0 | 2026-01-10 | Initial release |

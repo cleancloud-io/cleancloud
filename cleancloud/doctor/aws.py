@@ -230,6 +230,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  ec2:DescribeInstances")
         info("  ec2:DescribeSecurityGroups")
         info("  rds:DescribeDBInstances")
+        info("  rds:DescribeDBSnapshots")
         info("  elasticloadbalancing:DescribeLoadBalancers")
         info("  elasticloadbalancing:DescribeTargetGroups")
         info("  logs:DescribeLogGroups")
@@ -456,14 +457,22 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             warn(f"ec2:DescribeSecurityGroups - {e}")
 
         # Test RDS permissions
+        rds = session.client("rds", region_name=region)
         try:
-            rds = session.client("rds", region_name=region)
             rds.describe_db_instances(MaxRecords=20)
             permissions_tested.append("rds:DescribeDBInstances")
             success("rds:DescribeDBInstances")
         except Exception as e:
             permissions_failed.append(("rds:DescribeDBInstances", str(e)))
             warn(f"rds:DescribeDBInstances - {e}")
+
+        try:
+            rds.describe_db_snapshots(MaxRecords=20, SnapshotType="manual")
+            permissions_tested.append("rds:DescribeDBSnapshots")
+            success("rds:DescribeDBSnapshots")
+        except Exception as e:
+            permissions_failed.append(("rds:DescribeDBSnapshots", str(e)))
+            warn(f"rds:DescribeDBSnapshots - {e}")
 
         # Test ELB permissions
         try:

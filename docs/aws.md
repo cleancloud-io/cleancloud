@@ -10,9 +10,9 @@
 
 | Scenario | What you need |
 |---|---|
-| Single-account scan | [18 read-only permissions](#iam-policy-minimum-required-permissions) |
-| Multi-account — spoke accounts | Same 18 permissions (no changes needed) |
-| Multi-account — hub account | Same 18 + `sts:AssumeRole` on spoke roles |
+| Single-account scan | [19 read-only permissions](#iam-policy-minimum-required-permissions) |
+| Multi-account — spoke accounts | Same 19 permissions (no changes needed) |
+| Multi-account — hub account | Same 19 + `sts:AssumeRole` on spoke roles |
 | `--org` auto-discovery (hub only) | Above + `organizations:ListAccounts` |
 
 All permissions are read-only. No `Delete*`, `Create*`, or `Tag*` actions — ever.
@@ -285,7 +285,8 @@ Attach this policy to your IAM role or user:
       "Sid": "RDSReadOnly",
       "Effect": "Allow",
       "Action": [
-        "rds:DescribeDBInstances"
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSnapshots"
       ],
       "Resource": "*"
     },
@@ -772,6 +773,7 @@ Step 4: Read-Only Permission Validation
 [OK] ec2:DescribeInstances
 [OK] ec2:DescribeSecurityGroups
 [OK] rds:DescribeDBInstances
+[OK] rds:DescribeDBSnapshots
 [OK] elasticloadbalancing:DescribeLoadBalancers
 [OK] elasticloadbalancing:DescribeTargetGroups
 [OK] logs:DescribeLogGroups
@@ -784,7 +786,7 @@ VALIDATION SUMMARY
 ======================================================================
 Authentication: OIDC (AssumeRoleWithWebIdentity)
 Security Grade: EXCELLENT
-Permissions Tested: 18/18 passed
+Permissions Tested: 19/19 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================

@@ -14,22 +14,32 @@
 
 ---
 
-**Enforces cloud hygiene policy in CI and gives engineering, finance, and ops a single view of waste.**
+**CleanCloud is the Cloud Hygiene Engine — the missing layer between cost visibility and cleanup.**
 
 **Supports:** AWS · Azure — GCP coming soon
 
-Read-only cloud hygiene for regulated & sovereign environments.
+Cloud waste hit 29% of spend in 2026 — the first rise in five years (Flexera). Most teams already have cost dashboards. Dashboards show spend trends; they don't tell engineers what to clean up. SaaS FinOps platforms require vendor access to your cloud account — a non-starter for regulated industries. And as cloud environments scale across accounts and subscriptions, unused resources are no longer exceptions — they are continuous drift. Platform teams need a deterministic, enforceable process to turn that drift into a list of exactly what to act on.
 
-CleanCloud scans your cloud environment and reports what's wasting money. Run it once for a quick audit, schedule it, or wire it into CI/CD to fail builds on policy violations.
+That's CleanCloud. Scan your AWS and Azure environments, get specific actionable findings with per-resource cost estimates, and enforce waste thresholds on a schedule — no agents, no SaaS, no data leaving your environment.
 
-- **22 high-signal detection rules:** orphaned volumes, idle databases, stopped instances, empty load balancers, and more
-- **Estimated monthly waste:** per finding and aggregate, broken down per account and subscription
-- **Multi-account scanning (AWS):** scan entire AWS Organizations in minutes — config file, inline IDs, or auto-discovery via `--org`
-- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel with one identity — auto-discovery via Management Group or all accessible — per-subscription cost breakdown included
-- **CI-native enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` gates your pipeline
-- **Multiple output formats:** human-readable, JSON, CSV, and markdown (paste into GitHub PRs or Slack)
-- **Read-only by design:** no deletions, no tag changes, no mutations — ever
-- **No agents. No telemetry. No SaaS.** Runs in your environment, data never leaves
+| | AWS/Azure native cost tools | FinOps SaaS platforms | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Shows cost trends | ✅ | ✅ | — |
+| Names exactly which resources to clean up | ❌ | partial | ✅ |
+| Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
+| Read-only, no agents | ✅ | ❌ | ✅ |
+| Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
+| No SaaS account or vendor access required | ❌ | ❌ | ✅ |
+| Multi-account / multi-subscription hygiene | ❌ | ✅ | ✅ |
+| CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
+
+- **25 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
+- **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
+- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
+- **Safe for regulated environments:** read-only, no agents, no telemetry, no SaaS — runs entirely inside your own infrastructure. Suitable for financial services, healthcare, and government accounts where third-party SaaS access is restricted
+- **Ecosystem-ready output:** JSON for Slack alerts, cost dashboards, and ticketing automation — CSV for spreadsheet workflows — markdown to paste directly into GitHub PRs, Jira, or Confluence
+- **No agents. No telemetry. No SaaS.** Data never leaves your environment
 
 ### What CleanCloud does NOT do
 
@@ -41,10 +51,16 @@ CleanCloud scans your cloud environment and reports what's wasting money. Run it
 
 All operations are read-only. Safe for production accounts, air-gapped environments, and security-reviewed pipelines.
 
+**Who uses it:**
+- **Platform and FinOps teams** — run weekly hygiene scans across your AWS Org or Azure tenant, enforce waste thresholds, catch drift before it compounds
+- **Regulated industries** — financial services, healthcare, and government teams that cannot send cloud account data to a SaaS vendor
+- **Mid-market engineering teams** — too large to ignore cloud waste, too lean for enterprise FinOps platforms. Native cost tools show bills; CleanCloud shows you what to fix
+- **Cloud consultants and MSPs** — run a read-only audit against a client account in minutes, export findings to markdown or JSON
+
 **Use cases:**
 - One-time cloud waste audit — run in CloudShell, see findings in 60 seconds
-- Scheduled hygiene scans — cron job or weekly CI run to catch drift
-- CI/CD enforcement gates — fail builds when waste exceeds your threshold
+- Scheduled hygiene governance — weekly job that catches new waste and enforces thresholds across all accounts
+- Pre-review reports — export findings to markdown before a quarterly cost review or board meeting
 
 ```
 Found 6 hygiene issues:
@@ -89,7 +105,7 @@ pipx ensurepath        # adds cleancloud to PATH — restart your shell after th
 cleancloud demo        # see sample findings without any cloud credentials
 ```
 
-**Via Docker (recommended for CI/CD — no Python required):**
+**Via Docker (no Python required — runs anywhere: CI/CD, scheduled jobs, servers):**
 ```bash
 docker pull getcleancloud/cleancloud
 docker run --rm getcleancloud/cleancloud demo
@@ -143,7 +159,7 @@ Not sure if your credentials have the right permissions? Run `cleancloud doctor 
 --output human|json|csv|markdown  Output format (default: human)
 --output-file FILE            Write output to file instead of stdout
 
-# CI/CD enforcement (optional, all exit code 2 on match)
+# Enforcement thresholds (optional, all exit code 2 on match)
 --fail-on-confidence HIGH     Fail on HIGH confidence findings
 --fail-on-confidence MEDIUM   Fail on MEDIUM or higher findings
 --fail-on-cost N              Fail if estimated monthly waste >= $N
@@ -290,11 +306,11 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 
 ## What CleanCloud Detects
 
-22 rules across AWS and Azure — conservative, high-signal, designed to avoid false positives in IaC environments.
+25 rules across AWS and Azure — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
-- Storage: unattached EBS volumes (HIGH), old EBS snapshots, old AMIs
+- Storage: unattached EBS volumes (HIGH), old EBS snapshots, old AMIs, old RDS snapshots 90+ days
 - Network: unattached Elastic IPs (HIGH), detached ENIs, idle NAT Gateways, idle load balancers (HIGH)
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
@@ -304,7 +320,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 - Compute: stopped (not deallocated) VMs (HIGH)
 - Storage: unattached managed disks (HIGH), old snapshots
 - Network: unused public IPs, empty load balancers (HIGH), empty App Gateways (HIGH), idle VNet Gateways
-- Platform: empty App Service Plans (HIGH), idle SQL databases (HIGH)
+- Platform: empty App Service Plans (HIGH), idle SQL databases (HIGH), idle App Services, unused Container Registries
 - Governance: untagged resources
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
@@ -313,9 +329,66 @@ Rules without a confidence marker are MEDIUM — they use time-based heuristics 
 
 ---
 
-## CI/CD Enforcement
+## How Teams Run CleanCloud
 
-Scans exit `0` by default. Opt in to enforcement:
+CleanCloud exits `0` by default — it reports findings and never blocks anything unless you ask it to. Three common patterns:
+
+---
+
+**Weekly governance scan** — the most common setup for platform and FinOps teams. Run on a schedule, not tied to code changes. Catches new waste before it compounds and enforces a cost threshold across all accounts or subscriptions.
+
+```yaml
+# .github/workflows/cleancloud-weekly.yml
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # every Monday 9am
+```
+
+```bash
+# AWS — scan entire org, alert if monthly waste crosses $500
+cleancloud scan --provider aws --org --all-regions \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+
+# Azure — scan all subscriptions under a Management Group
+cleancloud scan --provider azure --management-group <MGMT_GROUP_ID> \
+  --output json --output-file findings.json \
+  --fail-on-cost 500
+```
+
+The JSON output can feed Slack alerts, Jira tickets, or a cost dashboard. No agents, no SaaS — runs entirely in your own infrastructure.
+
+---
+
+**On-demand audit** — run from CloudShell or your terminal for an immediate point-in-time view. No install, no config, findings in under 60 seconds. Useful before a quarterly cost review, a cloud migration, or an infosec audit.
+
+```bash
+# AWS CloudShell — uses your portal session, no extra auth
+pip install --upgrade cleancloud
+cleancloud scan --provider aws --all-regions
+
+# Azure Cloud Shell — uses your portal session, no extra auth
+pip install --upgrade --user cleancloud && export PATH="$HOME/.local/bin:$PATH"
+cleancloud scan --provider azure
+```
+
+---
+
+**In CI/CD** — run as a step in your deployment workflow to catch obvious waste before it ships. Use enforcement flags to block or warn.
+
+```bash
+# AWS
+cleancloud scan --provider aws --region us-east-1 \
+  --fail-on-confidence HIGH   # exit 2 if any HIGH confidence waste found
+
+# Azure
+cleancloud scan --provider azure \
+  --fail-on-confidence HIGH
+```
+
+---
+
+**Enforcement flags** — scans always exit `0` unless you opt in:
 
 | Flag | Behavior | Exit code |
 |------|----------|-----------|
@@ -325,11 +398,11 @@ Scans exit `0` by default. Opt in to enforcement:
 | `--fail-on-cost 50` | Fail if estimated monthly waste >= $50 | `2` |
 | `--fail-on-findings` | Fail on any finding | `2` |
 
-Complete, copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Workload Identity) — including OIDC setup, trust policy, RBAC, and enforcement patterns:
+Copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Workload Identity) — including auth setup, RBAC, and enforcement patterns:
 
-**[CI/CD guide →](docs/ci.md)** · [AWS setup →](docs/aws.md) · [Azure setup →](docs/azure.md)
+**[Automation & CI/CD guide →](docs/ci.md)** · [AWS setup →](docs/aws.md) · [Azure setup →](docs/azure.md)
 
-**Need help with OIDC or enforcement flags?** [Ask in our CI/CD setup discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
+**Need help with OIDC or enforcement flags?** [Ask in our setup discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
@@ -438,13 +511,13 @@ Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subsc
 
 ## Roadmap
 
-**More AWS rules** — old RDS snapshots, S3 lifecycle gaps, and more
+**GCP support** — auth (Application Default Credentials + Workload Identity), project enumeration, and an initial rule set covering compute, storage, and network waste (5–8 rules). Completes the multi-cloud picture for AWS + Azure + GCP environments.
 
-**More Azure rules** — idle App Services, unused Container Registries, and more
+**Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config — the top FinOps governance ask for 2025/2026
 
-**GCP support** — auth, project enumeration, and an initial set of hygiene rules. Completes the multi-cloud picture.
+**More AWS rules** — S3 lifecycle gaps, AI/GPU waste (idle SageMaker endpoints, orphaned GPU instances), Redshift idle
 
-**Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config
+**More Azure rules** — Azure Firewall idle, AKS node pool idle, Azure Batch unused pools
 
 **Rule filtering** — `--rules` flag to run a subset of rules
 
@@ -455,7 +528,7 @@ Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subsc
 - [`docs/rules.md`](docs/rules.md) — Detection rules, signals, and evidence
 - [`docs/aws.md`](docs/aws.md) — AWS IAM policy and OIDC setup
 - [`docs/azure.md`](docs/azure.md) — Azure RBAC and Workload Identity setup
-- [`docs/ci.md`](docs/ci.md) — CI/CD integration guide
+- [`docs/ci.md`](docs/ci.md) — Automation, scheduled scans, and CI/CD integration
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Full output examples
 - [`SECURITY.md`](SECURITY.md) — Security policy and threat model
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, threat model

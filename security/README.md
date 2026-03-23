@@ -38,14 +38,22 @@ Verifying AWS IAM Policy: aws-readonly-policy.json
 PASS: No write/delete/tag permissions found
 
 Allowed actions:
+cloudwatch:GetMetricStatistics
+ec2:DescribeAddresses
+ec2:DescribeImages
 ec2:DescribeInstances
+ec2:DescribeNatGateways
+ec2:DescribeNetworkInterfaces
 ec2:DescribeRegions
+ec2:DescribeSecurityGroups
 ec2:DescribeSnapshots
 ec2:DescribeVolumes
-ec2:DescribeTags
+elasticloadbalancing:DescribeLoadBalancers
+elasticloadbalancing:DescribeTargetGroups
+elasticloadbalancing:DescribeTargetHealth
 logs:DescribeLogGroups
-logs:DescribeLogStreams
-logs:GetLogEvents
+rds:DescribeDBInstances
+rds:DescribeDBSnapshots
 s3:GetBucketTagging
 s3:ListAllMyBuckets
 sts:GetCallerIdentity
@@ -145,8 +153,8 @@ These policies are also validated in CI/CD:
 
 ```bash
 # Run safety regression tests
-pytest cleancloud/safety/aws/test_iam_policy_readonly.py -v
-pytest cleancloud/safety/azure/test_role_definition_readonly.py -v
+pytest tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py -v
+pytest tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py -v
 ```
 
 See [`docs/safety.md`](../docs/safety.md) for details on automated safety testing.

@@ -88,71 +88,40 @@ CleanCloud surfaces candidates for review — nothing more.
 
 **Note on cost estimates:** Some rules include an `estimated_monthly_cost` in finding details (e.g., idle NAT Gateways, old AMIs). These are calculated from resource properties (size, SKU, quantity) — not from billing APIs or spending data. They help prioritize review, not justify deletion.
 
-## Age-Based Confidence (Examples)
+## Age-Based and State-Based Confidence
 
-Many rules use time as one input signal. Thresholds vary by rule and resource type:
+Each rule documents its own confidence logic, thresholds, and signals. See the canonical reference:
 
-| Rule | Age Threshold | Confidence |
-|------|---------------|------------|
-| AWS Unattached EBS Volumes | 7+ days | MEDIUM |
-| AWS Unattached EBS Volumes | 14+ days | HIGH |
-| AWS Unattached Elastic IPs | 30+ days | HIGH |
-| AWS Detached ENIs | 60+ days | MEDIUM |
-| AWS Old EBS Snapshots | 90+ days | MEDIUM |
-| AWS Old AMIs | 180+ days | MEDIUM |
-| AWS Idle NAT Gateways | 14+ days idle | MEDIUM |
-| AWS Idle RDS Instances | 14+ days idle | HIGH |
-| AWS Idle ELBs (no targets) | 14+ days idle | HIGH |
-| AWS Idle ELBs (has targets) | 14+ days idle | MEDIUM |
-| Azure Unattached Disks | 7+ days | MEDIUM |
-| Azure Unattached Disks | 14+ days | HIGH |
-| Azure Old Snapshots | 30+ days | MEDIUM |
-| Azure Old Snapshots | 90+ days | HIGH |
-| Azure Idle SQL Databases | 14+ days idle | HIGH |
+**→ [docs/rules.md](rules.md)**
 
-Resources below these thresholds are not flagged — this prevents false positives on recently created or temporarily detached resources.
+The key patterns are:
 
-## State-Based Confidence (Deterministic)
+- **Age-based rules** use time thresholds (e.g., 14+ days unattached) to avoid false positives on ephemeral resources. Resources below the threshold are not flagged.
+- **State-based rules** use a single deterministic binary check (e.g., zero backend members, no retention policy) — no age threshold needed.
 
-Some rules use a single deterministic state check — no age threshold needed. These are binary signals with zero false positives:
+Conflicting signals always reduce confidence, never increase it.
 
-| Rule | Signal | Confidence |
-|------|--------|------------|
-| AWS Infinite Retention Logs | No retention policy set | MEDIUM |
-| AWS Untagged Resources | Zero tags on resource | MEDIUM |
-| Azure Unused Public IPs | IP not attached to any resource | MEDIUM |
-| Azure Untagged Resources (unattached disk) | Zero tags and not attached | MEDIUM |
-| Azure Untagged Resources (snapshot/attached disk) | Zero tags | LOW |
-| Azure Empty App Service Plans | Paid plan with zero apps | HIGH |
-| Azure Empty Load Balancers | Standard LB with zero backend members | HIGH |
-| Azure Empty App Gateways | All backend pools have zero targets | HIGH |
-| Azure Idle VNet Gateways | No active connections | MEDIUM |
-| Azure Stopped (Not Deallocated) VMs | Power state is 'Stopped' (not 'Deallocated') | HIGH |
+## Using Confidence in Governance Scans
 
-## Using Confidence in CI/CD
-
-Confidence levels are designed to integrate safely into CI/CD pipelines.
+Confidence levels are designed for scheduled governance scans and optional enforcement gates.
 
 Recommended usage:
 
-- Block pipelines only on HIGH confidence findings
-- Review MEDIUM findings asynchronously
-- Ignore LOW findings unless investigating drift
+- **Scheduled scans** (daily/weekly) — report all findings; triage HIGH first, review MEDIUM asynchronously, treat LOW as informational
+- **Enforcement gates** (optional) — fail a scheduled job or PR scan if HIGH confidence waste exceeds a threshold
 
 Example:
 
-`cleancloud scan --provider aws --region us-east-1 --fail-on-confidence HIGH`
+`cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH`
 
-### Why HIGH confidence is safe for pipeline gating
+### Why HIGH confidence is safe for enforcement
 
 HIGH confidence findings share these properties:
 
 - **Deterministic signals** — binary states (e.g., zero associations) or long-lived thresholds (14+ days) that eliminate ephemeral false positives
 - **IaC-resilient** — newly provisioned resources fall below age thresholds; recently modified resources show recent activity
 - **No business inference** — HIGH confidence never assumes a resource is unused forever, only that observable signals are consistently strong
-- **Stable across deploys** — a HIGH confidence finding won't flip to LOW on the next scan due to normal infrastructure churn
-
-This makes `--fail-on-confidence HIGH` safe to use as a hard gate on production pipelines.
+- **Stable across scans** — a HIGH confidence finding won't flip to LOW on the next scan due to normal infrastructure churn
 
 ## Design Guarantees
 

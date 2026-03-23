@@ -58,6 +58,8 @@ Resources:
                   - ec2:DescribeNetworkInterfaces
                   - ec2:DescribeNatGateways
                   - ec2:DescribeRegions
+                  - ec2:DescribeInstances
+                  - ec2:DescribeSecurityGroups
                 Resource: "*"
               - Sid: ELBReadOnly
                 Effect: Allow
@@ -70,6 +72,7 @@ Resources:
                 Effect: Allow
                 Action:
                   - rds:DescribeDBInstances
+                  - rds:DescribeDBSnapshots
                 Resource: "*"
               - Sid: CloudWatchReadOnly
                 Effect: Allow
