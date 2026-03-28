@@ -415,10 +415,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         permissions_attempted.append("compute.globalAddresses.list")
         try:
             global_client = compute_v1.GlobalAddressesClient(credentials=credentials)
-            next(
-                iter(global_client.list(project=probe_project_id, max_results=1)),
-                None,
-            )
+            next(iter(global_client.list(project=probe_project_id)), None)
             permissions_tested.append("compute.globalAddresses.list")
             success("compute.globalAddresses.list")
         except (PermissionDenied, Forbidden) as e:
@@ -439,10 +436,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         permissions_attempted.append("compute.snapshots.list")
         try:
             snapshots_client = compute_v1.SnapshotsClient(credentials=credentials)
-            next(
-                iter(snapshots_client.list(project=probe_project_id, max_results=1)),
-                None,
-            )
+            next(iter(snapshots_client.list(project=probe_project_id)), None)
             permissions_tested.append("compute.snapshots.list")
             success("compute.snapshots.list")
         except (PermissionDenied, Forbidden) as e:
