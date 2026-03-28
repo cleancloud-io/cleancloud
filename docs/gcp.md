@@ -76,6 +76,14 @@ You need:
   ```
 - The **project number** of the host project (needed for WIF): `gcloud projects describe cleancloud-hub --format='value(projectNumber)'`
 
+**Enable required APIs on the host project** *(one-time)*:
+
+```bash
+gcloud services enable iamcredentials.googleapis.com --project=<HOST_PROJECT_ID>
+```
+
+> `iamcredentials.googleapis.com` (IAM Service Account Credentials API) is required for Workload Identity Federation token exchange. Without it, CI fails at credential acquisition with a `403 SERVICE_DISABLED` error even if all IAM bindings are correct.
+
 ---
 
 ### Step 1: Create the Host Project, Service Account, and WIF Pool
@@ -495,6 +503,19 @@ This means you can run CleanCloud with only the permissions you have — it repo
 ---
 
 ## Troubleshooting
+
+### `403 IAM Service Account Credentials API has not been used` / `SERVICE_DISABLED`
+
+**Cause:** The IAM Service Account Credentials API (`iamcredentials.googleapis.com`) is not enabled on the host project. This API is required for Workload Identity Federation token exchange — it's not enabled by default on new projects.
+
+**Fix:**
+```bash
+gcloud services enable iamcredentials.googleapis.com --project=<HOST_PROJECT_ID>
+```
+
+Wait ~1 minute for the change to propagate, then re-run.
+
+---
 
 ### `google.auth.exceptions.DefaultCredentialsError`
 
