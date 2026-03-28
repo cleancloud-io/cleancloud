@@ -40,14 +40,14 @@ def test_json_output_includes_schema_version():
 
     # Simulate what command.py does
     output = {
-        "schema_version": "1.1.0",
+        "schema_version": "1.2.0",
         "summary": summary,
         "findings": [f.to_dict() for f in findings],
     }
 
     # Verify schema_version is present and correct
     assert "schema_version" in output
-    assert output["schema_version"] == "1.1.0"
+    assert output["schema_version"] == "1.2.0"
 
 
 def test_json_output_has_required_summary_fields():
@@ -144,7 +144,7 @@ def test_finding_dict_has_all_required_fields():
 
 def test_schema_file_exists_and_is_valid_json():
     """Verify that the schema file exists and is valid JSON."""
-    schema_path = Path(__file__).parent.parent.parent / "schemas" / "output-v1.1.0.json"
+    schema_path = Path(__file__).parent.parent.parent / "schemas" / "output-v1.2.0.json"
 
     assert schema_path.exists(), f"Schema file not found at {schema_path}"
 

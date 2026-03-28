@@ -2,9 +2,9 @@
 
 **CleanCloud Security Documentation**
 
-Version: 1.0
+Version: 1.1
 
-Last Updated: 2026-01-21
+Last Updated: 2026-03-28
 
 Classification: Public
 
@@ -102,7 +102,7 @@ CleanCloud is built on **defense-in-depth** principles with security enforced at
 ### Network Security
 
 **Outbound Connections:**
-- **AWS/Azure API endpoints only** (HTTPS, TLS 1.2+)
+- **AWS, Azure, and GCP API endpoints only** (HTTPS, TLS 1.2+)
 - **No connections to CleanCloud infrastructure** (we have none)
 - **No analytics or telemetry endpoints**
 - **No update servers or phone-home**
@@ -122,6 +122,10 @@ CleanCloud is built on **defense-in-depth** principles with security enforced at
 | **Azure** | Service Principal (Secret) | Poor | Local development only |
 | **Azure** | Azure CLI | Acceptable | Local development only |
 | **Azure** | Managed Identity | Excellent | Azure VM/Container Apps |
+| **GCP** | Workload Identity Federation | Excellent | CI/CD (GitHub Actions) - **Recommended** |
+| **GCP** | Application Default Credentials | Excellent | Cloud Shell / local gcloud |
+| **GCP** | Service Account Key (JSON) | Poor | Local development only — avoid in CI/CD |
+| **GCP** | Attached Service Account | Excellent | GCP VM / Cloud Run / GKE |
 
 #### OIDC Implementation (Recommended)
 
@@ -526,7 +530,7 @@ CleanCloud implements **automated security scanning on every commit** to both pu
 
 **What it does**:
 - Scans entire git history for leaked credentials
-- Detects AWS keys, Azure secrets, API tokens
+- Detects AWS keys, Azure secrets, GCP service account keys, API tokens
 - Verifies secrets are active (not just patterns)
 - Prevents credential commits
 
@@ -728,6 +732,7 @@ CleanCloud is suitable for government environments, including:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-01-21 | CleanCloud Security Team | Initial release |
+| 1.1 | 2026-03-28 | CleanCloud Security Team | Added GCP: auth methods, network scope, secrets detection |
 
 **Review Schedule**: Updated as needed (target: annually or when significant changes occur)
 

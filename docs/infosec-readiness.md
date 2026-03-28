@@ -32,7 +32,7 @@
 
 ### What is CleanCloud?
 
-CleanCloud is an **open-source, read-only cloud hygiene scanning tool** designed for AWS and Azure environments. It identifies orphaned, untagged, or inactive cloud resources without making any modifications to infrastructure.
+CleanCloud is an **open-source, read-only cloud hygiene scanning tool** designed for AWS, Azure, and GCP environments. It identifies orphaned, untagged, or inactive cloud resources without making any modifications to infrastructure.
 
 ### Key Security Guarantees
 
@@ -1503,8 +1503,8 @@ azure-core >= 1.38.0 # Azure SDK core
 ```
 
 **Dependency Security:**
-- All dependencies are from well-known, actively maintained projects (AWS, Microsoft, Pallets)
-- AWS and Azure dependencies are included by default (`pip install cleancloud`)
+- All dependencies are from well-known, actively maintained projects (AWS, Microsoft, Google, Pallets)
+- AWS, Azure, and GCP dependencies are included by default (`pip install cleancloud`)
 - Minimum version pinning (allows security updates)
 - No transitive dependencies from untrusted sources
 - Dependencies scanned with `pip-audit` in CI

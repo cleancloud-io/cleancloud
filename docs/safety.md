@@ -23,7 +23,7 @@ CleanCloud is designed with a **trust-first, enterprise-ready approach**. This d
 
 ## Introduction
 
-CleanCloud provides **provable read-only safety** for both AWS and Azure through **three layers of safety checks**:
+CleanCloud provides **provable read-only safety** for AWS, Azure, and GCP through **three layers of safety checks**:
 
 1. **Static AST checks** — Detect forbidden SDK calls in provider code.
 2. **Runtime SDK guards** — Intercept any forbidden calls during test execution.
@@ -40,7 +40,10 @@ cleancloud/
 │   ├── aws/
 │   │   ├── __init__.py
 │   │   └── allowlist.py
-│   └── azure/
+│   ├── azure/
+│   │   ├── __init__.py
+│   │   └── allowlist.py
+│   └── gcp/
 │       ├── __init__.py
 │       └── allowlist.py
 ├── tests/cleancloud/safety/        # Safety regression tests
@@ -48,15 +51,21 @@ cleancloud/
 │   │   ├── test_aws_static_readonly.py
 │   │   ├── test_aws_runtime_readonly.py
 │   │   └── test_aws_iam_policy_readonly.py
-│   └── azure/
-│       ├── test_azure_static_readonly.py
-│       ├── test_azure_runtime_readonly.py
-│       └── test_azure_role_definition_readonly.py
-├── security/                       # Canonical IAM policies and role definitions
+│   ├── azure/
+│   │   ├── test_azure_static_readonly.py
+│   │   ├── test_azure_runtime_readonly.py
+│   │   └── test_azure_role_definition_readonly.py
+│   └── gcp/
+│       ├── test_gcp_static_readonly.py
+│       ├── test_gcp_runtime_readonly.py
+│       └── test_gcp_iam_roles_readonly.py
+├── security/                       # Canonical IAM policies, role definitions, and verification scripts
 │   ├── aws-readonly-policy.json
 │   ├── azure-readonly-role.json
+│   ├── gcp-readonly-roles.json
 │   ├── verify-aws-policy.sh
-│   └── verify-azure-role.sh
+│   ├── verify-azure-role.sh
+│   └── verify-gcp-roles.sh
 ```
 
 - **`cleancloud/safety/`** → allowlists defining permitted read-only SDK methods
@@ -113,6 +122,32 @@ cleancloud/
 
 ---
 
+## GCP Safety Regression Tests
+
+### Static AST Test
+
+- File: `tests/cleancloud/safety/gcp/test_gcp_static_readonly.py`
+- Purpose: Scan GCP provider code for forbidden SDK method calls (`delete`, `insert`, `patch`, `update`, `set_*`, `add_*`, `remove_*`, `reset_*`, `start`, `stop`, `restart`, `create`, `enable`, `disable`, `import`, `export`, `copy`, `move`, `undelete`, `publish`, `deploy`, `sign_*`).
+- Uses: `cleancloud/safety/gcp/allowlist.py` to define the forbidden method prefix list.
+- Failure: Assertion error if any forbidden method name appears in the AST of any provider file.
+- Note: Python built-in method names that collide (e.g. `list.insert`, `dict.update`) are excluded by the helper `_is_forbidden()` function.
+
+### Runtime SDK Guard
+
+- File: `tests/cleancloud/safety/gcp/test_gcp_runtime_readonly.py`
+- Purpose: Intercept runtime calls to GCP SDK clients (`compute_v1.DisksClient`, `InstancesClient`, `AddressesClient`, etc.) and block any attempt to access a mutating method.
+- Mechanism: A `GuardedMock` subclass raises `ForbiddenGcpCallError` when a forbidden prefix is accessed.
+- Confirms: Read-only methods (`aggregated_list`, `list`, `get`) remain accessible; mutating methods (`delete`, `stop`, `insert`) are blocked.
+
+### IAM Roles Test
+
+- File: `tests/cleancloud/safety/gcp/test_gcp_iam_roles_readonly.py`
+- Purpose: Validate `security/gcp-readonly-roles.json` documents only read-only predefined roles.
+- Checks: No `roles/owner`, `roles/editor`, or any admin/write role; all four required roles present (`roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, `roles/browser`).
+- Note: GCP uses predefined roles rather than a custom IAM policy, so verification is role-name based rather than action-based.
+
+---
+
 ## Adding New Rules Safely
 
 1. **Check SDK calls** → Only use `list*`, `get*`, or other read-only operations.
@@ -134,14 +169,14 @@ All safety regression tests for AWS and Azure are included in the **main test su
     pytest tests/ -v --cov=cleancloud --cov-report=xml
 ```
 
-* Running this single job is sufficient; **no separate jobs for AWS/Azure safety tests** are required.
+* Running this single job is sufficient; **no separate jobs for AWS/Azure/GCP safety tests** are required.
 * Any failure in safety regression tests will **fail the CI build**, preventing unsafe merges.
 
 ## Summary
 
 CleanCloud’s **multi-layer safety regression** ensures:
 
-* **No cloud resource mutation** during scans
+* **No cloud resource mutation** during scans — across AWS, Azure, and GCP
 * **Provable read-only enforcement** via AST, runtime, and policy/role tests
 * **Enterprise-ready trust** for SRE teams and auditors
 

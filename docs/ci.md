@@ -2,9 +2,10 @@
 
 Complete guide for integrating CleanCloud into continuous integration and deployment pipelines.
 
-> **Quick Start:** See [README.md](../README.md)  
-> **AWS Setup:** See [aws.md](aws.md)  
+> **Quick Start:** See [README.md](../README.md)
+> **AWS Setup:** See [aws.md](aws.md)
 > **Azure Setup:** See [azure.md](azure.md)
+> **GCP Setup:** See [gcp.md](gcp.md)
 
 ---
 
@@ -53,7 +54,27 @@ jobs:
       - run: cleancloud scan --provider azure --fail-on-confidence HIGH
 ```
 
-> First time? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` to validate credentials before running a full scan.
+**GCP** — same structure with Workload Identity Federation:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - run: pip install cleancloud
+      - run: cleancloud scan --provider gcp --all-projects --fail-on-confidence HIGH
+```
+
+> First time? Run `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure`, or `cleancloud doctor --provider gcp` to validate credentials before running a full scan.
 
 For OIDC setup, enforcement options, output formats, and advanced patterns — read on.
 
@@ -219,14 +240,45 @@ jobs:
 
 > Azure Workload Identity writes an OIDC token to a temp file on the runner. The `-v` mount makes that file accessible inside the container.
 
+### GCP
+
+GCP Application Default Credentials are resolved via a file-based mechanism. In GitHub Actions with Workload Identity Federation, `google-github-actions/auth@v2` exchanges the OIDC token and writes a short-lived credentials file to the runner filesystem, then sets `GOOGLE_APPLICATION_CREDENTIALS` to point to it. That file must be mounted into the container.
+
+```yaml
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Run CleanCloud
+        run: |
+          test -f "$GOOGLE_APPLICATION_CREDENTIALS" || exit 1
+          echo "Using GCP credentials at: $GOOGLE_APPLICATION_CREDENTIALS"
+
+          docker run --rm \
+            -e GOOGLE_APPLICATION_CREDENTIALS=/gcp-creds.json \
+            -v "$GOOGLE_APPLICATION_CREDENTIALS:/gcp-creds.json:ro" \
+            getcleancloud/cleancloud scan \
+              --provider gcp \
+              --all-projects \
+              --fail-on-confidence HIGH \
+              --fail-on-cost 100
+```
+
+> The credentials file is short-lived and mounted read-only — no long-lived keys are exposed. The `test -f` guard catches a silent auth failure before Docker attempts the mount.
+
 ### Pinning to a specific version
 
 ```yaml
 # Pin to exact version — safest for production pipelines
 getcleancloud/cleancloud:1.9.0
-
-# Pin to minor — gets patch fixes automatically
-getcleancloud/cleancloud:1.9
 
 # Always latest — simplest, least predictable
 getcleancloud/cleancloud:latest
@@ -451,6 +503,72 @@ jobs:
           retention-days: 30
 ```
 
+### GCP with Workload Identity Federation (Recommended)
+
+```yaml
+name: CleanCloud GCP Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 8 * * 1'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate credentials
+        run: cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Run hygiene scan
+        run: |
+          cleancloud scan \
+            --provider gcp \
+            --all-projects \
+            --output json \
+            --output-file scan-results.json \
+            --fail-on-confidence HIGH
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleancloud-scan-results
+          path: scan-results.json
+          retention-days: 30
+```
+
+**GitHub secrets and variables required** (repo → Settings → Environments → your environment):
+
+| Type | Name | Value |
+|------|------|-------|
+| Secret | `GCP_WORKLOAD_IDENTITY_PROVIDER` | `projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github-actions/providers/github` |
+| Secret | `GCP_SERVICE_ACCOUNT` | `cleancloud-scanner@PROJECT_ID.iam.gserviceaccount.com` |
+| Variable | `GCP_PROJECT_ID` | `your-gcp-project-id` |
+
+> First time? Run `cleancloud doctor --provider gcp --project <PROJECT_ID>` locally to validate credentials before wiring up CI. See [GCP setup →](gcp.md) for the full Workload Identity Federation walkthrough.
+
+---
+
 ### Multi-Cloud Scan
 
 ```yaml
@@ -499,7 +617,7 @@ jobs:
 
   scan-azure:
     runs-on: ubuntu-latest
-    continue-on-error: true  # Don't fail entire workflow if one provider fails
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -528,6 +646,38 @@ jobs:
           name: azure-scan-results
           path: azure-results.json
           retention-days: 30
+
+  scan-gcp:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Scan GCP
+        run: |
+          cleancloud scan \
+            --provider gcp \
+            --all-projects \
+            --output json \
+            --output-file gcp-results.json \
+            --fail-on-confidence HIGH
+
+      - name: Upload GCP results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-scan-results
+          path: gcp-results.json
+          retention-days: 30
 ```
 
 **Note:** Using `continue-on-error: true` allows the workflow to complete even if one cloud provider scan fails, ensuring you get results from all providers.
@@ -548,7 +698,7 @@ cleancloud scan \
 
 **JSON is the recommended format for programmatic processing** as it contains complete data including evidence and detailed metadata.
 
-The JSON output follows a versioned schema (see `schemas/output-v1.0.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
+The JSON output follows a versioned schema (see `schemas/output-v1.2.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
 
 **AWS Schema Example:**
 ```json
@@ -1126,6 +1276,7 @@ See the [Region and Location Naming](#region-and-location-naming) section for co
 # Validate setup first
 cleancloud doctor --provider aws
 cleancloud doctor --provider azure
+cleancloud doctor --provider gcp --project <PROJECT_ID>
 ```
 
 Check:
@@ -1134,6 +1285,7 @@ Check:
 - Trust policies allow your repo/branch to assume roles
 - For AWS: OIDC role trust relationship is configured
 - For Azure: Federated credentials are configured
+- For GCP: Workload Identity Pool, OIDC provider, and service account binding are all configured (see [GCP setup →](gcp.md))
 
 ### Pipeline Fails with Exit Code 2
 
@@ -1198,4 +1350,4 @@ Coming soon. For now, use Azure CLI task with manual commands:
 
 ---
 
-**Next:** [AWS Setup →](aws.md) | [Azure Setup →](azure.md) | [Rules Reference →](rules.md)
+**Next:** [AWS Setup →](aws.md) | [Azure Setup →](azure.md) | [GCP Setup →](gcp.md) | [Rules Reference →](rules.md)

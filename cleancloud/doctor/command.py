@@ -11,11 +11,16 @@ from cleancloud.doctor.runner import run_doctor
 @click.option(
     "--provider",
     default=None,
-    type=click.Choice(["aws", "azure"]),
-    help="Cloud provider to validate (omit to check both)",
+    type=click.Choice(["aws", "azure", "gcp"]),
+    help="Cloud provider to validate (omit to check all)",
 )
 @click.option("--region", default=None, help="AWS region for validation (default: us-east-1)")
 @click.option("--profile", default=None, help="AWS profile name")
+@click.option(
+    "--project",
+    default=None,
+    help="GCP project ID to probe permissions against (GCP only)",
+)
 @click.option(
     "--config",
     type=click.Path(exists=True),
@@ -38,6 +43,7 @@ def doctor(
     provider: Optional[str],
     region: str,
     profile: Optional[str],
+    project: Optional[str],
     config: Optional[str],
     multi_account_file: Optional[str],
     role_name: str,
@@ -60,7 +66,7 @@ def doctor(
         run_aws_multi_account_doctor(ma_config, profile=profile, region=region)
         return
 
-    run_doctor(provider=provider, profile=profile, region=region)
+    run_doctor(provider=provider, profile=profile, region=region, project=project)
 
     try:
         cfg = CleanCloudConfig.empty()

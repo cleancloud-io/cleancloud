@@ -1,0 +1,363 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://getcleancloud.com/schemas/output-v1.2.0.json",
+  "title": "CleanCloud Output Format",
+  "description": "JSON output schema for CleanCloud scan results (version 1.2.0)",
+  "type": "object",
+  "required": ["schema_version", "summary", "findings"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema version for backward compatibility",
+      "const": "1.2.0"
+    },
+    "summary": {
+      "type": "object",
+      "description": "Aggregated statistics about the scan",
+      "required": [
+        "total_findings",
+        "by_provider",
+        "by_risk",
+        "by_confidence",
+        "scanned_at",
+        "provider"
+      ],
+      "properties": {
+        "total_findings": {
+          "type": "integer",
+          "description": "Total number of findings detected",
+          "minimum": 0
+        },
+        "by_provider": {
+          "type": "object",
+          "description": "Count of findings grouped by cloud provider",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "by_risk": {
+          "type": "object",
+          "description": "Count of findings grouped by risk level",
+          "properties": {
+            "low": { "type": "integer", "minimum": 0 },
+            "medium": { "type": "integer", "minimum": 0 },
+            "high": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "by_confidence": {
+          "type": "object",
+          "description": "Count of findings grouped by confidence level",
+          "properties": {
+            "low": { "type": "integer", "minimum": 0 },
+            "medium": { "type": "integer", "minimum": 0 },
+            "high": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "scanned_at": {
+          "type": "string",
+          "description": "ISO 8601 timestamp when scan was performed",
+          "format": "date-time"
+        },
+        "provider": {
+          "type": "string",
+          "description": "Cloud provider that was scanned",
+          "enum": ["aws", "azure", "gcp"]
+        },
+        "regions_scanned": {
+          "type": "array",
+          "description": "List of regions/zones found in findings (AWS and GCP)",
+          "items": { "type": "string" }
+        },
+        "region_selection_mode": {
+          "type": "string",
+          "description": "How regions were selected for scanning (AWS only)",
+          "enum": ["explicit", "all-regions"]
+        },
+        "subscriptions_scanned": {
+          "type": "array",
+          "description": "List of Azure subscription IDs that were scanned (Azure only)",
+          "items": { "type": "string" }
+        },
+        "subscription_selection_mode": {
+          "type": "string",
+          "description": "How subscriptions were selected for scanning (Azure only)",
+          "enum": ["explicit", "all", "management-group"]
+        },
+        "per_subscription": {
+          "type": "array",
+          "description": "Per-subscription breakdown when multiple Azure subscriptions were scanned",
+          "items": { "$ref": "#/definitions/subscription_result" }
+        },
+        "subscriptions_failed": {
+          "type": "array",
+          "description": "Azure subscriptions that failed to scan",
+          "items": { "$ref": "#/definitions/subscription_result" }
+        },
+        "projects_scanned": {
+          "type": "array",
+          "description": "List of GCP project IDs that were successfully scanned (GCP only)",
+          "items": { "type": "string" }
+        },
+        "project_selection_mode": {
+          "type": "string",
+          "description": "How projects were selected for scanning (GCP only)",
+          "enum": ["explicit", "all"]
+        },
+        "per_project": {
+          "type": "array",
+          "description": "Per-project breakdown when multiple GCP projects were scanned",
+          "items": { "$ref": "#/definitions/project_result" }
+        },
+        "projects_failed": {
+          "type": "array",
+          "description": "GCP projects that failed to scan",
+          "items": {
+            "type": "object",
+            "required": ["id", "name"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "error": { "type": "string" }
+            }
+          }
+        },
+        "highest_confidence": {
+          "type": ["string", "null"],
+          "description": "Highest confidence level found across all findings",
+          "enum": ["low", "medium", "high", null]
+        },
+        "high_conf_findings": {
+          "type": "integer",
+          "description": "Count of HIGH confidence findings",
+          "minimum": 0
+        },
+        "ignored_by_tag_policy": {
+          "type": "integer",
+          "description": "Count of findings ignored due to tag/label policy",
+          "minimum": 0
+        },
+        "minimum_estimated_monthly_waste_usd": {
+          "type": "number",
+          "description": "Minimum estimated monthly cost of all detected waste (only present when > 0)",
+          "minimum": 0
+        },
+        "findings_with_cost_estimate": {
+          "type": "integer",
+          "description": "Number of findings that include a cost estimate (only present when minimum_estimated_monthly_waste_usd > 0)",
+          "minimum": 0
+        },
+        "total_rules": {
+          "type": "integer",
+          "description": "Total number of rules attempted",
+          "minimum": 0
+        },
+        "skipped_rules": {
+          "type": "array",
+          "description": "Rules skipped due to missing permissions",
+          "items": { "$ref": "#/definitions/skipped_rule" }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "description": "List of individual findings detected during the scan",
+      "items": { "$ref": "#/definitions/finding" }
+    }
+  },
+  "definitions": {
+    "finding": {
+      "type": "object",
+      "description": "A single resource hygiene finding",
+      "required": [
+        "provider",
+        "rule_id",
+        "resource_type",
+        "resource_id",
+        "region",
+        "title",
+        "summary",
+        "reason",
+        "risk",
+        "confidence",
+        "detected_at",
+        "details",
+        "evidence"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Cloud provider where the resource was found",
+          "enum": ["aws", "azure", "gcp"]
+        },
+        "rule_id": {
+          "type": "string",
+          "description": "Unique identifier for the detection rule",
+          "pattern": "^(aws|azure|gcp)\\..+$",
+          "examples": [
+            "aws.ebs.volume.unattached",
+            "azure.unattached_disk",
+            "gcp.compute.disk.unattached",
+            "gcp.sql.instance.idle"
+          ]
+        },
+        "resource_type": {
+          "type": "string",
+          "description": "Type of cloud resource",
+          "pattern": "^(aws|azure|gcp)\\..+$",
+          "examples": [
+            "aws.ebs.volume",
+            "azure.compute.disk",
+            "gcp.compute.disk",
+            "gcp.compute.instance",
+            "gcp.sql.instance"
+          ]
+        },
+        "resource_id": {
+          "type": "string",
+          "description": "Unique identifier of the resource in the cloud provider",
+          "minLength": 1,
+          "examples": [
+            "vol-0123456789abcdef0",
+            "/subscriptions/.../resourceGroups/.../providers/Microsoft.Compute/disks/my-disk",
+            "projects/my-project/zones/us-central1-a/disks/my-disk",
+            "projects/my-project/instances/my-sql-instance"
+          ]
+        },
+        "region": {
+          "type": ["string", "null"],
+          "description": "Cloud region/zone where the resource is located (null for global resources)",
+          "examples": [
+            "us-east-1",
+            "eastus",
+            "us-central1",
+            "us-central1-a",
+            "global",
+            null
+          ]
+        },
+        "title": {
+          "type": "string",
+          "description": "Human-readable title for the finding",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-line summary of the finding",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "description": "Explanation of why this resource was flagged",
+          "minLength": 1
+        },
+        "risk": {
+          "type": "string",
+          "description": "Risk level of leaving this resource unaddressed",
+          "enum": ["low", "medium", "high"]
+        },
+        "confidence": {
+          "type": "string",
+          "description": "Confidence level that this resource is unused/orphaned",
+          "enum": ["low", "medium", "high"]
+        },
+        "detected_at": {
+          "type": "string",
+          "description": "ISO 8601 timestamp when the finding was detected",
+          "format": "date-time"
+        },
+        "estimated_monthly_cost_usd": {
+          "type": "number",
+          "description": "Estimated monthly cost of this unused resource in USD (only present when a cost estimate is available)",
+          "minimum": 0
+        },
+        "details": {
+          "type": "object",
+          "description": "Provider-specific metadata about the resource. AWS/Azure use 'tags' key; GCP uses 'labels' key.",
+          "additionalProperties": true
+        },
+        "evidence": {
+          "$ref": "#/definitions/evidence"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "Evidence explaining what signals were used to detect this finding",
+      "required": ["signals_used", "signals_not_checked"],
+      "properties": {
+        "signals_used": {
+          "type": "array",
+          "description": "List of signals/heuristics that triggered this finding",
+          "items": { "type": "string" },
+          "minItems": 1
+        },
+        "signals_not_checked": {
+          "type": "array",
+          "description": "List of signals that were NOT checked (limitations of detection)",
+          "items": { "type": "string" }
+        },
+        "time_window": {
+          "type": ["string", "null"],
+          "description": "Time window used for age-based detection (e.g. '14 days', '90 days')",
+          "examples": ["14 days", "90 days", null]
+        }
+      }
+    },
+    "skipped_rule": {
+      "type": "object",
+      "description": "A rule that was skipped due to insufficient permissions",
+      "required": ["rule"],
+      "properties": {
+        "rule": {
+          "type": "string",
+          "description": "Rule function name or rule ID"
+        },
+        "missing_permissions": {
+          "type": "string",
+          "description": "Description of the missing IAM permissions"
+        },
+        "subscription_id": {
+          "type": "string",
+          "description": "Azure subscription ID where the rule was skipped (Azure only)"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "GCP project ID where the rule was skipped (GCP only)"
+        },
+        "project_name": {
+          "type": "string",
+          "description": "GCP project display name (GCP only)"
+        }
+      }
+    },
+    "project_result": {
+      "type": "object",
+      "description": "Per-project scan result (GCP only)",
+      "required": ["id", "name", "status", "findings"],
+      "properties": {
+        "id": { "type": "string", "description": "GCP project ID" },
+        "name": { "type": "string", "description": "GCP project display name" },
+        "status": { "type": "string", "enum": ["success", "failed"] },
+        "findings": { "type": "integer", "minimum": 0 },
+        "rules_succeeded": { "type": "integer", "minimum": 0 },
+        "rules_skipped": { "type": "integer", "minimum": 0 },
+        "rules_failed": { "type": "integer", "minimum": 0 },
+        "estimated_monthly_cost_usd": { "type": "number", "minimum": 0 }
+      }
+    },
+    "subscription_result": {
+      "type": "object",
+      "description": "Per-subscription scan result (Azure only)",
+      "required": ["id", "name", "status", "findings"],
+      "properties": {
+        "id": { "type": "string", "description": "Azure subscription ID" },
+        "name": { "type": "string", "description": "Azure subscription display name" },
+        "status": { "type": "string", "enum": ["success", "failed"] },
+        "findings": { "type": "integer", "minimum": 0 },
+        "estimated_monthly_cost_usd": { "type": "number", "minimum": 0 },
+        "error": { "type": "string" }
+      }
+    }
+  }
+}

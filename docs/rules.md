@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 25 hygiene rules implemented by CleanCloud.
+Complete reference for all 30 hygiene rules implemented by CleanCloud.
 
 ---
 
@@ -67,6 +67,16 @@ Every finding includes a confidence level:
 | `azure.sql_database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
 | `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
 | `azure.untagged_resource` | Governance | Disks and snapshots with zero tags |
+
+**GCP:**
+
+| Rule ID | Cost Surface | What It Detects |
+|---|---|---|
+| `gcp.compute.vm.stopped` | Compute | TERMINATED VM instances stopped 30+ days (disk charges continue) |
+| `gcp.compute.disk.unattached` | Storage | Persistent Disks in READY state with no attached VM |
+| `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
+| `gcp.compute.ip.unused` | Network | Reserved static IPs (regional and global) in RESERVED state |
+| `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 7+ days |
 
 ---
 
@@ -1245,6 +1255,216 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 ---
 
+## GCP Rules
+
+### Compute Waste
+
+#### Stopped VM Instances
+
+**Rule ID:** `gcp.compute.vm.stopped`
+
+**What it detects:** VM instances in `TERMINATED` state for 30+ days
+
+**Confidence:**
+
+- **HIGH:** `lastStopTimestamp` present and ≥ 30 days ago (deterministic timestamp)
+- **MEDIUM:** `lastStopTimestamp` absent — instance is TERMINATED but stop time is unavailable
+- Not flagged: stopped < 30 days, or instance in any other state (RUNNING, STAGING, etc.)
+
+**Risk:** LOW
+
+**Why this matters:**
+- A TERMINATED GCP VM does not charge for vCPU or memory — but every attached Persistent Disk accrues storage charges at ~$0.04/GB-month (standard) or ~$0.17/GB-month (SSD), regardless of instance state
+- A 500 GB root disk on a forgotten stopped instance costs ~$20/month indefinitely
+- This is the GCP equivalent of a stopped EC2 instance — the compute is free, the storage is not
+
+**Detection logic:**
+```python
+for instance in instances_client.aggregated_list(project=project_id):
+    if instance.status == "TERMINATED":
+        if _parse_gcp_timestamp(instance.last_stop_timestamp) > cutoff:
+            flag(instance)
+```
+
+**Cost estimate:** Sum of attached PERSISTENT disk sizes × $0.04/GB/month (SCRATCH disks excluded — they are ephemeral)
+
+**Required permissions:**
+- `compute.instances.list` (included in `roles/compute.viewer`)
+
+---
+
+### Storage Waste
+
+#### Unattached Persistent Disks
+
+**Rule ID:** `gcp.compute.disk.unattached`
+
+**What it detects:** Persistent Disks in `READY` state with no attached VM (`users == []`)
+
+**Confidence:**
+
+- **HIGH:** Disk is READY and has no users — unambiguous detachment
+
+**Risk:** LOW
+
+**Why this matters:**
+- GCP charges for Persistent Disks regardless of whether they are attached to a VM
+- pd-standard: ~$0.04/GB/month, pd-ssd: ~$0.17/GB/month, pd-balanced: ~$0.10/GB/month, pd-extreme: ~$0.12/GB/month
+- Unattached disks accumulate when VMs are deleted without deleting their disks — the most common source of GCP storage waste
+- A 500 GB pd-ssd left unattached costs ~$85/month
+
+**Detection logic:**
+```python
+for disk in disks_client.aggregated_list(project=project_id):
+    if disk.status == "READY" and not disk.users:
+        flag(disk)
+```
+
+**Cost estimate by disk type:**
+
+| Type | Rate |
+|---|---|
+| `pd-standard` | $0.04/GB/month |
+| `pd-balanced` | $0.10/GB/month |
+| `pd-ssd` | $0.17/GB/month |
+| `pd-extreme` | $0.12/GB/month |
+
+**Required permissions:**
+- `compute.disks.list` (included in `roles/compute.viewer`)
+
+---
+
+#### Old Disk Snapshots
+
+**Rule ID:** `gcp.compute.snapshot.old`
+
+**What it detects:** Disk snapshots older than 90 days
+
+**Confidence:**
+
+- **HIGH:** Source disk no longer exists (snapshot is orphaned — the source was deleted)
+- **MEDIUM:** Source disk still exists (might be intentional long-term backup or DR snapshot)
+
+**Risk:** LOW
+
+**Why this matters:**
+- GCP snapshots are billed at ~$0.026/GB/month compressed storage in Cloud Storage
+- Automated snapshot policies are frequently removed while their snapshots are left behind
+- One-off manual snapshots are rarely cleaned up — they persist indefinitely until explicitly deleted
+- Snapshots are global resources — they accumulate across all zones and appear in no specific region
+
+**Detection logic:**
+```python
+for snapshot in snapshots_client.list(project=project_id):
+    if snapshot.status == "READY":
+        if _parse_gcp_timestamp(snapshot.creation_timestamp) < cutoff:
+            confidence = HIGH if not snapshot.source_disk else MEDIUM
+            flag(snapshot)
+```
+
+**Cost estimate:** Uses `storage_bytes` (actual compressed size) when available; falls back to `disk_size_gb × $0.026/GB/month`
+
+Note: `region_filter` is ignored for snapshots — GCP snapshots are global resources with no region attribute.
+
+**Required permissions:**
+- `compute.snapshots.list` (included in `roles/compute.viewer`)
+
+---
+
+### Network Waste
+
+#### Unused Reserved Static IPs
+
+**Rule ID:** `gcp.compute.ip.unused`
+
+**What it detects:** Reserved static IP addresses (regional and global) in `RESERVED` status (not `IN_USE`)
+
+**Confidence:**
+
+- **HIGH:** IP status is `RESERVED` — unambiguous, GCP itself confirms it is not attached
+
+**Risk:** LOW
+
+**Why this matters:**
+- GCP bills ~$0.01/hour (~$7.20/month) for each static IP in RESERVED status under the PREMIUM network tier
+- Reserved IPs accumulate when VMs, load balancers, or NAT gateways are deleted without releasing their IPs
+- Unlike ephemeral IPs, reserved IPs persist independently — they must be explicitly released to stop billing
+
+**Detection logic:**
+```python
+# Regional IPs
+for address in addresses_client.aggregated_list(project=project_id):
+    if address.status == "RESERVED":
+        flag(address, scope="regional")
+
+# Global IPs (skipped if region_filter is set)
+for address in global_addresses_client.list(project=project_id):
+    if address.status == "RESERVED":
+        flag(address, scope="global")
+```
+
+**Graceful degradation:** If `compute.globalAddresses.list` is denied but regional IPs succeed, the rule returns regional findings rather than failing entirely.
+
+**Cost estimate:** $7.20/month per unused IP (PREMIUM network tier default)
+
+**Required permissions:**
+- `compute.addresses.list` (included in `roles/compute.viewer`)
+- `compute.globalAddresses.list` (included in `roles/compute.viewer`)
+
+---
+
+### Platform Waste
+
+#### Idle Cloud SQL Instances
+
+**Rule ID:** `gcp.sql.instance.idle`
+
+**What it detects:** Cloud SQL instances in `RUNNABLE` state with zero database connections for 7+ days
+
+**Confidence:**
+
+- **HIGH:** Monitoring confirms zero connections for the full 7-day window
+
+**Risk:** HIGH
+
+**Why this matters:**
+- Cloud SQL bills continuously for vCPU and memory regardless of query load
+- A `db-n1-standard-2` costs ~$93/month with zero queries
+- Dev and staging databases are frequently left running after feature branches merge or projects wind down
+- Cloud SQL is the highest-cost idle resource type in most GCP environments
+
+**Detection logic:**
+```python
+for instance in sql_admin_api.list(project_id):
+    if instance.state == "RUNNABLE" and not is_read_replica(instance):
+        if not has_connections(monitoring_client, project_id, instance.name, days=7):
+            flag(instance)
+```
+
+**Conservative monitoring fallback:** If Cloud Monitoring is unavailable or permission-denied, the instance is assumed active — it is not flagged. This avoids false positives when monitoring data is temporarily unavailable.
+
+**Read replicas excluded:** Read replicas have no independent billing basis — the primary instance cost is what matters.
+
+**Cost estimates by tier:**
+
+| Tier | ~Monthly cost |
+|---|---|
+| `db-f1-micro` | $7.67 |
+| `db-g1-small` | $25.22 |
+| `db-n1-standard-1` | $46.55 |
+| `db-n1-standard-2` | $93.10 |
+| `db-n1-standard-4` | $186.19 |
+| `db-n1-highmem-2` | $113.45 |
+| `db-n1-highmem-4` | $226.90 |
+
+Costs are approximate for us-central1 with HA disabled.
+
+**Required permissions:**
+- `cloudsql.instances.list` (included in `roles/cloudsql.viewer`)
+- `monitoring.timeSeries.list` (included in `roles/monitoring.viewer`)
+
+---
+
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
@@ -1260,16 +1480,18 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AWS:**
-- Old RDS snapshots (90+ days)
+- S3 lifecycle gaps, idle SageMaker endpoints, Redshift idle
 
 **Azure:**
-- Idle App Services (zero requests 14+ days)
-- Unused Container Registries (no pulls 90+ days)
+- Azure Firewall idle, AKS node pool idle, Azure Batch unused pools
+
+**GCP:**
+- GKE node pool idle, BigQuery slot waste, GCS cold storage, Cloud Run idle revisions
 
 **Multi-Cloud:**
-- GCP support
 - Rule filtering (`--rules` flag)
+- Policy-as-code (`cleancloud.yaml`)
 
 ---
 
-**Next:** [AWS Setup →](aws.md) | [Azure Setup →](azure.md) | [CI/CD Integration →](ci.md)
+**Next:** [AWS Setup →](aws.md) | [Azure Setup →](azure.md) | [GCP Setup →](gcp.md) | [CI/CD Integration →](ci.md)

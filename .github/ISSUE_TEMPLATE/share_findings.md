@@ -12,8 +12,9 @@ assignees: ''
 **Cloud provider(s) scanned:**
 - [ ] AWS
 - [ ] Azure
+- [ ] GCP
 
-**Number of accounts/subscriptions scanned:**
+**Number of accounts / subscriptions / projects scanned:**
 
 
 **Regions scanned:**

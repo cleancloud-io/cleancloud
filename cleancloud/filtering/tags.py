@@ -39,7 +39,8 @@ def filter_findings_by_tags(
     ignored: List[Finding] = []
 
     for finding in findings:
-        raw_tags = finding.details.get("tags", {}) or {}
+        # AWS/Azure use "tags"; GCP uses "labels" — check both
+        raw_tags = finding.details.get("tags") or finding.details.get("labels") or {}
 
         # normalize tags to dict[str,str]
         if isinstance(raw_tags, list):

@@ -536,12 +536,12 @@ aws cloudformation deploy \
 
 #### Option C: Terraform (if you already manage IAM with Terraform)
 
-Use [`deploy/terraform/`](../deploy/terraform/) — drop it into your existing Terraform codebase.
+Use [`deploy/terraform/aws/`](../deploy/terraform/aws/) — drop it into your existing Terraform codebase.
 
 **Single account:**
 ```hcl
 module "cleancloud_role" {
-  source = "github.com/cleancloud-io/cleancloud//deploy/terraform"
+  source = "github.com/cleancloud-io/cleancloud//deploy/terraform/aws"
 
   hub_account_id = "<HUB_ACCOUNT_ID>"
 }
@@ -559,7 +559,7 @@ locals {
 
 module "cleancloud_role" {
   for_each = local.spoke_accounts
-  source   = "github.com/cleancloud-io/cleancloud//deploy/terraform"
+  source   = "github.com/cleancloud-io/cleancloud//deploy/terraform/aws"
 
   providers = {
     aws = aws.accounts[each.key]

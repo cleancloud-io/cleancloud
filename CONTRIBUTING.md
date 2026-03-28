@@ -6,7 +6,7 @@ Thank you for your interest in CleanCloud! We welcome contributions from the com
 
 ## About the Project
 
-CleanCloud is a **trust-first cloud hygiene engine** designed for production and enterprise environments. It provides read-only, confidence-scored hygiene signals for AWS and Azure that are safe to run in production and CI/CD pipelines.
+CleanCloud is a **trust-first cloud hygiene engine** designed for production and enterprise environments. It provides read-only, confidence-scored hygiene signals for AWS, Azure, and GCP that are safe to run in production and CI/CD pipelines.
 
 **Key Focus Areas:**
 - **Read-only by design** - No mutations, deletions, or modifications

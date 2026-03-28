@@ -1,6 +1,6 @@
 # Example Outputs
 
-Complete output examples for CleanCloud across AWS and Azure — doctor validation, human-readable scan results, JSON output for CI/CD integration, and markdown for sharing in GitHub PRs or Slack.
+Complete output examples for CleanCloud across AWS, Azure, and GCP — doctor validation, human-readable scan results, JSON output for CI/CD integration, and markdown for sharing in GitHub PRs or Slack.
 
 ---
 
@@ -8,15 +8,19 @@ Complete output examples for CleanCloud across AWS and Azure — doctor validati
 
 - [Doctor — AWS](#doctor--aws)
 - [Doctor — Azure](#doctor--azure)
+- [Doctor — GCP](#doctor--gcp)
 - [Doctor — Multi-Account](#doctor--multi-account)
 - [Doctor — Azure Multi-Subscription](#doctor--azure-multi-subscription)
 - [Scan — AWS (Human-Readable)](#scan--aws-human-readable)
 - [Scan — AWS Multi-Account](#scan--aws-multi-account)
 - [Scan — Azure (Human-Readable)](#scan--azure-human-readable)
+- [Scan — GCP (Human-Readable)](#scan--gcp-human-readable)
 - [Scan — AWS (JSON)](#scan--aws-json)
 - [Scan — Azure (JSON)](#scan--azure-json)
+- [Scan — GCP (JSON)](#scan--gcp-json)
 - [Scan — AWS (Markdown)](#scan--aws-markdown)
 - [Scan — Azure (Markdown)](#scan--azure-markdown)
+- [Scan — GCP (Markdown)](#scan--gcp-markdown)
 - [JSON Schema Reference](#json-schema-reference)
 
 ---
@@ -381,6 +385,90 @@ Assign Reader at the **Management Group level** to cover all subscriptions with 
 
 ---
 
+## Doctor — GCP
+
+`cleancloud doctor --provider gcp --project my-project-123`
+
+Validates Application Default Credentials, project access, and all required IAM roles for scanning.
+
+### Local Development (gcloud ADC)
+
+```
+Running CleanCloud doctor
+
+
+======================================================================
+CLEANCLOUD ENVIRONMENT DIAGNOSTICS
+======================================================================
+
+Providers to check: GCP
+
+
+======================================================================
+GCP ENVIRONMENT VALIDATION
+======================================================================
+
+Step 1: GCP Credential Resolution
+----------------------------------------------------------------------
+Authentication Method: Application Default Credentials (gcloud)
+  Credential Type: Temporary (OAuth2)
+  Source: ~/.config/gcloud/application_default_credentials.json
+
+[OK] Security Grade: EXCELLENT
+[OK]   - Short-lived OAuth2 token
+[OK]   - Auto-refreshed by gcloud
+
+CI/CD Ready: NO (Local development only)
+Use Workload Identity Federation for CI/CD pipelines
+
+Step 2: Project Access Validation
+----------------------------------------------------------------------
+[OK] Project accessible: my-project-123 (My Project)
+
+Step 3: Read-Only Permission Validation
+----------------------------------------------------------------------
+[OK] compute.disks.list        (roles/compute.viewer)
+[OK] compute.instances.list    (roles/compute.viewer)
+[OK] compute.addresses.list    (roles/compute.viewer)
+[OK] compute.snapshots.list    (roles/compute.viewer)
+[OK] cloudsql.instances.list   (roles/cloudsql.viewer)
+[OK] monitoring.timeSeries.list (roles/monitoring.viewer)
+[OK] resourcemanager.projects.get (roles/browser)
+
+======================================================================
+VALIDATION SUMMARY
+======================================================================
+Authentication: Application Default Credentials (gcloud)
+Security Grade: EXCELLENT
+Permissions Tested: 7/7 passed
+
+[OK] GCP ENVIRONMENT READY FOR CLEANCLOUD
+======================================================================
+```
+
+### CI/CD (Workload Identity Federation — Recommended)
+
+When running with Workload Identity Federation (e.g., GitHub Actions), there are no stored credentials:
+
+```
+Step 1: GCP Credential Resolution
+----------------------------------------------------------------------
+Authentication Method: Workload Identity Federation (OIDC)
+  Credential Type: Temporary (exchanged from GitHub OIDC token)
+  Lifetime: 1 hour (temporary)
+  Rotation Required: No (auto-rotated)
+
+[OK] Security Grade: EXCELLENT
+[OK]   - No service account key stored
+[OK]   - Temporary credentials
+[OK]   - Auto-rotated
+
+[OK] CI/CD Ready: YES
+[OK]   Suitable for production CI/CD pipelines
+```
+
+---
+
 ## Scan — AWS Multi-Account
 
 `cleancloud scan --provider aws --multi-account accounts.yaml --all-regions`
@@ -711,7 +799,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.2.0",
   "summary": {
     "total_findings": 9,
     "by_provider": { "aws": 9 },
@@ -1010,7 +1098,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
 
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.2.0",
   "summary": {
     "total_findings": 7,
     "by_provider": { "azure": 7 },
@@ -1273,7 +1361,7 @@ Produces a grouped, cost-sorted summary you can paste directly into a GitHub PR 
 
 **Confidence:** high: 5 · medium: 4
 
-> Generated by [CleanCloud](https://github.com/cleancloud-io/cleancloud) — read-only cloud hygiene scanner for AWS and Azure.
+> Generated by [CleanCloud](https://github.com/cleancloud-io/cleancloud) — read-only cloud hygiene scanner for AWS, Azure, and GCP.
 ```
 
 Findings are grouped by title (multiple instances of the same finding type are collapsed into one row with a count) and sorted by estimated cost descending.
@@ -1306,25 +1394,254 @@ Findings are grouped by title (multiple instances of the same finding type are c
 
 **Confidence:** high: 5 · medium: 2
 
-> Generated by [CleanCloud](https://github.com/cleancloud-io/cleancloud) — read-only cloud hygiene scanner for AWS and Azure.
+> Generated by [CleanCloud](https://github.com/cleancloud-io/cleancloud) — read-only cloud hygiene scanner for AWS, Azure, and GCP.
 ```
 
 For Azure, the **Subscriptions** field is shown instead of **Regions**, reflecting how Azure scans are scoped.
 
 ---
 
+## Scan — GCP (Human-Readable)
+
+`cleancloud scan --provider gcp --all-projects`
+
+```
+Found 5 hygiene issues:
+
+1. [GCP] Stopped VM Instance (30+ Days)
+   Risk       : Medium
+   Confidence : High
+   Resource   : gcp.compute.instance → projects/my-project/zones/us-central1-a/instances/old-worker-1
+   Region     : us-central1-a
+   Rule       : gcp.compute.vm.stopped
+   Reason     : VM instance has been stopped for 52 days (disk charges continue)
+   Detected   : 2026-02-08T15:00:01+00:00
+   Details:
+     - machine_type: n1-standard-4
+     - stopped_days: 52
+     - disk_count: 2
+     - total_disk_gb: 200
+     - estimated_monthly_cost_usd: 16.00
+     - labels: {"env": "staging", "team": "data"}
+
+2. [GCP] Unattached Persistent Disk
+   Risk       : Low
+   Confidence : High
+   Resource   : gcp.compute.disk → projects/my-project/zones/us-central1-b/disks/data-disk-old
+   Region     : us-central1-b
+   Rule       : gcp.compute.disk.unattached
+   Reason     : Persistent disk has been unattached for 38 days
+   Detected   : 2026-02-08T15:00:02+00:00
+   Details:
+     - size_gb: 500
+     - type: pd-ssd
+     - status: READY
+     - estimated_monthly_cost_usd: 85.00
+     - labels: {"project": "legacy-pipeline"}
+
+3. [GCP] Unused Reserved Static IP
+   Risk       : Low
+   Confidence : High
+   Resource   : gcp.compute.address → projects/my-project/regions/us-central1/addresses/old-loadbalancer-ip
+   Region     : us-central1
+   Rule       : gcp.compute.ip.unused
+   Reason     : Static IP is reserved but not attached to any resource
+   Detected   : 2026-02-08T15:00:03+00:00
+   Details:
+     - address: 34.123.xxx.xxx
+     - address_type: EXTERNAL
+     - status: RESERVED
+     - labels: {}
+
+4. [GCP] Old Disk Snapshot
+   Risk       : Low
+   Confidence : High
+   Resource   : gcp.compute.snapshot → projects/my-project/global/snapshots/disk-backup-2025-08-01
+   Region     : global
+   Rule       : gcp.compute.snapshot.old
+   Reason     : Disk snapshot is 191 days old
+   Detected   : 2026-02-08T15:00:04+00:00
+   Details:
+     - source_disk: projects/my-project/zones/us-central1-a/disks/app-disk
+     - age_days: 191
+     - storage_bytes: 53687091200
+     - estimated_monthly_cost_usd: 2.15
+     - labels: {}
+
+5. [GCP] Idle Cloud SQL Instance
+   Risk       : Medium
+   Confidence : High
+   Resource   : gcp.sql.instance → projects/my-project/instances/db-staging
+   Region     : us-central1
+   Rule       : gcp.sql.instance.idle
+   Reason     : Cloud SQL instance has zero connections for 14+ days
+   Detected   : 2026-02-08T15:00:05+00:00
+   Details:
+     - database_version: POSTGRES_14
+     - tier: db-n1-standard-2
+     - estimated_monthly_cost_usd: 100.00
+     - labels: {"env": "staging"}
+
+--- Scan Summary ---
+Rules executed: 5/5
+Total findings: 5
+
+By risk:
+  low: 3
+  medium: 2
+
+By confidence:
+  high: 5
+
+Minimum estimated waste: ~$203/month
+(4 of 5 findings costed)
+Projects scanned: my-project (all accessible)
+Scanned at: 2026-02-08T15:00:05+00:00
+```
+
+For GCP, the **Projects scanned** field is shown instead of **Regions**, and findings use `labels` instead of `tags` in details.
+
+---
+
+## Scan — GCP (JSON)
+
+`cleancloud scan --provider gcp --all-projects --output json --output-file results.json`
+
+```json
+{
+  "schema_version": "1.2.0",
+  "summary": {
+    "total_findings": 5,
+    "by_provider": { "gcp": 5 },
+    "by_risk": { "low": 3, "medium": 2 },
+    "by_confidence": { "high": 5 },
+    "minimum_estimated_monthly_waste_usd": 203.15,
+    "findings_with_cost_estimate": 4,
+    "highest_confidence": "high",
+    "high_conf_findings": 5,
+    "projects_scanned": ["my-project"],
+    "project_selection_mode": "all",
+    "total_rules": 5,
+    "provider": "gcp",
+    "scanned_at": "2026-02-08T15:00:05+00:00"
+  },
+  "findings": [
+    {
+      "provider": "gcp",
+      "rule_id": "gcp.compute.disk.unattached",
+      "resource_type": "gcp.compute.disk",
+      "resource_id": "projects/my-project/zones/us-central1-b/disks/data-disk-old",
+      "region": "us-central1-b",
+      "title": "Unattached Persistent Disk",
+      "summary": "Persistent disk has been unattached for 38 days",
+      "reason": "Persistent disk has been unattached for 38 days",
+      "risk": "low",
+      "confidence": "high",
+      "detected_at": "2026-02-08T15:00:02+00:00",
+      "details": {
+        "size_gb": 500,
+        "type": "pd-ssd",
+        "status": "READY",
+        "labels": { "project": "legacy-pipeline" }
+      },
+      "estimated_monthly_cost_usd": 85.00,
+      "evidence": {
+        "signals_used": [
+          "Disk status is READY with no users (not attached to any instance)",
+          "Disk has been unattached for 38 days"
+        ],
+        "signals_not_checked": [
+          "Application-level usage intent",
+          "IaC-managed lifecycle",
+          "Disaster recovery purpose"
+        ],
+        "time_window": "30 days"
+      }
+    },
+    {
+      "provider": "gcp",
+      "rule_id": "gcp.sql.instance.idle",
+      "resource_type": "gcp.sql.instance",
+      "resource_id": "projects/my-project/instances/db-staging",
+      "region": "us-central1",
+      "title": "Idle Cloud SQL Instance",
+      "summary": "Cloud SQL instance has zero connections for 14+ days",
+      "reason": "Cloud SQL instance has zero connections for 14+ days",
+      "risk": "medium",
+      "confidence": "high",
+      "detected_at": "2026-02-08T15:00:05+00:00",
+      "details": {
+        "database_version": "POSTGRES_14",
+        "tier": "db-n1-standard-2",
+        "labels": { "env": "staging" }
+      },
+      "estimated_monthly_cost_usd": 100.00,
+      "evidence": {
+        "signals_used": [
+          "Zero database connections over 14-day Cloud Monitoring window",
+          "Instance state: RUNNABLE"
+        ],
+        "signals_not_checked": [
+          "Application-level connection poolers that may suppress direct connections",
+          "Planned reactivation or seasonal workload"
+        ],
+        "time_window": "14 days"
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Scan — GCP (Markdown)
+
+`cleancloud scan --provider gcp --all-projects --output markdown`
+
+```markdown
+## CleanCloud Scan Results
+
+**Provider:** GCP
+**Projects:** my-project
+**Scanned:** 2026-02-08
+**Estimated monthly waste:** ~$203
+
+**Total findings:** 5
+
+| Finding | Count | Est. Monthly Cost |
+|---------|------:|------------------:|
+| Unattached Persistent Disk | 1 | ~$85 |
+| Idle Cloud SQL Instance | 1 | ~$100 |
+| Old Disk Snapshot | 1 | ~$2 |
+| Stopped VM Instance | 1 | ~$16 |
+| Unused Reserved Static IP | 1 | ~$0 |
+
+**Confidence:** high: 5
+
+> Generated by [CleanCloud](https://github.com/cleancloud-io/cleancloud) — read-only cloud hygiene scanner for AWS, Azure, and GCP.
+```
+
+For GCP, the **Projects** field is shown instead of **Regions** or **Subscriptions**.
+
+---
+
 ## JSON Schema Reference
 
-CleanCloud uses a versioned JSON schema (current: `1.0.0`). All JSON output includes a `schema_version` field for backward compatibility.
+CleanCloud uses a versioned JSON schema (current: `1.2.0`). All JSON output includes a `schema_version` field for backward compatibility.
 
-- **Schema definition**: [`schemas/output-v1.0.0.json`](../schemas/output-v1.0.0.json)
+- **Schema definition**: [`schemas/output-v1.2.0.json`](../schemas/output-v1.2.0.json)
 - **CI/CD integration guide**: [`docs/ci.md`](ci.md)
 
-**Key differences between AWS and Azure JSON output:**
+**Key differences between AWS, Azure, and GCP JSON output:**
 
-| Field | AWS | Azure |
-|-------|-----|-------|
-| `region_selection_mode` | `"explicit"` or `"all-regions"` | Not present |
-| `subscription_selection_mode` | Not present | `"explicit"` or `"all"` |
-| `subscriptions_scanned` | Not present | Array of subscription IDs |
-| `resource_id` | Short ID (e.g., `vol-0abc123`) | Full ARM resource ID |
+| Field | AWS | Azure | GCP |
+|-------|-----|-------|-----|
+| `region_selection_mode` | `"explicit"` or `"all-regions"` | Not present | Not present |
+| `regions_scanned` | Array of region strings | Array of region strings | Not present |
+| `subscription_selection_mode` | Not present | `"explicit"`, `"all"`, or `"management-group"` | Not present |
+| `subscriptions_scanned` | Not present | Array of subscription IDs | Not present |
+| `project_selection_mode` | Not present | Not present | `"explicit"` or `"all"` |
+| `projects_scanned` | Not present | Not present | Array of project IDs |
+| `resource_id` | Short ID (e.g., `vol-0abc123`) | Full ARM resource ID | Full resource path (e.g., `projects/p/zones/z/disks/d`) |
+| `details.tags` | Present | Present | Not present |
+| `details.labels` | Not present | Not present | Present |

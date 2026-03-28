@@ -10,19 +10,19 @@
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
 
-**Docs:** [Configuration AWS](docs/aws.md) · [Permissions & Commandes AWS](docs/aws.md#at-a-glance) · [Multi-comptes AWS](docs/aws.md#multi-account-scanning) · [Configuration Azure](docs/azure.md) · [Guide CI/CD](docs/ci.md) · [Règles de détection](docs/rules.md) · [Exemples de sortie](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
+**Docs:** [Configuration AWS](docs/aws.md) · [Permissions & Commandes AWS](docs/aws.md#at-a-glance) · [Multi-comptes AWS](docs/aws.md#multi-account-scanning) · [Configuration Azure](docs/azure.md) · [Configuration GCP](docs/gcp.md) · [Guide CI/CD](docs/ci.md) · [Règles de détection](docs/rules.md) · [Exemples de sortie](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
 
 ---
 
 **CleanCloud est le moteur d'hygiène cloud — la couche manquante entre la visibilité des coûts et le nettoyage.**
 
-**Supporte :** AWS · Azure — GCP bientôt disponible
+**Supporte :** AWS · Azure · GCP
 
 Le gaspillage cloud a atteint 29% des dépenses en 2026 — première hausse en cinq ans (Flexera). La plupart des équipes ont déjà des tableaux de bord de coûts. Les tableaux de bord montrent les tendances de dépenses — ils n'indiquent pas aux ingénieurs ce qu'il faut nettoyer. Les plateformes FinOps SaaS nécessitent un accès vendor à votre compte cloud — exclu pour les industries réglementées. Et à mesure que les environnements cloud s'étendent sur plusieurs comptes et abonnements, les ressources inutilisées ne sont plus des exceptions — elles sont une dérive continue. Les équipes platform ont besoin d'un processus déterministe et applicable pour transformer cette dérive en une liste précise de ce sur quoi agir.
 
-C'est CleanCloud. Scannez vos environnements AWS et Azure, obtenez des findings actionnables avec des estimations de coût par ressource, et appliquez des seuils de gaspillage sur un planning — aucun agent, aucun SaaS, aucune donnée ne quitte votre environnement.
+C'est CleanCloud. Scannez vos environnements AWS, Azure et GCP, obtenez des findings actionnables avec des estimations de coût par ressource, et appliquez des seuils de gaspillage sur un planning — aucun agent, aucun SaaS, aucune donnée ne quitte votre environnement.
 
-| | Outils natifs AWS/Azure | Plateformes FinOps SaaS | **CleanCloud** |
+| | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
 |---|:---:|:---:|:---:|
 | Affiche les tendances de coûts | ✅ | ✅ | — |
 | Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
@@ -30,13 +30,14 @@ C'est CleanCloud. Scannez vos environnements AWS et Azure, obtenez des findings 
 | Lecture seule, aucun agent | ✅ | ❌ | ✅ |
 | Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
 | Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
-| Hygiène multi-comptes / multi-abonnements | ❌ | ✅ | ✅ |
+| Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
 | Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
 
-- **25 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **30 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
+- **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
 - **Sûr pour les environnements réglementés :** lecture seule, aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre propre infrastructure. Adapté aux comptes de services financiers, de santé et gouvernementaux où l'accès SaaS tiers est restreint
 - **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord de coûts et automatisation des tickets — CSV pour les workflows tableur — markdown à coller directement dans vos PRs GitHub, Jira ou Confluence
 - **Aucun agent. Zéro télémétrie. Pas de SaaS.** Les données ne quittent jamais votre environnement
@@ -98,40 +99,32 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 | `cleancloud --version` | Affiche la version installée |
 | `cleancloud --help` | Liste tous les flags |
 
-<details>
-<summary>Tous les flags de scan</summary>
+### Flags de scan :
 
-```
-# Obligatoire
---provider aws|azure          Fournisseur cloud à scanner
-
-# Région (optionnel)
---region REGION               Région unique
---all-regions                 Scanne toutes les régions actives (recommandé)
-
-# Multi-comptes — AWS uniquement (optionnel, choisir un)
---multi-account FILE          Fichier de config listant les comptes (ex. .cleancloud/accounts.yaml)
---accounts 111,222            IDs de comptes inline, séparés par des virgules
---org                         Auto-découverte via AWS Organizations
---concurrency N               Comptes en parallèle (défaut : 3)
---timeout SECONDS             Timeout total du scan en secondes (défaut : 3600)
-
-# Multi-abonnements — Azure uniquement (optionnel)
---management-group ID         Scanner tous les abonnements d'un Management Group
---subscription ID             Scanner un seul abonnement (défaut : tous les accessibles)
-
-# Sortie (optionnel)
---output human|json|csv|markdown  Format de sortie (défaut : human)
---output-file FILE            Écrit la sortie dans un fichier
-
-# Seuils d'application (optionnel, tous retournent exit code 2)
---fail-on-confidence HIGH     Échec sur findings HIGH confidence
---fail-on-confidence MEDIUM   Échec sur findings MEDIUM ou supérieur
---fail-on-cost N              Échec si gaspillage mensuel estimé >= $N
---fail-on-findings            Échec si au moins un finding
-```
-
-</details>
+| Flag | Fonction |
+|---|---|
+| `--provider aws\|azure\|gcp` | Fournisseur cloud à scanner *(obligatoire)* |
+| `--region REGION` | Scanner une seule région |
+| `--all-regions` | Toutes les régions actives — AWS/Azure uniquement |
+| **AWS multi-comptes** | |
+| `--org` | Auto-découverte via AWS Organizations |
+| `--multi-account FILE` | Fichier de config listant les comptes |
+| `--accounts 111,222` | IDs de comptes inline, séparés par des virgules |
+| `--concurrency N` | Comptes/projets en parallèle (défaut : 3) |
+| `--timeout SECONDS` | Timeout total du scan en secondes (défaut : 3600) |
+| **Azure multi-abonnements** | |
+| `--management-group ID` | Scanner tous les abonnements d'un Management Group |
+| `--subscription ID` | Scanner un abonnement spécifique (défaut : tous les accessibles) |
+| **GCP multi-projets** | |
+| `--all-projects` | Scanner tous les projets GCP accessibles |
+| `--project ID` | Scanner un projet spécifique (répétable) |
+| **Sortie** | |
+| `--output human\|json\|csv\|markdown` | Format de sortie (défaut : human) |
+| `--output-file FILE` | Écrire la sortie dans un fichier |
+| **Application** *(exit code 2 en cas de correspondance)* | |
+| `--fail-on-confidence HIGH\|MEDIUM` | Échec sur les findings à ce niveau de confiance ou supérieur |
+| `--fail-on-cost N` | Échec si gaspillage mensuel estimé ≥ $N |
+| `--fail-on-findings` | Échec sur n'importe quel finding |
 
 **Via pipx (recommandé pour usage local) :**
 ```bash
@@ -164,9 +157,12 @@ cleancloud scan --provider aws --all-regions
 
 # Azure : assurez-vous d'être connecté (az login)
 cleancloud scan --provider azure
+
+# GCP : assurez-vous d'être connecté (gcloud auth application-default login)
+cleancloud scan --provider gcp --all-projects
 ```
 
-Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws` ou `cleancloud doctor --provider azure`.
+Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure` ou `cleancloud doctor --provider gcp`.
 
 ### Sans installation — essayez dans votre cloud shell
 
@@ -187,7 +183,15 @@ cleancloud doctor --provider azure  # vérifiez les permissions de votre session
 cleancloud scan --provider azure
 ```
 
-Les deux shells s'authentifient via votre session du portail — aucune credential séparée n'est requise.
+**GCP — [Cloud Shell](https://shell.cloud.google.com) :**
+```bash
+pip install --upgrade --user cleancloud
+export PATH="$HOME/.local/bin:$PATH"
+cleancloud doctor --provider gcp    # vérifiez les permissions de votre session
+cleancloud scan --provider gcp --all-projects
+```
+
+Les shells AWS et Azure s'authentifient via votre session du portail. Le GCP Cloud Shell utilise les Application Default Credentials gcloud, pré-configurées dans Cloud Shell.
 
 Les permissions varient selon les comptes ; `doctor` vous indique exactement ce qui est disponible avant de scanner. Si des permissions sont manquantes, CleanCloud ignore les règles concernées et indique lesquelles ont été ignorées.
 
@@ -293,7 +297,7 @@ Produit un résumé groupé que vous pouvez coller directement dans un commentai
 
 **Confiance :** high: 3 · medium: 3
 
-> Généré par [CleanCloud](https://github.com/cleancloud-io/cleancloud) — scanner d'hygiène cloud lecture seule pour AWS et Azure.
+> Généré par [CleanCloud](https://github.com/cleancloud-io/cleancloud) — scanner d'hygiène cloud lecture seule pour AWS, Azure et GCP.
 ```
 
 Sauvegardez dans un fichier avec `--output-file results.md`. Sans `--output-file`, la sortie s'affiche dans stdout.
@@ -304,7 +308,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 
 ## Ce que CleanCloud détecte
 
-25 règles pour AWS et Azure — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+30 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -320,6 +324,12 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
 - Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
+
+**GCP :**
+- Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)
+- Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
+- Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
+- Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 
@@ -398,7 +408,7 @@ cleancloud scan --provider azure \
 
 Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure (Workload Identity) — incluant la configuration OIDC, les politiques IAM/RBAC, et les patterns d'application :
 
-**[Guide automatisation & CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md)
+**[Guide automatisation & CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md) · [Configuration GCP →](docs/gcp.md)
 
 **Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
@@ -507,15 +517,56 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 
 ---
 
-## Feuille de route
+## Scan multi-projets (GCP)
 
-**Support GCP** — authentification (Application Default Credentials + Workload Identity), énumération de projets, et un premier ensemble de règles couvrant le gaspillage compute, stockage et réseau (5–8 règles). Complète le tableau multi-cloud pour les environnements AWS + Azure + GCP.
+Conçu pour les équipes gérant plusieurs projets GCP. Scannez tous les projets accessibles en parallèle avec une seule identité — findings agrégés dans un rapport unique avec détail des coûts par projet.
+
+```bash
+# Scanner tous les projets accessibles (défaut)
+cleancloud scan --provider gcp --all-projects
+
+# Scanner des projets spécifiques
+cleancloud scan --provider gcp --project mon-projet-123 --project autre-projet-456
+
+# Avec filtre de région
+cleancloud scan --provider gcp --all-projects --region us-central1
+```
+
+**Permissions requises (par projet) :**
+
+| Permission | Requise pour |
+|---|---|
+| `compute.disks.list` | Disques persistants non attachés |
+| `compute.instances.list` | Instances VM arrêtées |
+| `compute.addresses.list` | IPs statiques régionales inutilisées |
+| `compute.globalAddresses.list` | IPs statiques globales inutilisées |
+| `compute.snapshots.list` | Anciens snapshots de disques |
+| `cloudsql.instances.list` | Instances Cloud SQL inactives |
+| `monitoring.timeSeries.list` | Vérification de l'activité des connexions SQL |
+
+Toutes les permissions en lecture seule sont couvertes par quatre rôles prédéfinis : `roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, et `roles/browser` (requis pour l'énumération des projets avec `--all-projects`). Pour CI/CD, utilisez Workload Identity Federation — voir [Configuration GCP →](docs/gcp.md).
+
+**Fonctionnement :**
+
+- **Application Default Credentials** — utilise la chaîne d'authentification GCP standard : `GOOGLE_APPLICATION_CREDENTIALS` → gcloud ADC → Workload Identity → service account attaché au serveur de métadonnées.
+- **Auto-découverte** — avec `--all-projects`, CleanCloud énumère tous les projets ACTIFS accessibles via l'API Resource Manager. Avec `--project`, seuls les projets spécifiés sont scannés.
+- **Parallèle avec isolation** — chaque projet s'exécute dans son propre thread. Un projet en échec (permission refusée, API non activée) n'affecte jamais les autres.
+- **Dégradation gracieuse** — les règles échouant avec 403 sont enregistrées comme ignorées (avec la permission manquante nommée), pas comme des échecs de scan.
+- **Détail des coûts par projet** — la sortie indique le gaspillage mensuel estimé par projet.
+
+Guide complet : [Configuration GCP →](docs/gcp.md)
+
+---
+
+## Feuille de route
 
 **Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 
 **Plus de règles AWS** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Redshift inactif
 
 **Plus de règles Azure** — Azure Firewall inactif, pools de nœuds AKS inactifs, pools Azure Batch inutilisés
+
+**Plus de règles GCP** — pools de nœuds GKE inactifs, gaspillage de slots BigQuery, stockage froid GCS, révisions Cloud Run inactives
 
 **Filtrage de règles** — flag `--rules` pour exécuter un sous-ensemble de règles
 
@@ -526,6 +577,7 @@ Guide complet (RBAC, Workload Identity, Management Group) : [Configuration multi
 - [`docs/rules.md`](docs/rules.md) — Règles de détection, signaux et preuves
 - [`docs/aws.md`](docs/aws.md) — Politique IAM AWS et configuration OIDC
 - [`docs/azure.md`](docs/azure.md) — RBAC Azure et configuration Workload Identity
+- [`docs/gcp.md`](docs/gcp.md) — Permissions IAM GCP et configuration Application Default Credentials
 - [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
