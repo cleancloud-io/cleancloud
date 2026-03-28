@@ -34,6 +34,8 @@ All roles are read-only. No create, delete, or modify permissions — ever.
 
 ### Org-Wide Setup (3 steps)
 
+> **Using Terraform?** Skip the manual steps — the module at [`deploy/terraform/gcp/`](../deploy/terraform/gcp/) does all three in one `terraform apply`. See [Terraform](#terraform-recommended-for-teams).
+
 **Step 1 — Create a host project, service account, and WIF pool** → [Host Project Setup](#step-1-create-the-host-project-service-account-and-wif-pool)
 
 **Step 2 — Bind read-only roles at the organization level** → [Org-Level IAM Binding](#step-2-bind-read-only-roles-at-the-organization-level)
@@ -354,71 +356,57 @@ Projects where Compute Engine or Cloud SQL APIs are disabled are scanned but ret
 
 ---
 
-## Terraform (Optional)
+## Terraform (Recommended for Teams)
 
-If you manage GCP IAM with Terraform, you can replicate the org-wide setup:
+A ready-made Terraform module ships with CleanCloud at [`deploy/terraform/gcp/`](../deploy/terraform/gcp/).
 
-```hcl
-# Host project service account
-resource "google_service_account" "cleancloud_scanner" {
-  project      = var.host_project_id
-  account_id   = "cleancloud-scanner"
-  display_name = "CleanCloud Read-Only Scanner"
-}
+It creates everything from [Org-Wide Setup](#org-wide-setup) in one `terraform apply`:
+- Service account in the host project
+- Enables `iamcredentials.googleapis.com` and `cloudresourcemanager.googleapis.com`
+- Org-level IAM bindings (or project-level if no `organization_id` is set)
+- Workload Identity Federation pool + GitHub OIDC provider
 
-# Workload Identity Pool
-resource "google_iam_workload_identity_pool" "github_actions" {
-  project                   = var.host_project_id
-  workload_identity_pool_id = "github-actions"
-  display_name              = "GitHub Actions Pool"
-}
+**Usage:**
 
-# OIDC Provider
-resource "google_iam_workload_identity_pool_provider" "github" {
-  project                            = var.host_project_id
-  workload_identity_pool_id          = google_iam_workload_identity_pool.github_actions.workload_identity_pool_id
-  workload_identity_pool_provider_id = "github"
-  display_name                       = "GitHub OIDC"
+```bash
+cd deploy/terraform/gcp
 
-  oidc {
-    issuer_uri = "https://token.actions.githubusercontent.com"
-  }
+terraform init
 
-  attribute_mapping = {
-    "google.subject"        = "assertion.sub"
-    "attribute.repository"  = "assertion.repository"
-  }
-
-  # Restricts to your repo — works for all trigger types (push, PR, schedule, environment).
-  # To further restrict to a specific branch: "assertion.repository == '${var.github_repo}' && assertion.sub.startsWith('repo:${var.github_repo}:ref:refs/heads/main')"
-  attribute_condition = "assertion.repository == '${var.github_repo}'"
-}
-
-# Allow GitHub Actions to impersonate the SA
-resource "google_service_account_iam_member" "wif_binding" {
-  service_account_id = google_service_account.cleancloud_scanner.name
-  role               = "roles/iam.workloadIdentityUser"
-  member             = "principalSet://iam.googleapis.com/${google_iam_workload_identity_pool.github_actions.name}/attribute.repository/${var.github_repo}"
-}
-
-# Org-level read-only roles — covers all target projects
-locals {
-  scanner_roles = [
-    "roles/compute.viewer",
-    "roles/cloudsql.viewer",
-    "roles/monitoring.viewer",
-    "roles/browser",
-  ]
-}
-
-resource "google_organization_iam_member" "cleancloud_scanner" {
-  for_each = toset(local.scanner_roles)
-
-  org_id = var.org_id
-  role   = each.value
-  member = "serviceAccount:${google_service_account.cleancloud_scanner.email}"
-}
+terraform apply \
+  -var="project_id=cleancloud-hub" \
+  -var="organization_id=<YOUR_ORG_ID>" \
+  -var="github_repo=<ORG>/<REPO>"
 ```
+
+**Outputs** — copy these directly into GitHub Actions secrets/variables:
+
+```
+service_account_email        → GCP_SERVICE_ACCOUNT secret
+workload_identity_provider   → GCP_WORKLOAD_IDENTITY_PROVIDER secret
+project_id                   → CLEANCLOUD_GCP_TEST_PROJECT variable
+iam_scope                    → confirms org or project level
+```
+
+**Single-project** (no org access): omit `organization_id` — IAM roles are bound to `project_id` only:
+
+```bash
+terraform apply \
+  -var="project_id=my-target-project" \
+  -var="github_repo=<ORG>/<REPO>"
+```
+
+**Without Workload Identity** (non-GitHub CI):
+
+```bash
+terraform apply \
+  -var="project_id=cleancloud-hub" \
+  -var="organization_id=<YOUR_ORG_ID>" \
+  -var="github_repo=" \
+  -var="enable_workload_identity=false"
+```
+
+Then [create a service account key](#2-service-account-key-not-recommended) manually for your CI system.
 
 ---
 
