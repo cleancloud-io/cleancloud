@@ -7,7 +7,7 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.oauth2.credentials
 import google.oauth2.service_account
-from google.api_core.exceptions import Forbidden, PermissionDenied
+from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied, ResourceExhausted
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import compute_v1, monitoring_v3, resourcemanager_v3
 from google.protobuf import timestamp_pb2
@@ -99,7 +99,9 @@ def detect_gcp_auth_method_from_env() -> tuple[str, str, dict]:
     return "gcloud_adc", "gcloud Application Default Credentials", metadata
 
 
-def _refine_method_from_credentials(credentials, method_id: str) -> tuple[str, str]:
+def _refine_method_from_credentials(
+    credentials, method_id: str, description: str
+) -> tuple[str, str]:
     """Refine the detected auth method using the actual credentials type."""
     try:
         import google.auth.compute_engine.credentials as gce_creds
@@ -115,7 +117,7 @@ def _refine_method_from_credentials(credentials, method_id: str) -> tuple[str, s
             return "gcloud_adc", "gcloud Application Default Credentials"
     except Exception:
         pass
-    return method_id, method_id
+    return method_id, description
 
 
 def run_gcp_doctor(project_id: Optional[str] = None) -> None:
@@ -234,7 +236,9 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         success("GCP credentials acquired successfully")
 
         # Refine method_id from actual credentials type
-        method_id, description = _refine_method_from_credentials(credentials, method_id)
+        method_id, description = _refine_method_from_credentials(
+            credentials, method_id, description
+        )
         info(f"  Confirmed method: {description}")
 
         # Show token expiry if available
@@ -338,6 +342,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
     info("Step 4: Read-Only Permission Validation")
     info("-" * 70)
 
+    permissions_attempted: list = []
     permissions_tested: list = []
     permissions_failed: list = []
 
@@ -349,69 +354,65 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         info("")
 
         # --- compute.disks.list ---
+        permissions_attempted.append("compute.disks.list")
         try:
             disks_client = compute_v1.DisksClient(credentials=credentials)
-            # Trigger first page fetch with a small page size (lazy pager)
-            next(
-                iter(
-                    disks_client.list(project=probe_project_id, zone="us-central1-a", max_results=1)
-                ),
-                None,
-            )
+            # aggregated_list covers all zones — consistent with how the rule scans
+            next(iter(disks_client.aggregated_list(project=probe_project_id)), None)
             permissions_tested.append("compute.disks.list")
             success("compute.disks.list")
         except (PermissionDenied, Forbidden) as e:
             permissions_failed.append(("compute.disks.list", str(e)))
             warn("compute.disks.list — MISSING (rule: disk_unattached will be skipped)")
+        except NotFound:
+            info("compute.disks.list — Compute Engine API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable compute.googleapis.com")
+        except ResourceExhausted:
+            warn("compute.disks.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("compute.disks.list")
-            success(
-                f"compute.disks.list (note: {type(e).__name__} — likely no disks in probe zone)"
-            )
+            success(f"compute.disks.list (note: {type(e).__name__})")
 
         # --- compute.instances.list ---
+        permissions_attempted.append("compute.instances.list")
         try:
             instances_client = compute_v1.InstancesClient(credentials=credentials)
-            next(
-                iter(
-                    instances_client.list(
-                        project=probe_project_id, zone="us-central1-a", max_results=1
-                    )
-                ),
-                None,
-            )
+            next(iter(instances_client.aggregated_list(project=probe_project_id)), None)
             permissions_tested.append("compute.instances.list")
             success("compute.instances.list")
         except (PermissionDenied, Forbidden) as e:
             permissions_failed.append(("compute.instances.list", str(e)))
             warn("compute.instances.list — MISSING (rule: vm_stopped will be skipped)")
+        except NotFound:
+            info("compute.instances.list — Compute Engine API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable compute.googleapis.com")
+        except ResourceExhausted:
+            warn("compute.instances.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("compute.instances.list")
-            success(
-                f"compute.instances.list (note: {type(e).__name__} — likely no instances in probe zone)"
-            )
+            success(f"compute.instances.list (note: {type(e).__name__})")
 
         # --- compute.addresses.list (regional IPs) ---
+        permissions_attempted.append("compute.addresses.list")
         try:
             addresses_client = compute_v1.AddressesClient(credentials=credentials)
-            next(
-                iter(
-                    addresses_client.list(
-                        project=probe_project_id, region="us-central1", max_results=1
-                    )
-                ),
-                None,
-            )
+            next(iter(addresses_client.aggregated_list(project=probe_project_id)), None)
             permissions_tested.append("compute.addresses.list")
             success("compute.addresses.list")
         except (PermissionDenied, Forbidden) as e:
             permissions_failed.append(("compute.addresses.list", str(e)))
             warn("compute.addresses.list — MISSING (rule: ip_unused regional IPs will be skipped)")
+        except NotFound:
+            info("compute.addresses.list — Compute Engine API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable compute.googleapis.com")
+        except ResourceExhausted:
+            warn("compute.addresses.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("compute.addresses.list")
             success(f"compute.addresses.list (note: {type(e).__name__})")
 
         # --- compute.globalAddresses.list (global IPs) ---
+        permissions_attempted.append("compute.globalAddresses.list")
         try:
             global_client = compute_v1.GlobalAddressesClient(credentials=credentials)
             next(
@@ -425,11 +426,17 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn(
                 "compute.globalAddresses.list — MISSING (rule: ip_unused global IPs will be skipped)"
             )
+        except NotFound:
+            info("compute.globalAddresses.list — Compute Engine API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable compute.googleapis.com")
+        except ResourceExhausted:
+            warn("compute.globalAddresses.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("compute.globalAddresses.list")
             success(f"compute.globalAddresses.list (note: {type(e).__name__})")
 
         # --- compute.snapshots.list ---
+        permissions_attempted.append("compute.snapshots.list")
         try:
             snapshots_client = compute_v1.SnapshotsClient(credentials=credentials)
             next(
@@ -441,11 +448,17 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         except (PermissionDenied, Forbidden) as e:
             permissions_failed.append(("compute.snapshots.list", str(e)))
             warn("compute.snapshots.list — MISSING (rule: snapshot_old will be skipped)")
+        except NotFound:
+            info("compute.snapshots.list — Compute Engine API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable compute.googleapis.com")
+        except ResourceExhausted:
+            warn("compute.snapshots.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("compute.snapshots.list")
             success(f"compute.snapshots.list (note: {type(e).__name__})")
 
         # --- cloudsql.instances.list ---
+        permissions_attempted.append("cloudsql.instances.list")
         try:
             session = AuthorizedSession(credentials)
             resp = session.get(
@@ -456,10 +469,8 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
                 permissions_failed.append(("cloudsql.instances.list", "403 Forbidden"))
                 warn("cloudsql.instances.list — MISSING (rule: sql_instance_idle will be skipped)")
             elif resp.status_code == 404:
-                permissions_tested.append("cloudsql.instances.list")
-                success(
-                    "cloudsql.instances.list (Cloud SQL API not enabled — no instances to find)"
-                )
+                info("cloudsql.instances.list — Cloud SQL API not enabled (rule unavailable)")
+                info("  → enable via: gcloud services enable sqladmin.googleapis.com")
             else:
                 permissions_tested.append("cloudsql.instances.list")
                 success("cloudsql.instances.list")
@@ -468,6 +479,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn(f"cloudsql.instances.list — error: {e}")
 
         # --- monitoring.timeSeries.list ---
+        permissions_attempted.append("monitoring.timeSeries.list")
         try:
             mon_client = monitoring_v3.MetricServiceClient(credentials=credentials)
             now = datetime.now(timezone.utc)
@@ -483,7 +495,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
                     mon_client.list_time_series(
                         request={
                             "name": f"projects/{probe_project_id}",
-                            "filter": 'metric.type="compute.googleapis.com/instance/cpu/utilization"',
+                            "filter": 'metric.type="cloudsql.googleapis.com/database/network/connections"',
                             "interval": interval,
                             "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS,
                         }
@@ -499,13 +511,18 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
                 "monitoring.timeSeries.list — MISSING "
                 "(rule: sql_instance_idle will skip instances it cannot verify)"
             )
+        except NotFound:
+            info("monitoring.timeSeries.list — Cloud Monitoring API not enabled (rule unavailable)")
+            info("  → enable via: gcloud services enable monitoring.googleapis.com")
+        except ResourceExhausted:
+            warn("monitoring.timeSeries.list — API quota exceeded (retry later)")
         except Exception as e:
             permissions_tested.append("monitoring.timeSeries.list")
             success(f"monitoring.timeSeries.list (note: {type(e).__name__})")
 
         # Summary of permission checks
         info("")
-        total = len(permissions_tested) + len(permissions_failed)
+        total = len(permissions_attempted)
         info(f"Permissions: {len(permissions_tested)}/{total} passed")
 
         if permissions_failed:
@@ -522,6 +539,48 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             info("  roles/browser               — project listing (or specify --project)")
             info("")
             info("  Or assign: roles/viewer  (covers Compute + Monitoring at project scope)")
+            info("")
+            sa_hint = "<your-service-account>@<project>.iam.gserviceaccount.com"
+            info("  Example fix command:")
+            info(
+                f"  gcloud projects add-iam-policy-binding {probe_project_id or '<project-id>'} \\"
+            )
+            info(f'    --member="serviceAccount:{sa_hint}" \\')
+            info('    --role="roles/viewer"')
+
+        # Rule coverage map — translates permissions into rule-level status
+        info("")
+        info("Rule Coverage")
+        info("-" * 50)
+        failed_perms = {p for p, _ in permissions_failed}
+
+        rules = [
+            ("gcp.compute.disk.unattached", ["compute.disks.list"], None),
+            ("gcp.compute.vm.stopped", ["compute.instances.list"], None),
+            (
+                "gcp.compute.ip.unused",
+                ["compute.addresses.list", "compute.globalAddresses.list"],
+                None,
+            ),
+            ("gcp.compute.snapshot.old", ["compute.snapshots.list"], None),
+            (
+                "gcp.sql.instance.idle",
+                ["cloudsql.instances.list"],
+                ["monitoring.timeSeries.list"],
+            ),
+        ]
+
+        for rule_name, required, optional in rules:
+            missing_required = [p for p in required if p in failed_perms]
+            missing_optional = [p for p in (optional or []) if p in failed_perms]
+            if not missing_required and not missing_optional:
+                success(f"  ✓ {rule_name:<30} (enabled)")
+            elif not missing_required and missing_optional:
+                warn(
+                    f"  ~ {rule_name:<30} (partial: {', '.join(missing_optional)} missing — conservative fallback active)"
+                )
+            else:
+                warn(f"  ✗ {rule_name:<30} (disabled: missing {', '.join(missing_required)})")
 
     # -------------------------------------------------------------------------
     # Summary

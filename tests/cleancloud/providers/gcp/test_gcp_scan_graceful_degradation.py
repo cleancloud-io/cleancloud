@@ -74,7 +74,7 @@ def test_all_rules_succeed(monkeypatch):
         "cleancloud.providers.gcp.scan.GCP_RULES",
         [_rule_returning([f1]), _rule_returning([f2])],
     )
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-1",
         project_name="Project One",
         credentials=MagicMock(),
@@ -93,7 +93,7 @@ def test_permission_error_recorded_as_skipped(monkeypatch):
             _rule_raising(PermissionError("compute.disks.list denied")),
         ],
     )
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-1",
         project_name="Project One",
         credentials=MagicMock(),
@@ -113,7 +113,7 @@ def test_permission_denied_recorded_as_skipped(monkeypatch):
             _rule_raising(PermissionDenied("403 compute.instances.list denied")),
         ],
     )
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-2",
         project_name="Project Two",
         credentials=MagicMock(),
@@ -135,7 +135,7 @@ def test_google_api_error_counted_but_not_skipped(monkeypatch):
             _rule_raising(err),
         ],
     )
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-1",
         project_name="Project One",
         credentials=MagicMock(),
@@ -174,7 +174,7 @@ def test_mixed_outcomes(monkeypatch):
             _rule_raising(GoogleAPICallError("transient error")),
         ],
     )
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-mix",
         project_name="Mixed Project",
         credentials=MagicMock(),
@@ -214,7 +214,7 @@ def test_only_skipped_rules_no_error_does_not_raise(monkeypatch):
         ],
     )
     # Should not raise — rules were skipped, not failed
-    findings, skipped = _scan_gcp_project(
+    findings, skipped, _, _ = _scan_gcp_project(
         project_id="proj-noperms",
         project_name="No Perms Project",
         credentials=MagicMock(),
@@ -258,7 +258,7 @@ def _make_scan_project_fn(raise_exc=None, findings=None):
     def fn(*, project_id, project_name, credentials, region_filter):
         if raise_exc is not None:
             raise raise_exc
-        return findings or [], []
+        return findings or [], [], 1, 0
 
     return fn
 
@@ -276,7 +276,7 @@ def test_one_project_failure_does_not_stop_others(monkeypatch):
         call_order.append(project_id)
         if project_id == "proj-bad":
             raise RuntimeError("All rules failed")
-        return [good_finding], []
+        return [good_finding], [], 1, 0
 
     monkeypatch.setattr("cleancloud.providers.gcp.scan._scan_gcp_project", scan_project)
 
@@ -364,7 +364,7 @@ def test_concurrency_respected(monkeypatch):
         time.sleep(0.05)
         with lock:
             current[0] -= 1
-        return [], []
+        return [], [], 1, 0
 
     monkeypatch.setattr("cleancloud.providers.gcp.scan._scan_gcp_project", scan_project)
 

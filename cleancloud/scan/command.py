@@ -457,7 +457,10 @@ def scan(
                         "name": r.project_name,
                         "status": r.status,
                         "findings": len(r.findings),
-                        "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
+                        "rules_succeeded": r.rules_succeeded,
+                        "rules_skipped": r.rules_skipped,
+                        "rules_failed": r.rules_failed,
+                        "estimated_monthly_cost_usd": r.estimated_monthly_cost,
                     }
                     for r in sorted(gcp_project_results, key=lambda r: r.project_name)
                 ]

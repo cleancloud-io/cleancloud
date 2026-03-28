@@ -1,5 +1,6 @@
+import random
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -22,6 +23,7 @@ from cleancloud.providers.gcp.session import create_gcp_session
 from cleancloud.providers.gcp.validate import validate_project_params, validate_region_params
 
 _MAX_RETRIES = 3
+_MAX_GLOBAL_WORKERS = 16
 
 
 @dataclass
@@ -31,14 +33,23 @@ class ProjectScanResult:
     status: str  # "success" | "failed"
     findings: List[Finding] = field(default_factory=list)
     skipped_rules: List[dict] = field(default_factory=list)
+    rules_succeeded: int = 0
+    rules_failed: int = 0
     error: Optional[str] = None
 
     @property
+    def rules_skipped(self) -> int:
+        return len(self.skipped_rules)
+
+    @property
     def estimated_monthly_cost(self) -> float:
-        return sum(
-            f.estimated_monthly_cost_usd
-            for f in self.findings
-            if f.estimated_monthly_cost_usd is not None
+        return round(
+            sum(
+                f.estimated_monthly_cost_usd
+                for f in self.findings
+                if f.estimated_monthly_cost_usd is not None
+            ),
+            2,
         )
 
 
@@ -67,7 +78,7 @@ def _run_rule_with_retry(
             return result if result is not None else []
         except (ServiceUnavailable, ResourceExhausted):
             if attempt < _MAX_RETRIES - 1:
-                wait = 2**attempt
+                wait = (2**attempt) + random.uniform(0, 1)
                 click.echo(
                     f"  Retrying {rule.__name__} "
                     f"(attempt {attempt + 2}/{_MAX_RETRIES}, wait {wait}s) ..."
@@ -155,8 +166,10 @@ def scan_gcp_projects(
     region_filter: Optional[str],
     concurrency: int = 4,
 ) -> List[ProjectScanResult]:
+    if not project_ids:
+        return []
     results: List[ProjectScanResult] = []
-    max_workers = min(concurrency, len(project_ids))
+    max_workers = min(concurrency, len(project_ids), _MAX_GLOBAL_WORKERS)
 
     with click.progressbar(
         length=len(project_ids),
@@ -180,7 +193,7 @@ def scan_gcp_projects(
                 proj_id = futures[future]
                 proj_name = project_name_map.get(proj_id, proj_id)
                 try:
-                    proj_findings, proj_skipped = future.result()
+                    proj_findings, proj_skipped, rules_succeeded, rules_failed = future.result()
                     results.append(
                         ProjectScanResult(
                             project_id=proj_id,
@@ -188,6 +201,8 @@ def scan_gcp_projects(
                             status="success",
                             findings=proj_findings,
                             skipped_rules=proj_skipped,
+                            rules_succeeded=rules_succeeded,
+                            rules_failed=rules_failed,
                         )
                     )
                 except Exception as e:
@@ -212,7 +227,7 @@ def _scan_gcp_project(
     project_name: str,
     credentials,
     region_filter: Optional[str],
-) -> Tuple[List[Finding], List[dict]]:
+) -> Tuple[List[Finding], List[dict], int, int]:
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
     rules_succeeded = 0
@@ -234,6 +249,7 @@ def _scan_gcp_project(
 
         for future in as_completed(futures):
             rule = futures[future]
+            rule_id = getattr(rule, "RULE_ID", rule.__name__)
             try:
                 rule_findings = future.result(timeout=120)
                 for f in rule_findings:
@@ -244,7 +260,7 @@ def _scan_gcp_project(
             except PermissionError as e:
                 skipped_rules.append(
                     {
-                        "rule": rule.__name__,
+                        "rule": rule_id,
                         "missing_permissions": str(e),
                         "project_id": project_id,
                         "project_name": project_name,
@@ -253,7 +269,7 @@ def _scan_gcp_project(
             except PermissionDenied as e:
                 skipped_rules.append(
                     {
-                        "rule": rule.__name__,
+                        "rule": rule_id,
                         "missing_permissions": f"GCP permission denied: {e.message}",
                         "project_id": project_id,
                         "project_name": project_name,
@@ -261,15 +277,18 @@ def _scan_gcp_project(
                 )
             except EnvironmentError:
                 raise
+            except TimeoutError:
+                rules_failed += 1
+                click.echo(f"  Rule timed out: {rule_id} ({project_name})")
             except GoogleAPICallError as e:
                 rules_failed += 1
                 click.echo(
-                    f"  Rule failed: {rule.__name__} ({project_name}) — "
+                    f"  Rule failed: {rule_id} ({project_name}) — "
                     f"{type(e).__name__}: {getattr(e, 'message', str(e))}"
                 )
             except Exception as e:
                 rules_failed += 1
-                click.echo(f"  Rule failed: {rule.__name__} ({project_name}) — {type(e).__name__}")
+                click.echo(f"  Rule failed: {rule_id} ({project_name}) — {type(e).__name__}")
 
     if rules_succeeded == 0 and not skipped_rules and rules_failed > 0:
         raise RuntimeError(
@@ -277,4 +296,5 @@ def _scan_gcp_project(
             f"This indicates a serious configuration or permissions issue."
         )
 
-    return findings, skipped_rules
+    findings.sort(key=lambda f: (f.rule_id, f.resource_id))
+    return findings, skipped_rules, rules_succeeded, rules_failed

@@ -178,3 +178,6 @@ def find_old_snapshots(
         return findings
 
     return findings
+
+
+find_old_snapshots.RULE_ID = "gcp.compute.snapshot.old"

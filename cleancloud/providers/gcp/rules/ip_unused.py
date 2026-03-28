@@ -203,3 +203,6 @@ def find_unused_static_ips(
         pass
 
     return findings
+
+
+find_unused_static_ips.RULE_ID = "gcp.compute.ip.unused"

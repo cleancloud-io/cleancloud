@@ -296,3 +296,6 @@ def find_idle_sql_instances(
         )
 
     return findings
+
+
+find_idle_sql_instances.RULE_ID = "gcp.sql.instance.idle"

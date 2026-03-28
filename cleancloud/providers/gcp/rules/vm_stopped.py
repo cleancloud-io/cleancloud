@@ -208,3 +208,6 @@ def find_stopped_vms(
         return findings
 
     return findings
+
+
+find_stopped_vms.RULE_ID = "gcp.compute.vm.stopped"

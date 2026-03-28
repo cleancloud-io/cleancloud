@@ -228,3 +228,6 @@ def find_unattached_disks(
         return findings
 
     return findings
+
+
+find_unattached_disks.RULE_ID = "gcp.compute.disk.unattached"
