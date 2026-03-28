@@ -240,14 +240,45 @@ jobs:
 
 > Azure Workload Identity writes an OIDC token to a temp file on the runner. The `-v` mount makes that file accessible inside the container.
 
+### GCP
+
+GCP Application Default Credentials are resolved via a file-based mechanism. In GitHub Actions with Workload Identity Federation, `google-github-actions/auth@v2` exchanges the OIDC token and writes a short-lived credentials file to the runner filesystem, then sets `GOOGLE_APPLICATION_CREDENTIALS` to point to it. That file must be mounted into the container.
+
+```yaml
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Run CleanCloud
+        run: |
+          test -f "$GOOGLE_APPLICATION_CREDENTIALS" || exit 1
+          echo "Using GCP credentials at: $GOOGLE_APPLICATION_CREDENTIALS"
+
+          docker run --rm \
+            -e GOOGLE_APPLICATION_CREDENTIALS=/gcp-creds.json \
+            -v "$GOOGLE_APPLICATION_CREDENTIALS:/gcp-creds.json:ro" \
+            getcleancloud/cleancloud scan \
+              --provider gcp \
+              --all-projects \
+              --fail-on-confidence HIGH \
+              --fail-on-cost 100
+```
+
+> The credentials file is short-lived and mounted read-only — no long-lived keys are exposed. The `test -f` guard catches a silent auth failure before Docker attempts the mount.
+
 ### Pinning to a specific version
 
 ```yaml
 # Pin to exact version — safest for production pipelines
 getcleancloud/cleancloud:1.9.0
-
-# Pin to minor — gets patch fixes automatically
-getcleancloud/cleancloud:1.9
 
 # Always latest — simplest, least predictable
 getcleancloud/cleancloud:latest
@@ -667,7 +698,7 @@ cleancloud scan \
 
 **JSON is the recommended format for programmatic processing** as it contains complete data including evidence and detailed metadata.
 
-The JSON output follows a versioned schema (see `schemas/output-v1.0.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
+The JSON output follows a versioned schema (see `schemas/output-v1.2.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
 
 **AWS Schema Example:**
 ```json
