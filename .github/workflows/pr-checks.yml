@@ -77,7 +77,15 @@ jobs:
           enable-AzPSSession: false
           allow-no-subscriptions: false
 
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
       - name: Run tests
+        env:
+          CLEANCLOUD_GCP_TEST_PROJECT: ${{ vars.GCP_PROJECT_ID }}
         run: |
           pytest tests/ -v --cov=cleancloud --cov-report=xml
 
@@ -296,3 +304,47 @@ jobs:
         with:
           name: azure-multi-subscription-pr-results
           path: multi-subscription-results.json
+
+  integration-test-gcp:
+    name: Integration Test - GCP
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    environment: cleancloud-test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install CleanCloud
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Test GCP doctor command
+        run: |
+          cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }}
+
+      - name: Test GCP scan
+        run: |
+          cleancloud scan \
+            --provider gcp \
+            --project ${{ vars.GCP_PROJECT_ID }} \
+            --output json \
+            --output-file test-results.json
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-integration-test-results
+          path: test-results.json
