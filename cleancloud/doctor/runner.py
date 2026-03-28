@@ -4,13 +4,17 @@ from typing import Optional
 from cleancloud.doctor.aws import run_aws_doctor
 from cleancloud.doctor.azure import run_azure_doctor
 from cleancloud.doctor.common import DoctorError, info, success
+from cleancloud.doctor.gcp import run_gcp_doctor
 
 
 def run_doctor(
-    provider: Optional[str] = None, profile: Optional[str] = None, region: Optional[str] = None
+    provider: Optional[str] = None,
+    profile: Optional[str] = None,
+    region: Optional[str] = None,
+    project: Optional[str] = None,
 ) -> None:
     # Validate provider
-    valid_providers = ["aws", "azure"]
+    valid_providers = ["aws", "azure", "gcp"]
     if provider is not None and provider not in valid_providers:
         info("")
         print(f"Invalid provider: {provider}")
@@ -23,7 +27,7 @@ def run_doctor(
     # Determine which providers to check
     providers_to_check = []
     if provider is None:
-        providers_to_check = ["aws", "azure"]
+        providers_to_check = ["aws", "azure", "gcp"]
     else:
         providers_to_check = [provider]
 
@@ -56,6 +60,17 @@ def run_doctor(
                     info("")
 
                 run_azure_doctor()
+                results[p] = {"status": "passed", "error": None}
+
+            elif p == "gcp":
+                # Warn if region is specified for GCP doctor (not applicable)
+                if region:
+                    info("")
+                    info("Warning: --region parameter is not applicable for GCP doctor")
+                    info("   Use --project to scope permission checks to a specific project")
+                    info("")
+
+                run_gcp_doctor(project_id=project)
                 results[p] = {"status": "passed", "error": None}
 
         except DoctorError as e:

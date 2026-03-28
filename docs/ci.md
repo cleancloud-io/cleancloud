@@ -53,7 +53,27 @@ jobs:
       - run: cleancloud scan --provider azure --fail-on-confidence HIGH
 ```
 
-> First time? Run `cleancloud doctor --provider aws` or `cleancloud doctor --provider azure` to validate credentials before running a full scan.
+**GCP** — same structure with Workload Identity Federation:
+
+```yaml
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - run: pip install cleancloud
+      - run: cleancloud scan --provider gcp --all-projects --fail-on-confidence HIGH
+```
+
+> First time? Run `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure`, or `cleancloud doctor --provider gcp` to validate credentials before running a full scan.
 
 For OIDC setup, enforcement options, output formats, and advanced patterns — read on.
 

@@ -17,7 +17,7 @@ Cloud waste is often invisible:
 - SaaS FinOps platforms are off-limits for regulated industries (FSI, healthcare, government) due to data residency and compliance requirements
 - Teams need a safe middle ground: deep detection with zero mutation risk, that runs inside their own environment
 
-CleanCloud fills that gap. It requires only read access, produces actionable findings with explicit confidence levels, and can scan a single account or an entire AWS Organization / Azure tenant in one run — so teams can make informed decisions without fear.
+CleanCloud fills that gap. It requires only read access, produces actionable findings with explicit confidence levels, and can scan a single account or an entire AWS Organization / Azure tenant / GCP project fleet in one run — so teams can make informed decisions without fear.
 
 ---
 
@@ -113,9 +113,9 @@ This is why CleanCloud can be trusted in environments where automation tools can
 
 ---
 
-## Multi-Account and Multi-Subscription Scanning
+## Multi-Account, Multi-Subscription, and Multi-Project Scanning
 
-CleanCloud scans entire AWS Organizations and Azure tenants in a single run — not just individual accounts.
+CleanCloud scans entire AWS Organizations, Azure tenants, and GCP project fleets in a single run — not just individual accounts.
 
 **AWS:**
 - `--org` — auto-discover all accounts in the AWS Organization
@@ -126,7 +126,11 @@ CleanCloud scans entire AWS Organizations and Azure tenants in a single run — 
 - Omit `--subscription` — scans all subscriptions the identity has Reader on
 - `--management-group <ID>` — auto-discover all subscriptions under a Management Group
 
-Findings from all accounts/subscriptions are aggregated into a single report with a per-account breakdown and combined cost estimate. No extra credentials or cross-account complexity for Azure — assign Reader at the Management Group level once and it inherits automatically.
+**GCP:**
+- `--all-projects` — auto-discover all accessible ACTIVE projects via Resource Manager API
+- `--project <ID>` — scan one or more specific projects (repeatable flag)
+
+Findings from all accounts/subscriptions/projects are aggregated into a single report with a per-account breakdown and combined cost estimate. GCP uses Application Default Credentials with no hub-and-spoke complexity — the identity needs `roles/compute.viewer` and related read-only roles at the project level.
 
 ---
 

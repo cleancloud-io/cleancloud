@@ -46,11 +46,19 @@ from cleancloud.providers.aws.multi_account import (
 )
 from cleancloud.providers.aws.scan import AWS_RULES, scan_aws_with_region_selection
 from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_selection
+from cleancloud.providers.gcp.scan import (
+    GCP_RULES,
+    ProjectScanResult,
+    scan_gcp_with_project_selection,
+)
 
 
 @click.command("scan")
 @click.option(
-    "--provider", required=True, type=click.Choice(["aws", "azure"]), help="Cloud provider to scan"
+    "--provider",
+    required=True,
+    type=click.Choice(["aws", "azure", "gcp"]),
+    help="Cloud provider to scan",
 )
 @click.option(
     "--region", default=None, help="Specific region to scan (AWS region or Azure location)"
@@ -74,6 +82,16 @@ from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_
     "--management-group",
     default=None,
     help="Azure Management Group ID — auto-discover all subscriptions underneath (Azure only)",
+)
+@click.option(
+    "--project",
+    multiple=True,
+    help="GCP project ID to scan (can specify multiple times)",
+)
+@click.option(
+    "--all-projects",
+    is_flag=True,
+    help="Scan all accessible GCP projects (default behavior for GCP)",
 )
 @click.option("--profile", default=None, help="AWS CLI profile name")
 @click.option(
@@ -175,6 +193,8 @@ def scan(
     subscription: tuple,
     all_subscriptions: bool,
     management_group: Optional[str],
+    project: tuple,
+    all_projects: bool,
     profile: Optional[str],
     output: str,
     output_file: Optional[str],
@@ -214,6 +234,11 @@ def scan(
         subscription_selection_mode = None
         subscriptions_scanned = []
         azure_sub_results = []
+
+        # GCP-specific metadata
+        project_selection_mode = None
+        projects_scanned = []
+        gcp_project_results: List[ProjectScanResult] = []
 
         # Determine if this is a multi-account scan
         is_multi_account = bool(multi_account_file or accounts_inline or scan_org)
@@ -294,6 +319,23 @@ def scan(
                 management_group=management_group,
             )
             # Extract unique regions from findings
+            regions_scanned = sorted(set(f.region for f in findings if f.region))
+
+        elif provider == "gcp":
+            project_list = list(project) if project else None
+            (
+                project_selection_mode,
+                findings,
+                projects_scanned,
+                skipped_rules,
+                gcp_project_results,
+            ) = scan_gcp_with_project_selection(
+                region=region,
+                projects=project_list,
+                all_projects=all_projects,
+                concurrency=concurrency,
+            )
+            # Extract unique regions/zones from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
 
         ignored_count = 0
@@ -398,6 +440,27 @@ def scan(
                     }
                     for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
                 ]
+        elif provider == "gcp":
+            summary["total_rules"] = len(GCP_RULES)
+            summary["project_selection_mode"] = project_selection_mode
+            summary["projects_scanned"] = projects_scanned
+            failed_projects = [r for r in gcp_project_results if r.status == "failed"]
+            if failed_projects:
+                summary["projects_failed"] = [
+                    {"id": r.project_id, "name": r.project_name, "error": r.error}
+                    for r in failed_projects
+                ]
+            if len(gcp_project_results) > 1:
+                summary["per_project"] = [
+                    {
+                        "id": r.project_id,
+                        "name": r.project_name,
+                        "status": r.status,
+                        "findings": len(r.findings),
+                        "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
+                    }
+                    for r in sorted(gcp_project_results, key=lambda r: r.project_name)
+                ]
         summary["highest_confidence"] = max(
             (f.confidence for f in findings),
             default=None,
@@ -474,11 +537,14 @@ def scan(
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except EnvironmentError as e:
-        # Raised by create_azure_session() when Azure auth fails
+        # Raised by create_azure_session() or create_gcp_session() when auth fails
         click.echo()
         click.echo(f"Authentication failed — {e}")
         click.echo()
-        click.echo("Run `cleancloud doctor --provider azure` to diagnose.")
+        if provider == "gcp":
+            click.echo("Run `cleancloud doctor --provider gcp` to diagnose.")
+        else:
+            click.echo("Run `cleancloud doctor --provider azure` to diagnose.")
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except botocore.exceptions.NoCredentialsError:
