@@ -329,7 +329,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)
 - Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
 - Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
-- Plateforme : instances Cloud SQL inactives avec zéro connexion 7+ jours (HIGH)
+- Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 
@@ -531,6 +531,28 @@ cleancloud scan --provider gcp --project mon-projet-123 --project autre-projet-4
 # Avec filtre de région
 cleancloud scan --provider gcp --all-projects --region us-central1
 ```
+
+**Permissions requises (par projet) :**
+
+| Permission | Requise pour |
+|---|---|
+| `compute.disks.list` | Disques persistants non attachés |
+| `compute.instances.list` | Instances VM arrêtées |
+| `compute.addresses.list` | IPs statiques régionales inutilisées |
+| `compute.globalAddresses.list` | IPs statiques globales inutilisées |
+| `compute.snapshots.list` | Anciens snapshots de disques |
+| `cloudsql.instances.list` | Instances Cloud SQL inactives |
+| `monitoring.timeSeries.list` | Vérification de l'activité des connexions SQL |
+
+Toutes les permissions en lecture seule sont couvertes par quatre rôles prédéfinis : `roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, et `roles/browser` (requis pour l'énumération des projets avec `--all-projects`). Pour CI/CD, utilisez Workload Identity Federation — voir [Configuration GCP →](docs/gcp.md).
+
+**Fonctionnement :**
+
+- **Application Default Credentials** — utilise la chaîne d'authentification GCP standard : `GOOGLE_APPLICATION_CREDENTIALS` → gcloud ADC → Workload Identity → service account attaché au serveur de métadonnées.
+- **Auto-découverte** — avec `--all-projects`, CleanCloud énumère tous les projets ACTIFS accessibles via l'API Resource Manager. Avec `--project`, seuls les projets spécifiés sont scannés.
+- **Parallèle avec isolation** — chaque projet s'exécute dans son propre thread. Un projet en échec (permission refusée, API non activée) n'affecte jamais les autres.
+- **Dégradation gracieuse** — les règles échouant avec 403 sont enregistrées comme ignorées (avec la permission manquante nommée), pas comme des échecs de scan.
+- **Détail des coûts par projet** — la sortie indique le gaspillage mensuel estimé par projet.
 
 Guide complet : [Configuration GCP →](docs/gcp.md)
 

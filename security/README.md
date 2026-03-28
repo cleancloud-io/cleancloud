@@ -16,8 +16,10 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 |------|-------------|
 | `aws-readonly-policy.json` | AWS IAM policy with minimum required read-only permissions |
 | `azure-readonly-role.json` | Azure custom role definition with minimum required read-only permissions |
+| `gcp-readonly-roles.json` | GCP predefined IAM roles required for read-only scanning |
 | `verify-aws-policy.sh` | Script to verify AWS IAM policy contains no write/delete permissions |
 | `verify-azure-role.sh` | Script to verify Azure role is read-only |
+| `verify-gcp-roles.sh` | Script to verify GCP service account has only read-only roles |
 
 ---
 
@@ -109,6 +111,74 @@ az role assignment create \
 
 ---
 
+### 3. GCP Role Verification
+
+GCP uses predefined IAM roles — no custom role needed. CleanCloud requires four read-only roles.
+
+**Verify the service account roles:**
+
+```bash
+# Login to GCP first
+gcloud auth login
+
+# Run verification script
+./verify-gcp-roles.sh cleancloud@YOUR_PROJECT.iam.gserviceaccount.com YOUR_PROJECT_ID
+```
+
+**Expected output:**
+```
+Verifying GCP Service Account: cleancloud@my-project.iam.gserviceaccount.com
+
+Checking project-level bindings: my-project
+
+Roles bound at project level:
+  roles/browser
+  roles/cloudsql.viewer
+  roles/compute.viewer
+  roles/monitoring.viewer
+
+PASS: No write/admin roles found
+
+Required roles for CleanCloud:
+  PRESENT  roles/compute.viewer
+  PRESENT  roles/cloudsql.viewer
+  PRESENT  roles/monitoring.viewer
+  PRESENT  roles/browser
+
+PASS: All required roles are present at project level
+```
+
+**Required roles and their purpose:**
+
+| Role | Purpose |
+|------|---------|
+| `roles/compute.viewer` | List disks, IPs, VMs, snapshots |
+| `roles/cloudsql.viewer` | List Cloud SQL instances |
+| `roles/monitoring.viewer` | Read Cloud SQL connection metrics |
+| `roles/browser` | Enumerate projects (required for `--all-projects`) |
+
+**Bind roles to service account:**
+
+```bash
+SA_EMAIL="cleancloud@YOUR_PROJECT.iam.gserviceaccount.com"
+
+# Option 1: Org-level (recommended — covers all projects)
+for role in roles/compute.viewer roles/cloudsql.viewer roles/monitoring.viewer roles/browser; do
+  gcloud organizations add-iam-policy-binding YOUR_ORG_ID \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="$role"
+done
+
+# Option 2: Project-level (single project only)
+for role in roles/compute.viewer roles/cloudsql.viewer roles/monitoring.viewer roles/browser; do
+  gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
+    --member="serviceAccount:$SA_EMAIL" \
+    --role="$role"
+done
+```
+
+---
+
 ## For Security Reviews
 
 ### Enterprise Approval Workflows
@@ -136,6 +206,7 @@ Use this checklist during security review:
 
 - [ ] Run `./verify-aws-policy.sh` - Confirms no write/delete/tag permissions
 - [ ] Run `./verify-azure-role.sh Reader` - Confirms Azure role is read-only
+- [ ] Run `./verify-gcp-roles.sh <sa-email> <project-id>` - Confirms GCP SA has only read-only roles
 - [ ] Review [Information Security Readiness Guide](../docs/infosec-readiness.md)
 - [ ] Review [Threat Model](../docs/infosec-readiness.md#threat-model)
 - [ ] Check [Safety Tests](../docs/safety.md) - Multi-layer mutation prevention
@@ -155,6 +226,7 @@ These policies are also validated in CI/CD:
 # Run safety regression tests
 pytest tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py -v
 pytest tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py -v
+pytest tests/cleancloud/safety/gcp/test_gcp_static_readonly.py -v
 ```
 
 See [`docs/safety.md`](../docs/safety.md) for details on automated safety testing.
@@ -171,6 +243,7 @@ See [`docs/safety.md`](../docs/safety.md) for details on automated safety testin
 **For Implementation:**
 - [AWS Setup Guide](../docs/aws.md) - Authentication methods and IAM policies
 - [Azure Setup Guide](../docs/azure.md) - Authentication methods and RBAC roles
+- [GCP Setup Guide](../docs/gcp.md) - Authentication methods and IAM roles
 - [CI/CD Integration Guide](../docs/ci.md) - GitHub Actions and Azure DevOps examples
 
 **Main Documentation:**

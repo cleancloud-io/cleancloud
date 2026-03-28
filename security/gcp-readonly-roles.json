@@ -1,0 +1,65 @@
+{
+  "description": "GCP predefined IAM roles required for CleanCloud read-only scanning",
+  "note": "CleanCloud uses predefined GCP roles — no custom role needed. All roles are read-only.",
+  "roles": [
+    {
+      "role": "roles/compute.viewer",
+      "title": "Compute Viewer",
+      "justification": "List and read Compute Engine resources: disks, addresses, instances, snapshots",
+      "permissions_used": [
+        "compute.disks.list",
+        "compute.addresses.list",
+        "compute.globalAddresses.list",
+        "compute.instances.list",
+        "compute.snapshots.list"
+      ],
+      "rules_covered": [
+        "gcp.compute.disk.unattached",
+        "gcp.compute.ip.unused",
+        "gcp.compute.vm.stopped",
+        "gcp.compute.snapshot.old"
+      ]
+    },
+    {
+      "role": "roles/cloudsql.viewer",
+      "title": "Cloud SQL Viewer",
+      "justification": "List and read Cloud SQL instances to detect idle databases",
+      "permissions_used": [
+        "cloudsql.instances.list",
+        "cloudsql.instances.get"
+      ],
+      "rules_covered": [
+        "gcp.sql.instance.idle"
+      ]
+    },
+    {
+      "role": "roles/monitoring.viewer",
+      "title": "Monitoring Viewer",
+      "justification": "Read Cloud Monitoring time-series metrics for Cloud SQL connection count",
+      "permissions_used": [
+        "monitoring.timeSeries.list"
+      ],
+      "rules_covered": [
+        "gcp.sql.instance.idle"
+      ]
+    },
+    {
+      "role": "roles/browser",
+      "title": "Browser",
+      "justification": "Read project metadata (resourcemanager.projects.get) — required for --all-projects multi-project scanning",
+      "permissions_used": [
+        "resourcemanager.projects.get",
+        "resourcemanager.projects.list"
+      ],
+      "rules_covered": [
+        "all (project enumeration)"
+      ]
+    }
+  ],
+  "binding_scope": {
+    "recommended": "Organization level — grants access to all current and future projects",
+    "alternative": "Project level — grants access to a single project only",
+    "command_org": "gcloud organizations add-iam-policy-binding ORG_ID --member=serviceAccount:SA_EMAIL --role=ROLE",
+    "command_project": "gcloud projects add-iam-policy-binding PROJECT_ID --member=serviceAccount:SA_EMAIL --role=ROLE"
+  }
+}

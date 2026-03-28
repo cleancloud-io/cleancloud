@@ -7,6 +7,7 @@ from cleancloud.cli import cli
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.finding import Evidence, Finding
 from cleancloud.core.risk import RiskLevel
+from cleancloud.providers.gcp.scan import ProjectScanResult
 
 
 def _fake_finding(resource_id, tags):
@@ -23,6 +24,27 @@ def _fake_finding(resource_id, tags):
         confidence=ConfidenceLevel.LOW,
         detected_at=datetime.now(timezone.utc),
         details={"tags": tags},
+        evidence=Evidence(
+            signals_used=["signal"],
+            signals_not_checked=[],
+        ),
+    )
+
+
+def _fake_gcp_finding(resource_id, labels):
+    return Finding(
+        provider="gcp",
+        rule_id="gcp.compute.disk.unattached",
+        resource_type="gcp.compute.disk",
+        resource_id=resource_id,
+        region="us-central1-a",
+        title="Unattached Persistent Disk",
+        summary="Test",
+        reason="Test",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.LOW,
+        detected_at=datetime.now(timezone.utc),
+        details={"labels": labels},
         evidence=Evidence(
             signals_used=["signal"],
             signals_not_checked=[],
@@ -79,4 +101,65 @@ def test_cli_ignore_tag_overrides_yaml(monkeypatch, tmp_path):
     # vol-1 MUST remain (YAML ignored)
     assert "vol-1" in result.output
     assert "vol-2" not in result.output
+    assert "Ignored by tag policy: 1" in result.output
+
+
+def test_gcp_cli_ignore_label_overrides_yaml(monkeypatch, tmp_path):
+    """GCP labels are filtered the same way AWS tags are — CLI --ignore-tag wins over YAML."""
+    config_path = tmp_path / "cleancloud.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "tag_filtering": {
+                    "enabled": True,
+                    "ignore": [
+                        {"key": "env", "value": "production"},
+                    ],
+                },
+            }
+        )
+    )
+
+    findings = [
+        _fake_gcp_finding("projects/p/zones/us-central1-a/disks/disk-1", {"env": "production"}),
+        _fake_gcp_finding("projects/p/zones/us-central1-a/disks/disk-2", {"team": "platform"}),
+    ]
+
+    proj = ProjectScanResult(
+        project_id="p",
+        project_name="My Project",
+        status="success",
+        findings=findings,
+        skipped_rules=[],
+        rules_succeeded=5,
+    )
+
+    monkeypatch.setattr(
+        "cleancloud.scan.command.scan_gcp_with_project_selection",
+        lambda **kwargs: ("explicit", findings, ["p"], [], [proj]),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "scan",
+            "--provider",
+            "gcp",
+            "--project",
+            "p",
+            "--config",
+            str(config_path),
+            "--ignore-tag",
+            "team:platform",
+        ],
+    )
+
+    assert result.exit_code == 0
+
+    # disk-2 ignored by CLI --ignore-tag
+    # disk-1 MUST remain (YAML ignored env:production)
+    assert "disk-1" in result.output
+    assert "disk-2" not in result.output
     assert "Ignored by tag policy: 1" in result.output
