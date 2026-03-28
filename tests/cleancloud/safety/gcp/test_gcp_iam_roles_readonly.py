@@ -49,9 +49,9 @@ def test_gcp_roles_are_strictly_read_only():
 
     for entry in data.get("roles", []):
         role = entry.get("role", "")
-        assert role not in FORBIDDEN_ROLES, (
-            f"Forbidden GCP role detected in security/gcp-readonly-roles.json: {role}"
-        )
+        assert (
+            role not in FORBIDDEN_ROLES
+        ), f"Forbidden GCP role detected in security/gcp-readonly-roles.json: {role}"
         # Also reject any role that doesn't end in .viewer, .reader, or .browser
         # (belt-and-suspenders: catches new write roles not yet in FORBIDDEN_ROLES)
         assert role.endswith((".viewer", ".reader", "/browser")), (
@@ -68,6 +68,6 @@ def test_gcp_all_required_roles_present():
     documented = {entry["role"] for entry in data.get("roles", [])}
 
     for role in REQUIRED_ROLES:
-        assert role in documented, (
-            f"Required GCP role missing from security/gcp-readonly-roles.json: {role}"
-        )
+        assert (
+            role in documented
+        ), f"Required GCP role missing from security/gcp-readonly-roles.json: {role}"

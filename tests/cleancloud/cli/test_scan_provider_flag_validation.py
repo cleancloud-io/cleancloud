@@ -142,18 +142,14 @@ def test_org_rejected_for_gcp(runner):
 
 
 def test_accounts_rejected_for_azure(runner):
-    result = runner.invoke(
-        cli, ["scan", "--provider", "azure", "--accounts", "111111111111"]
-    )
+    result = runner.invoke(cli, ["scan", "--provider", "azure", "--accounts", "111111111111"])
     assert result.exit_code != 0
     assert "--accounts" in result.output
     assert "aws" in result.output.lower()
 
 
 def test_accounts_rejected_for_gcp(runner):
-    result = runner.invoke(
-        cli, ["scan", "--provider", "gcp", "--accounts", "111111111111"]
-    )
+    result = runner.invoke(cli, ["scan", "--provider", "gcp", "--accounts", "111111111111"])
     assert result.exit_code != 0
     assert "--accounts" in result.output
     assert "aws" in result.output.lower()

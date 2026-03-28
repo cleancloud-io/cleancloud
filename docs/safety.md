@@ -57,12 +57,15 @@ cleancloud/
 │   │   └── test_azure_role_definition_readonly.py
 │   └── gcp/
 │       ├── test_gcp_static_readonly.py
-│       └── test_gcp_runtime_readonly.py
-├── security/                       # Canonical IAM policies and role definitions
+│       ├── test_gcp_runtime_readonly.py
+│       └── test_gcp_iam_roles_readonly.py
+├── security/                       # Canonical IAM policies, role definitions, and verification scripts
 │   ├── aws-readonly-policy.json
 │   ├── azure-readonly-role.json
+│   ├── gcp-readonly-roles.json
 │   ├── verify-aws-policy.sh
-│   └── verify-azure-role.sh
+│   ├── verify-azure-role.sh
+│   └── verify-gcp-roles.sh
 ```
 
 - **`cleancloud/safety/`** → allowlists defining permitted read-only SDK methods
@@ -124,7 +127,7 @@ cleancloud/
 ### Static AST Test
 
 - File: `tests/cleancloud/safety/gcp/test_gcp_static_readonly.py`
-- Purpose: Scan GCP provider code for forbidden SDK method calls (`delete`, `insert`, `patch`, `update`, `set_*`, `add_*`, `remove_*`, `reset_*`, `start`, `stop`, `restart`, `create`).
+- Purpose: Scan GCP provider code for forbidden SDK method calls (`delete`, `insert`, `patch`, `update`, `set_*`, `add_*`, `remove_*`, `reset_*`, `start`, `stop`, `restart`, `create`, `enable`, `disable`, `import`, `export`, `copy`, `move`, `undelete`, `publish`, `deploy`, `sign_*`).
 - Uses: `cleancloud/safety/gcp/allowlist.py` to define the forbidden method prefix list.
 - Failure: Assertion error if any forbidden method name appears in the AST of any provider file.
 - Note: Python built-in method names that collide (e.g. `list.insert`, `dict.update`) are excluded by the helper `_is_forbidden()` function.
@@ -136,7 +139,12 @@ cleancloud/
 - Mechanism: A `GuardedMock` subclass raises `ForbiddenGcpCallError` when a forbidden prefix is accessed.
 - Confirms: Read-only methods (`aggregated_list`, `list`, `get`) remain accessible; mutating methods (`delete`, `stop`, `insert`) are blocked.
 
-Note: GCP does not use a canonical customer-managed IAM policy JSON file (permissions are managed at the project/folder/org level using predefined roles), so there is no equivalent to the AWS IAM policy test. Instead, required permissions are documented in [`docs/gcp.md`](gcp.md).
+### IAM Roles Test
+
+- File: `tests/cleancloud/safety/gcp/test_gcp_iam_roles_readonly.py`
+- Purpose: Validate `security/gcp-readonly-roles.json` documents only read-only predefined roles.
+- Checks: No `roles/owner`, `roles/editor`, or any admin/write role; all four required roles present (`roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, `roles/browser`).
+- Note: GCP uses predefined roles rather than a custom IAM policy, so verification is role-name based rather than action-based.
 
 ---
 
@@ -161,7 +169,7 @@ All safety regression tests for AWS and Azure are included in the **main test su
     pytest tests/ -v --cov=cleancloud --cov-report=xml
 ```
 
-* Running this single job is sufficient; **no separate jobs for AWS/Azure safety tests** are required.
+* Running this single job is sufficient; **no separate jobs for AWS/Azure/GCP safety tests** are required.
 * Any failure in safety regression tests will **fail the CI build**, preventing unsafe merges.
 
 ## Summary

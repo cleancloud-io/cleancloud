@@ -9,7 +9,9 @@ GCP_PROVIDER_ROOT = Path("cleancloud/providers/gcp")
 
 # Python built-ins that happen to share names with GCP SDK forbidden prefixes.
 # These are string/list/dict/shutil methods that are safe to call in provider code.
-_PYTHON_BUILTIN_EXCEPTIONS = frozenset({"insert", "remove", "update", "add", "reset", "copy", "move"})
+_PYTHON_BUILTIN_EXCEPTIONS = frozenset(
+    {"insert", "remove", "update", "add", "reset", "copy", "move"}
+)
 
 
 def _is_forbidden(attr: str) -> bool:
