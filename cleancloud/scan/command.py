@@ -136,7 +136,7 @@ from cleancloud.providers.gcp.scan import (
     "multi_account_file",
     type=click.Path(exists=True),
     default=None,
-    help="Path to accounts config file for multi-account scanning, e.g. .cleancloud/accounts.yaml (AWS only)",
+    help="Path to accounts config file for multi-account scanning, e.g. .cleancloud/accounts.yaml (AWS only — GCP uses --all-projects)",
 )
 @click.option(
     "--accounts",
@@ -215,6 +215,41 @@ def scan(
 ):
     if output in ("json", "csv") and not output_file:
         raise click.UsageError(f"--output-file is required when using --output {output}")
+
+    # Cross-provider flag validation — fail fast before any API calls
+    _aws_only_flags = {
+        "--all-regions": all_regions,
+        "--profile": profile is not None,
+        "--multi-account": multi_account_file is not None,
+        "--accounts": accounts_inline is not None,
+        "--org": scan_org,
+        "--external-id": external_id is not None,
+        "--per-account-regions": per_account_regions,
+    }
+    _azure_only_flags = {
+        "--subscription": bool(subscription),
+        "--all-subscriptions": all_subscriptions,
+        "--management-group": management_group is not None,
+    }
+    _gcp_only_flags = {
+        "--project": bool(project),
+        "--all-projects": all_projects,
+    }
+
+    if provider != "aws":
+        for flag, used in _aws_only_flags.items():
+            if used:
+                raise click.UsageError(f"{flag} is only supported with --provider aws")
+
+    if provider != "azure":
+        for flag, used in _azure_only_flags.items():
+            if used:
+                raise click.UsageError(f"{flag} is only supported with --provider azure")
+
+    if provider != "gcp":
+        for flag, used in _gcp_only_flags.items():
+            if used:
+                raise click.UsageError(f"{flag} is only supported with --provider gcp")
 
     click.echo()
     click.echo("Starting CleanCloud scan...")

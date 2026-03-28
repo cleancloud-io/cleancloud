@@ -391,4 +391,226 @@ AZURE_FINDINGS: List[Finding] = [
     ),
 ]
 
-ALL_FINDINGS: List[Finding] = AWS_FINDINGS + AZURE_FINDINGS
+GCP_FINDINGS: List[Finding] = [
+    Finding(
+        provider="gcp",
+        rule_id="gcp.compute.disk.unattached",
+        resource_type="gcp.compute.disk",
+        resource_id="projects/my-project/zones/us-central1-a/disks/data-pipeline-scratch",
+        region="us-central1-a",
+        title="Unattached Persistent Disk",
+        summary=(
+            "Persistent disk 'data-pipeline-scratch' (500 GB, pd-ssd) in zone "
+            "'us-central1-a' is not attached to any VM but continues to incur "
+            "storage charges (~$85.0/month, estimated, region-dependent)."
+        ),
+        reason="Disk has no attached VM (users list is empty)",
+        risk=RiskLevel.MEDIUM,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "disk_name": "data-pipeline-scratch",
+            "disk_type": "pd-ssd",
+            "size_gb": 500,
+            "location": "us-central1-a",
+            "is_regional": False,
+            "last_detach_timestamp": "2025-12-18T11:45:00+00:00",
+            "labels": {"team": "data-eng", "env": "staging"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Disk status: READY",
+                "No VM users (users list empty)",
+                "Disk type: pd-ssd (~$0.17/GB/month storage)",
+                "Size: 500 GB → ~$85.0/month (estimated, region-dependent)",
+                "Last detached: 1656h ago",
+            ],
+            signals_not_checked=[
+                "Disk reserved for imminent VM recreation",
+                "Snapshot-only workflow (intentional detachment)",
+                "Cross-project disk sharing",
+            ],
+        ),
+        estimated_monthly_cost_usd=85.0,
+    ),
+    Finding(
+        provider="gcp",
+        rule_id="gcp.compute.ip.unused",
+        resource_type="gcp.compute.address",
+        resource_id="projects/my-project/regions/us-central1/addresses/old-lb-frontend",
+        region="us-central1",
+        title="Unused Reserved External IP",
+        summary=(
+            "Regional static IP 'old-lb-frontend' (34.118.xxx.xxx) in 'us-central1' "
+            "is reserved but not attached to any resource, billing ~$7.20/month (estimated)."
+        ),
+        reason="IP address status is RESERVED — not attached to any VM, LB, or NAT gateway",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "address_name": "old-lb-frontend",
+            "ip_address": "34.118.xxx.xxx",
+            "address_type": "EXTERNAL",
+            "region": "us-central1",
+            "scope": "regional",
+            "is_regional": True,
+            "network_tier": "PREMIUM",
+            "labels": {"project": "decommissioned-api"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Address status: RESERVED (not IN_USE)",
+                "Address type: EXTERNAL",
+                "Network tier: PREMIUM",
+                "IP: 34.118.xxx.xxx",
+                "~$7.20/month (PREMIUM tier reference, estimated)",
+            ],
+            signals_not_checked=[
+                "IP held for imminent re-attachment",
+                "Compliance or security requirement to hold specific IP",
+            ],
+        ),
+        estimated_monthly_cost_usd=7.20,
+    ),
+    Finding(
+        provider="gcp",
+        rule_id="gcp.compute.vm.stopped",
+        resource_type="gcp.compute.instance",
+        resource_id="projects/my-project/zones/us-central1-b/instances/dev-sandbox-vm",
+        region="us-central1",
+        title="Stopped VM (68 Days)",
+        summary=(
+            "VM 'dev-sandbox-vm' (n2-standard-4) in zone 'us-central1-b' has been "
+            "TERMINATED for 68 days. Attached disks (2 disk(s), 200 GB) continue "
+            "billing at ~$8.0/month."
+        ),
+        reason="VM has been in TERMINATED state for 68 days",
+        risk=RiskLevel.MEDIUM,
+        confidence=ConfidenceLevel.MEDIUM,
+        detected_at=_NOW,
+        details={
+            "instance_name": "dev-sandbox-vm",
+            "machine_type": "n2-standard-4",
+            "zone": "us-central1-b",
+            "total_disk_gb": 200,
+            "boot_disk_count": 1,
+            "days_stopped": 68,
+            "days_stopped_threshold": 30,
+            "stop_time": "2025-12-17T14:00:00+00:00",
+            "automatic_restart": False,
+            "labels": {"env": "dev", "owner": "ml-team"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Instance status: TERMINATED",
+                "Stopped for 68 days (since 2025-12-17T14:00:00+00:00)",
+                "Attached disks: 2 persistent disk(s), 200 GB total",
+                "Estimated disk cost: ~$8.0/month (pd-standard rate — see caveats)",
+                "Boot disk present (1 boot disk(s)) — strong indicator of an abandoned environment",
+            ],
+            signals_not_checked=[
+                "Planned seasonal or scheduled shutdown",
+                "IaC-managed environment pending recreation",
+                "Data preserved intentionally for forensics",
+                "Disk types (pd-ssd, pd-balanced, hyperdisk) may have higher costs",
+            ],
+            time_window="30 days",
+        ),
+        estimated_monthly_cost_usd=8.0,
+    ),
+    Finding(
+        provider="gcp",
+        rule_id="gcp.compute.snapshot.old",
+        resource_type="gcp.compute.snapshot",
+        resource_id="projects/my-project/global/snapshots/pre-migration-backup-2025-09",
+        region="global",
+        title="Old Disk Snapshot (153 Days)",
+        summary=(
+            "Snapshot 'pre-migration-backup-2025-09' (400 GB) is 153 days old and "
+            "its source disk no longer exists. Estimated storage cost: ~$10.4/month."
+        ),
+        reason="Snapshot is 153 days old (threshold: 90 days)",
+        risk=RiskLevel.LOW,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "snapshot_name": "pre-migration-backup-2025-09",
+            "disk_size_gb": 400,
+            "storage_bytes": 0,
+            "days_old": 153,
+            "days_old_threshold": 90,
+            "created_at": "2025-09-23T08:00:00+00:00",
+            "source_disk_deleted": True,
+            "storage_locations": ["us"],
+            "labels": {"purpose": "pre-migration", "team": "platform"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Snapshot age: 153 days (created 2025-09-23)",
+                "Status: READY",
+                "Disk size: 400 GB",
+                "Estimated cost: ~$10.4/month (disk size used as proxy)",
+                "Source disk reference missing — likely orphaned snapshot "
+                "(GCP clears sourceDisk when the backing disk is deleted)",
+            ],
+            signals_not_checked=[
+                "Compliance or regulatory data retention requirements",
+                "Disaster recovery snapshot policy",
+                "Part of an active backup rotation",
+                "Snapshot storage is incremental — actual reclaim may differ",
+            ],
+            time_window="90 days",
+        ),
+        estimated_monthly_cost_usd=10.4,
+    ),
+    Finding(
+        provider="gcp",
+        rule_id="gcp.sql.instance.idle",
+        resource_type="gcp.sql.instance",
+        resource_id="projects/my-project/instances/staging-postgres",
+        region="us-central1",
+        title="Idle Cloud SQL Instance (7+ Days)",
+        summary=(
+            "Cloud SQL instance 'staging-postgres' (POSTGRES_14, db-n1-standard-2) "
+            "in region 'us-central1' has had no observed database connections via "
+            "Cloud Monitoring over 14+ days but continues to incur compute charges."
+        ),
+        reason="Zero database connections detected over the last 14 days",
+        risk=RiskLevel.HIGH,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "instance_name": "staging-postgres",
+            "database_version": "POSTGRES_14",
+            "tier": "db-n1-standard-2",
+            "region": "us-central1",
+            "ha_enabled": False,
+            "days_idle_threshold": 14,
+            "estimated_monthly_cost_usd": 93.10,
+            "data_disk_size_gb": "100",
+            "data_disk_type": "PD_SSD",
+            "labels": {"env": "staging", "app": "backend-api"},
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Instance state: RUNNABLE",
+                "Zero TCP connections observed via Cloud Monitoring over 14 days "
+                "(metric: cloudsql.googleapis.com/database/network/connections)",
+                "Database version: POSTGRES_14",
+                "Tier 'db-n1-standard-2' costs ~$93.10/month (compute only, no HA)",
+                "Storage: 100 GB (PD_SSD) — billed separately from compute",
+            ],
+            signals_not_checked=[
+                "Short-lived or batch connections (cron jobs, ETL)",
+                "Non-TCP workloads or Unix socket connections via Cloud SQL Proxy",
+                "Planned reactivation for upcoming sprint",
+                "Storage, backups, HA, and network egress not included in cost estimate",
+            ],
+            time_window="14 days",
+        ),
+        estimated_monthly_cost_usd=93.10,
+    ),
+]
+
+ALL_FINDINGS: List[Finding] = AWS_FINDINGS + AZURE_FINDINGS + GCP_FINDINGS

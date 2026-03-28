@@ -27,6 +27,12 @@ def _version_info():
         providers.append("azure")
     except ImportError:
         pass
+    try:
+        import google.cloud.compute_v1  # noqa: F401
+
+        providers.append("gcp")
+    except ImportError:
+        pass
 
     lines = [
         f"cleancloud {ver}",

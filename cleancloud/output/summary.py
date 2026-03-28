@@ -82,6 +82,10 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
         subscriptions_scanned = summary.get("subscriptions_scanned", [])
         label = "Subscriptions scanned"
         regions_str = ", ".join(subscriptions_scanned) if subscriptions_scanned else regions_str
+    elif provider == "gcp":
+        projects_scanned = summary.get("projects_scanned", [])
+        label = "Projects scanned"
+        regions_str = ", ".join(projects_scanned) if projects_scanned else regions_str
     else:
         label = "Regions scanned"
 
@@ -94,6 +98,14 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             click.echo(" (all accessible)")
         elif mode == "management-group":
             click.echo(" (management group)")
+        elif mode == "explicit":
+            click.echo(" (explicit)")
+        else:
+            click.echo()
+    elif provider == "gcp":
+        mode = summary.get("project_selection_mode", "")
+        if mode == "all":
+            click.echo(" (all accessible)")
         elif mode == "explicit":
             click.echo(" (explicit)")
         else:
@@ -135,9 +147,10 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             if missing:
                 click.echo(f"      needs: {missing}")
         click.echo()
-        # Azure skipped entries carry subscription_id; AWS entries carry missing_permissions with IAM names
+        # Detect which providers have skipped rules by their provider-specific keys
         has_azure = any("subscription_id" in s for s in skipped_rules)
-        has_aws = any("subscription_id" not in s for s in skipped_rules)
+        has_gcp = any("project_id" in s for s in skipped_rules)
+        has_aws = any("subscription_id" not in s and "project_id" not in s for s in skipped_rules)
 
         click.echo("To enable skipped rules, update your IAM policy/role to the latest version:")
         if has_aws:
@@ -153,6 +166,14 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             )
             click.echo(
                 "  Run 'cleancloud doctor --provider azure' to validate permissions after updating."
+            )
+        if has_gcp:
+            click.echo(
+                "  GCP:   ensure your service account has roles/compute.viewer, "
+                "roles/cloudsql.viewer, and roles/monitoring.viewer"
+            )
+            click.echo(
+                "  Run 'cleancloud doctor --provider gcp --project PROJECT_ID' to validate permissions after updating."
             )
 
     # Multi-account breakdown
@@ -222,6 +243,32 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             click.echo()
             click.echo("Failed subscriptions:")
             for r in failed_subs:
+                click.echo(f"  [failed] {r['name']} ({r['id']}): {r.get('error', '')}")
+
+    # GCP multi-project breakdown
+    per_project = summary.get("per_project")
+    if per_project:
+        failed_projects = summary.get("projects_failed", [])
+        click.echo()
+        click.echo(f"Projects scanned: {len(per_project) - len(failed_projects)}")
+        if failed_projects:
+            click.echo(f"Projects failed:  {len(failed_projects)}")
+        click.echo()
+        click.echo("Per-project breakdown:")
+        for r in per_project:
+            cost = r.get("estimated_monthly_cost_usd", 0)
+            cost_str = f"  ~${cost:,.0f}/month" if cost else ""
+            status = "" if r["status"] == "success" else f"  [{r['status']}]"
+            skipped = r.get("rules_skipped", 0)
+            skipped_str = f"  ({skipped} rule(s) skipped)" if skipped else ""
+            click.echo(
+                f"  {r['name']:<30} ({r['id']}):"
+                f"  {r['findings']} findings{cost_str}{status}{skipped_str}"
+            )
+        if failed_projects:
+            click.echo()
+            click.echo("Failed projects:")
+            for r in failed_projects:
                 click.echo(f"  [failed] {r['name']} ({r['id']}): {r.get('error', '')}")
 
     # Success message

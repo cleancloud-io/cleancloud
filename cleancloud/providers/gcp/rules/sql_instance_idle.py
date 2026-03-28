@@ -29,7 +29,7 @@ _CLOUD_SQL_COST_USD: dict = {
     "db-custom-4-15360": 214.08,
 }
 
-_DAYS_IDLE = 7
+_DAYS_IDLE = 14
 
 
 def _list_sql_instances(project_id: str, credentials) -> list:
@@ -60,7 +60,7 @@ def _has_connections(
     instance_name: str,
 ) -> bool:
     """
-    Query Cloud Monitoring for database connections over the last 7 days.
+    Query Cloud Monitoring for database connections over the last 14 days.
 
     Returns True if any connections detected (active instance).
     Returns True on any error — conservative fallback avoids false positives.
@@ -108,7 +108,7 @@ def find_idle_sql_instances(
     region_filter: Optional[str] = None,
 ) -> List[Finding]:
     """
-    Find Cloud SQL instances with zero database connections for 7 days.
+    Find Cloud SQL instances with zero database connections for 14 days.
 
     Cloud SQL bills continuously regardless of query load — an idle db-n1-standard-2
     costs ~$93/month with zero queries. Dev and staging databases are frequently
@@ -124,7 +124,7 @@ def find_idle_sql_instances(
     Detection logic:
     - Instance state == RUNNABLE
     - Not a read replica (instanceType != READ_REPLICA_INSTANCE)
-    - Cloud Monitoring: max connections == 0 over last 7 days
+    - Cloud Monitoring: max connections == 0 over last 14 days
 
     IAM permissions required:
     - cloudsql.instances.list (roles/cloudsql.viewer)
@@ -189,7 +189,7 @@ def find_idle_sql_instances(
         )
 
         # Confidence scales with cost impact: a $7/month dev DB at zero connections
-        # is ambiguous; a $90+/month instance idle for 7 days is a clear signal.
+        # is ambiguous; a $90+/month instance idle for 14 days is a clear signal.
         confidence = (
             ConfidenceLevel.HIGH if monthly_cost and monthly_cost > 50 else ConfidenceLevel.MEDIUM
         )

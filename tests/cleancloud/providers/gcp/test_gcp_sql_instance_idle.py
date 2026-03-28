@@ -65,7 +65,7 @@ def _patch_sql_and_monitoring(monkeypatch, instances, has_connections=False):
 
 
 def test_idle_instance_flagged(monkeypatch):
-    """A RUNNABLE instance with zero connections over 7 days is flagged."""
+    """A RUNNABLE instance with zero connections over 14 days is flagged."""
     _patch_sql_and_monitoring(
         monkeypatch,
         instances=[_make_instance("idle-db")],

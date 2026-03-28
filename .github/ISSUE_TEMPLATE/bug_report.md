@@ -33,7 +33,8 @@ python --version
 **Cloud Provider:**
 - [ ] AWS
 - [ ] Azure
-- [ ] Both
+- [ ] GCP
+- [ ] Multiple
 
 ## Command Run
 ```bash
@@ -57,20 +58,23 @@ What actually happened.
 
 ## Additional Context
 
-**AWS/Azure Configuration:**
-- [ ] Using AWS profile: _______
-- [ ] Using environment variables (AWS_ACCESS_KEY_ID, etc.)
-- [ ] Using Azure CLI authentication
-- [ ] Using Azure managed identity
+**Auth configuration:**
+- [ ] AWS — OIDC (AssumeRoleWithWebIdentity)
+- [ ] AWS — profile / environment variables
+- [ ] Azure — OIDC (Workload Identity)
+- [ ] Azure — CLI / managed identity
+- [ ] GCP — Workload Identity Federation
+- [ ] GCP — gcloud ADC (local)
+- [ ] GCP — service account key
 
 **IAM Permissions:**
-- [ ] I've run `cleancloud doctor --provider [aws/azure]`
+- [ ] I've run `cleancloud doctor --provider [aws/azure/gcp]`
 - [ ] Doctor output: (paste if relevant)
 
-**Regions/Subscriptions:**
-- Scanning specific region: _______
-- Using `--all-regions`: Yes / No
-- Number of Azure subscriptions: _______
+**Scope:**
+- Scanning specific region/project: _______
+- Using `--all-regions` / `--all-projects`: Yes / No
+- Number of AWS accounts / Azure subscriptions / GCP projects: _______
 
 **Config file:**
 - [ ] Using cleancloud.yaml
