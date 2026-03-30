@@ -262,8 +262,10 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
         info("  - Service Account:      set GOOGLE_APPLICATION_CREDENTIALS=/path/to/key.json")
         info("")
         info("IAM permissions required (assign to your service account or user):")
-        info("  Built-in role: roles/viewer  (at project scope, covers all Compute + Monitoring)")
-        info("  Built-in role: roles/cloudsql.viewer  (for Cloud SQL idle detection)")
+        info("  roles/compute.viewer        — all Compute Engine rules")
+        info("  roles/cloudsql.viewer       — Cloud SQL idle rule")
+        info("  roles/monitoring.viewer     — Cloud SQL connection metrics")
+        info("  roles/browser               — project listing (required for --all-projects)")
         info("")
         info("  Or the individual permissions CleanCloud uses:")
         info("  compute.disks.list")
@@ -530,17 +532,15 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             info("  roles/compute.viewer        — all Compute Engine rules")
             info("  roles/cloudsql.viewer       — Cloud SQL idle rule")
             info("  roles/monitoring.viewer     — Cloud SQL connection metrics")
-            info("  roles/browser               — project listing (or specify --project)")
-            info("")
-            info("  Or assign: roles/viewer  (covers Compute + Monitoring at project scope)")
+            info("  roles/browser               — project listing (required for --all-projects)")
             info("")
             sa_hint = "<your-service-account>@<project>.iam.gserviceaccount.com"
-            info("  Example fix command:")
-            info(
-                f"  gcloud projects add-iam-policy-binding {probe_project_id or '<project-id>'} \\"
-            )
-            info(f'    --member="serviceAccount:{sa_hint}" \\')
-            info('    --role="roles/viewer"')
+            project_hint = probe_project_id or "<project-id>"
+            info("  Example fix commands:")
+            for role in ["roles/compute.viewer", "roles/cloudsql.viewer", "roles/monitoring.viewer", "roles/browser"]:
+                info(f"  gcloud projects add-iam-policy-binding {project_hint} \\")
+                info(f'    --member="serviceAccount:{sa_hint}" \\')
+                info(f'    --role="{role}"')
 
         # Rule coverage map — translates permissions into rule-level status
         info("")
