@@ -274,6 +274,17 @@ jobs:
 
 > The credentials file is short-lived and mounted read-only — no long-lived keys are exposed. The `test -f` guard catches a silent auth failure before Docker attempts the mount.
 
+**Local development with gcloud ADC:**
+
+`gcloud auth application-default login` writes credentials to your host filesystem. Docker can't see the host filesystem by default — mount the file explicitly:
+
+```bash
+docker run --rm \
+  -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json \
+  -v ~/.config/gcloud/application_default_credentials.json:/tmp/adc.json:ro \
+  getcleancloud/cleancloud scan --provider gcp --project YOUR_PROJECT_ID
+```
+
 ### Pinning to a specific version
 
 ```yaml
