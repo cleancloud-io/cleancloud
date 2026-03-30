@@ -537,7 +537,12 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             sa_hint = "<your-service-account>@<project>.iam.gserviceaccount.com"
             project_hint = probe_project_id or "<project-id>"
             info("  Example fix commands:")
-            for role in ["roles/compute.viewer", "roles/cloudsql.viewer", "roles/monitoring.viewer", "roles/browser"]:
+            for role in [
+                "roles/compute.viewer",
+                "roles/cloudsql.viewer",
+                "roles/monitoring.viewer",
+                "roles/browser",
+            ]:
                 info(f"  gcloud projects add-iam-policy-binding {project_hint} \\")
                 info(f'    --member="serviceAccount:{sa_hint}" \\')
                 info(f'    --role="{role}"')
