@@ -50,6 +50,9 @@ def run_doctor(
             if p == "aws":
                 if category == "ai":
                     run_aws_ai_doctor(profile=profile, region=region)
+                elif category == "all":
+                    run_aws_doctor(profile=profile, region=region)
+                    run_aws_ai_doctor(profile=profile, region=region)
                 else:
                     run_aws_doctor(profile=profile, region=region)
                 results[p] = {"status": "passed", "error": None}

@@ -2,10 +2,7 @@
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
-![Docker Pulls](https://img.shields.io/docker/pulls/getcleancloud/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-[![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
-![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
@@ -142,6 +139,7 @@ cleancloud scan --provider gcp --all-projects
 | Flag | What it does |
 |---|---|
 | `--provider aws\|azure\|gcp` | Cloud provider to scan *(required)* |
+| `--category hygiene\|ai\|all` | Rule category: `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` (hygiene + AI) |
 | `--region REGION` | Scan a single region |
 | `--all-regions` | Scan all active regions — AWS/Azure only |
 | **AWS multi-account** | |

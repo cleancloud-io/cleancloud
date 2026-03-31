@@ -2,10 +2,7 @@
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
-![Docker Pulls](https://img.shields.io/docker/pulls/getcleancloud/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-[![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
-![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
@@ -104,6 +101,7 @@ Régions scannées : us-east-1, us-west-2, eu-west-1
 | Flag | Fonction |
 |---|---|
 | `--provider aws\|azure\|gcp` | Fournisseur cloud à scanner *(obligatoire)* |
+| `--category hygiene\|ai\|all` | Catégorie de règles : `hygiene` (défaut), `ai` (SageMaker, AWS uniquement) ou `all` (hygiene + IA) |
 | `--region REGION` | Scanner une seule région |
 | `--all-regions` | Toutes les régions actives — AWS/Azure uniquement |
 | **AWS multi-comptes** | |

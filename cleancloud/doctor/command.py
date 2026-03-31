@@ -24,8 +24,8 @@ from cleancloud.doctor.runner import run_doctor
 @click.option(
     "--category",
     default="hygiene",
-    type=click.Choice(["hygiene", "ai"]),
-    help="Permission set to validate: hygiene (default) or ai (SageMaker)",
+    type=click.Choice(["hygiene", "ai", "all"]),
+    help="Permission set to validate: hygiene (default), ai (SageMaker), or all",
 )
 @click.option(
     "--config",

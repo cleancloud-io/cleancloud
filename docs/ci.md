@@ -144,30 +144,33 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 
 ### Full Inputs Reference
 
-| Input | Description | AWS | Azure |
-|---|---|:---:|:---:|
-| `provider` | `aws` or `azure` (required) | ✓ | ✓ |
-| `region` | Single region/location filter | ✓ | ✓ |
-| `all-regions` | Scan all active regions | ✓ | — |
-| `org` | Auto-discover all AWS Organization accounts | ✓ | — |
-| `accounts` | Comma-separated account IDs | ✓ | — |
-| `multi-account` | Path to accounts config YAML | ✓ | — |
-| `role-name` | Cross-account role name (default: `CleanCloudReadOnlyRole`) | ✓ | — |
-| `external-id` | External ID for cross-account role assumption | ✓ | — |
-| `concurrency` | Parallel account scan limit | ✓ | — |
-| `timeout` | Total scan timeout in seconds | ✓ | — |
-| `per-account-regions` | Detect active regions per account (slower, more accurate) | ✓ | — |
-| `subscription` | Comma-separated subscription IDs | — | ✓ |
-| `management-group` | Management Group ID for subscription discovery | — | ✓ |
-| `fail-on-confidence` | Fail on `LOW`, `MEDIUM`, or `HIGH` confidence findings | ✓ | ✓ |
-| `fail-on-cost` | Fail if estimated waste exceeds this USD amount | ✓ | ✓ |
-| `fail-on-findings` | Fail on any finding | ✓ | ✓ |
-| `output` | `human`, `json`, `csv`, or `markdown` | ✓ | ✓ |
-| `output-file` | Path to write output (required for `json`/`csv`) | ✓ | ✓ |
-| `artifact-name` | Upload `output-file` as a GitHub artifact with this name | ✓ | ✓ |
-| `config` | Path to `cleancloud.yaml` config file | ✓ | ✓ |
-| `ignore-tag` | Comma-separated `key` or `key:value` tags to ignore | ✓ | ✓ |
-| `version` | CleanCloud version to install (default: latest) | ✓ | ✓ |
+| Input | Description | AWS | Azure | GCP |
+|---|---|:---:|:---:|:---:|
+| `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
+| `category` | `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` | ✓ | — | — |
+| `region` | Single region/location filter | ✓ | ✓ | — |
+| `all-regions` | Scan all active regions | ✓ | — | — |
+| `org` | Auto-discover all AWS Organization accounts | ✓ | — | — |
+| `accounts` | Comma-separated account IDs | ✓ | — | — |
+| `multi-account` | Path to accounts config YAML | ✓ | — | — |
+| `role-name` | Cross-account role name (default: `CleanCloudReadOnlyRole`) | ✓ | — | — |
+| `external-id` | External ID for cross-account role assumption | ✓ | — | — |
+| `concurrency` | Parallel account scan limit | ✓ | — | ✓ |
+| `timeout` | Total scan timeout in seconds | ✓ | — | ✓ |
+| `per-account-regions` | Detect active regions per account (slower, more accurate) | ✓ | — | — |
+| `subscription` | Comma-separated subscription IDs | — | ✓ | — |
+| `management-group` | Management Group ID for subscription discovery | — | ✓ | — |
+| `all-projects` | Scan all accessible GCP projects | — | — | ✓ |
+| `project` | GCP project ID (repeatable) | — | — | ✓ |
+| `fail-on-confidence` | Fail on `LOW`, `MEDIUM`, or `HIGH` confidence findings | ✓ | ✓ | ✓ |
+| `fail-on-cost` | Fail if estimated waste exceeds this USD amount | ✓ | ✓ | ✓ |
+| `fail-on-findings` | Fail on any finding | ✓ | ✓ | ✓ |
+| `output` | `human`, `json`, `csv`, or `markdown` | ✓ | ✓ | ✓ |
+| `output-file` | Path to write output (required for `json`/`csv`) | ✓ | ✓ | ✓ |
+| `artifact-name` | Upload `output-file` as a GitHub artifact with this name | ✓ | ✓ | ✓ |
+| `config` | Path to `cleancloud.yaml` config file | ✓ | ✓ | ✓ |
+| `ignore-tag` | Comma-separated `key` or `key:value` tags to ignore | ✓ | ✓ | ✓ |
+| `version` | CleanCloud version to install (default: latest) | ✓ | ✓ | ✓ |
 
 > When `artifact-name` is set the action uploads `output-file` automatically — no separate `upload-artifact` step needed.
 
@@ -453,6 +456,61 @@ jobs:
           path: scan-results.json
           retention-days: 30
 ```
+
+### AWS AI/ML Scan (SageMaker)
+
+Run SageMaker idle endpoint detection separately — requires the `ai-readonly.json` policy on your IAM role.
+
+```yaml
+name: CleanCloud AI/ML Scan
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9 AM
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud-ai:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
+          aws-region: us-east-1
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate AI permissions
+        run: cleancloud doctor --provider aws --category ai
+
+      - name: Run AI/ML scan
+        run: |
+          cleancloud scan \
+            --provider aws \
+            --category ai \
+            --all-regions \
+            --output json \
+            --output-file ai-scan-results.json \
+            --fail-on-confidence HIGH
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleancloud-ai-scan-results
+          path: ai-scan-results.json
+          retention-days: 30
+```
+
+> To run hygiene and AI rules together, use `--category all`.
 
 ### Azure with OIDC (Recommended)
 
