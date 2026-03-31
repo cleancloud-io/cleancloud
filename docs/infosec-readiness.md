@@ -266,33 +266,46 @@ The IAM Proof Pack includes:
 
 ---
 
-#### 1. AWS IAM Policy (Read-Only)
+#### 1. AWS IAM Policies (Read-Only)
 
-**Policy:** [`security/aws-readonly-policy.json`](../security/aws-readonly-policy.json)
+AWS permissions are split across three composable policy files under [`security/aws/`](../security/aws/):
+
+| File | Purpose | Required for |
+|------|---------|--------------|
+| [`base-readonly.json`](../security/aws/base-readonly.json) | STS identity + CloudWatch metrics | All scans |
+| [`hygiene-readonly.json`](../security/aws/hygiene-readonly.json) | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
+| [`ai-readonly.json`](../security/aws/ai-readonly.json) | SageMaker | `--category ai` |
 
 **Verification:**
 
 ```bash
-# Download policy
-curl -o aws-readonly-policy.json \
- https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
-
-# Verify no write/delete/tag permissions
-cat aws-readonly-policy.json | jq '.Statement[].Action[]' | grep -iE '(delete|put|create|update|tag)'
-# Expected: No results (exit code 1)
-
-# Create IAM policy (optional - for testing)
-aws iam create-policy --policy-name CleanCloudReadOnly \
- --policy-document file://aws-readonly-policy.json
+# Download and verify each policy
+for f in base-readonly.json hygiene-readonly.json ai-readonly.json; do
+  curl -o $f \
+    https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws/$f
+  echo "=== $f ===" && cat $f | jq '.Statement[].Action[]' \
+    | grep -iE '(delete|put|create|update|tag)' || echo "PASS: no write permissions"
+done
 ```
 
-**Attach to OIDC role:**
+**Attach to OIDC role (hygiene scan):**
 
 ```bash
-# Attach to existing role
-aws iam attach-role-policy \
-  --role-name CleanCloudCIReadOnly \
-  --policy-arn arn:aws:iam::123456789012:policy/CleanCloudReadOnly
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudBase \
+  --policy-document file://base-readonly.json
+
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudHygiene \
+  --policy-document file://hygiene-readonly.json
+```
+
+**Additionally, for AI/ML scans (`--category ai`):**
+
+```bash
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudAI \
+  --policy-document file://ai-readonly.json
 ```
 
 ---
@@ -344,21 +357,22 @@ az role assignment create \
 # File: verify-aws-policy.sh
 # Verifies AWS IAM policy is read-only
 
-POLICY_FILE="aws-readonly-policy.json"
+for POLICY_FILE in base-readonly.json hygiene-readonly.json ai-readonly.json; do
 
-echo " Verifying AWS IAM Policy: $POLICY_FILE"
+  echo " Verifying AWS IAM Policy: $POLICY_FILE"
 
-# Check for forbidden actions
-FORBIDDEN=$(cat $POLICY_FILE | jq -r '.Statement[].Action[]?' | grep -iE '(delete|put|create|update|tag|modify|terminate|reboot|stop|start)')
+  # Check for forbidden actions
+  FORBIDDEN=$(cat $POLICY_FILE | jq -r '.Statement[].Action[]?' | grep -iE '(delete|put|create|update|tag|modify|terminate|reboot|stop|start)')
 
-if [ -z "$FORBIDDEN" ]; then
- echo " PASS: No write/delete/tag permissions found"
- exit 0
-else
- echo " FAIL: Found forbidden permissions:"
- echo "$FORBIDDEN"
- exit 1
-fi
+  if [ -z "$FORBIDDEN" ]; then
+    echo " PASS: No write/delete/tag permissions found"
+  else
+    echo " FAIL: Found forbidden permissions:"
+    echo "$FORBIDDEN"
+    exit 1
+  fi
+
+done
 ```
 
 **Usage:**
@@ -551,16 +565,20 @@ git clone https://github.com/cleancloud-io/cleancloud.git
 cd cleancloud
 
 # IAM Proof Pack files:
-# - security/aws-readonly-policy.json (AWS IAM policy)
+# - security/aws/base-readonly.json     (AWS base policy — all scans)
+# - security/aws/hygiene-readonly.json  (AWS hygiene rules policy)
+# - security/aws/ai-readonly.json       (AWS AI/ML rules policy)
 # - docs/infosec-readiness.md (this document)
 # - tests/cleancloud/safety/ (automated safety tests)
 ```
 
-**Quick Download (AWS IAM Policy):**
+**Quick Download (AWS IAM Policies):**
 
 ```bash
-curl -o aws-readonly-policy.json \
- https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws-readonly-policy.json
+for f in base-readonly.json hygiene-readonly.json ai-readonly.json; do
+  curl -o $f \
+    https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws/$f
+done
 ```
 
 ---
@@ -1065,7 +1083,7 @@ CleanCloud output may contain:
 
 #### AWS IAM Policy
 
-The minimum required permissions are **read-only** — see [`security/aws-readonly-policy.json`](../security/aws-readonly-policy.json) for the canonical policy.
+The minimum required permissions are **read-only** — see [`security/aws/`](../security/aws/) for the canonical policy files (`base-readonly.json` + `hygiene-readonly.json` for default scans; add `ai-readonly.json` for `--category ai`).
 
 **Characteristics:**
 - Zero `Delete*`, `Put*`, `Create*`, `Update*`, or `Tag*` permissions

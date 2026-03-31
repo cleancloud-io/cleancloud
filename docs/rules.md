@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 30 hygiene rules implemented by CleanCloud.
+Complete reference for all 31 rules implemented by CleanCloud (30 hygiene + 1 AI/ML).
 
 ---
 
@@ -50,6 +50,7 @@ Every finding includes a confidence level:
 | `aws.rds.snapshot.old` | Storage | Manual RDS snapshots older than 90 days |
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
+| `aws.sagemaker.endpoint.idle` | AI/ML | SageMaker endpoints with zero invocations 14+ days *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -695,6 +696,44 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `s3:ListAllMyBuckets`
 - `s3:GetBucketTagging`
 - `logs:DescribeLogGroups`
+
+### AI/ML Waste
+
+#### Idle SageMaker Endpoints
+
+**Rule ID:** `aws.sagemaker.endpoint.idle`
+
+**Category:** `ai`
+
+**What it detects:** SageMaker inference endpoints in `InService` state with zero invocations over 14+ days. GPU-backed endpoints (`ml.g4dn`, `ml.g5`, `ml.p3`, `ml.p4d`, `ml.p5`, Inferentia, Trainium) are flagged as HIGH risk due to significantly higher hourly cost.
+
+**Confidence:**
+- **HIGH:** Zero invocations for the full 14-day window (endpoint age ≥ 14 days)
+- **MEDIUM:** Zero invocations but endpoint is 7–13 days old
+
+**Risk:**
+- **HIGH:** GPU/accelerator-backed instance (`ml.g4dn.*`, `ml.g5.*`, `ml.p3.*`, `ml.p4d.*`, etc.)
+- **MEDIUM:** CPU-backed instance
+
+**Why this matters:**
+- SageMaker endpoints accrue charges continuously while `InService`, regardless of traffic
+- GPU-backed endpoints cost $500–$23K/month depending on instance type
+- Endpoints deployed for experiments or demos are frequently abandoned after initial testing
+- Multi-variant endpoints multiply the cost per variant
+
+**Estimated monthly cost:**
+- `ml.g4dn.xlarge` — ~$531/month
+- `ml.g5.xlarge` — ~$600/month
+- `ml.p3.2xlarge` — ~$2,754/month
+- `ml.p4d.24xlarge` — ~$23,596/month
+- `ml.m5.xlarge` — ~$188/month
+
+**Required permissions:**
+- `sagemaker:ListEndpoints`
+- `sagemaker:DescribeEndpoint`
+- `cloudwatch:GetMetricStatistics`
+
+> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
 
 ---
 
@@ -1479,8 +1518,14 @@ This guarantees trust for long-running CI/CD integrations.
 
 ## Coming Soon
 
+**AI/ML (all providers):**
+- Azure ML compute clusters idle (min_instances > 0, no jobs running)
+- Vertex AI endpoints with zero predictions (GCP)
+- SageMaker notebook instances left running unused (AWS)
+- Orphaned SageMaker training artifacts in S3 (AWS)
+
 **AWS:**
-- S3 lifecycle gaps, idle SageMaker endpoints, Redshift idle
+- S3 lifecycle gaps, Redshift idle, NAT Gateway routing waste
 
 **Azure:**
 - Azure Firewall idle, AKS node pool idle, Azure Batch unused pools

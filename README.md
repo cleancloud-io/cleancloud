@@ -2,10 +2,7 @@
 
 ![PyPI](https://img.shields.io/pypi/v/cleancloud)
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
-![Docker Pulls](https://img.shields.io/docker/pulls/getcleancloud/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-[![Security Scanning](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml/badge.svg)](https://github.com/cleancloud-io/cleancloud/actions/workflows/security-scan.yml)
-![GitHub stars](https://img.shields.io/github/stars/cleancloud-io/cleancloud?style=social)
 
 **Languages / Langues :**
 🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
@@ -33,7 +30,7 @@ That's CleanCloud. Scan your AWS, Azure, and GCP environments, get specific acti
 | Multi-account / multi-subscription / multi-project | ❌ | ✅ | ✅ |
 | CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
 
-- **30 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **31 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker) are opt-in via `--category ai`
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
@@ -63,17 +60,87 @@ All operations are read-only. Safe for production accounts, air-gapped environme
 - Scheduled hygiene governance — weekly job that catches new waste and enforces thresholds across all accounts
 - Pre-review reports — export findings to markdown before a quarterly cost review or board meeting
 
+## What It Looks Like
+
 ```
 Found 6 hygiene issues:
 
-1. [AWS] Unattached EBS Volume       — $40/month
-2. [AWS] Idle NAT Gateway            — $32.40/month
-3. [AWS] Unattached Elastic IP       — $0/month
-...
+1. [AWS] Idle RDS Instance (No Connections for 21 Days)
+   Risk       : High
+   Confidence : High
+   Resource   : aws.rds.instance → db-prod-analytics
+   Region     : us-east-1
+   Rule       : aws.rds.instance.idle
+   Reason     : RDS instance has had zero connections for 21 days
+   Details:
+     - instance_class: db.r5.large
+     - engine: postgres 15.4
+     - estimated_monthly_cost: ~$380/month
 
-Estimated monthly waste: ~$147
-Regions scanned: us-east-1, us-west-2, eu-west-1
+2. [AWS] Unattached EBS Volume
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Region     : us-east-1
+   Rule       : aws.ebs.volume.unattached
+   Reason     : Volume has been unattached for 47 days
+   Details:
+     - size_gb: 500
+     - state: available
+     - tags: {"Project": "legacy-api", "Owner": "platform"}
+
+3. [AWS] Idle NAT Gateway
+   Risk       : Medium
+   Confidence : Medium
+   Resource   : aws.ec2.nat_gateway → nat-0abcdef1234567890
+   Region     : us-west-2
+   Rule       : aws.ec2.nat_gateway.idle
+   Reason     : No traffic detected for 21 days
+   Details:
+     - name: staging-nat
+     - total_bytes_out: 0
+     - estimated_monthly_cost: ~$32/month
+
+4. [AWS] Idle Load Balancer (No Healthy Targets)
+   Risk       : Medium
+   Confidence : High
+   Resource   : aws.elbv2.load_balancer → alb-staging-api
+   Region     : us-east-1
+   Rule       : aws.elbv2.load_balancer.idle
+   Reason     : Load balancer has no healthy targets for 30 days
+   Details:
+     - type: application
+     - estimated_monthly_cost: ~$18/month
+
+5. [AWS] Unattached Elastic IP
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
+   Region     : eu-west-1
+   Rule       : aws.ec2.elastic_ip.unattached
+   Reason     : Elastic IP not associated with any instance or ENI (age: 92 days)
+
+6. [AWS] Old EBS Snapshot (438 Days)
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
+   Region     : us-west-2
+   Rule       : aws.ebs.snapshot.old
+   Reason     : Snapshot is 438 days old with no recent activity
+   Details:
+     - size_gb: 200
+     - estimated_monthly_cost: ~$10/month
+
+--- Scan Summary ---
+Total findings: 6
+By risk:        low: 3  medium: 2  high: 1
+By confidence:  high: 5  medium: 1
+Minimum estimated waste: ~$480/month
+(5 of 6 findings costed)
+Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
 ```
+
+No cloud account yet? `cleancloud demo` shows sample output without any credentials.
 
 ## As featured in
 
@@ -135,13 +202,22 @@ cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
 ```
 
-**Not sure if your credentials have the right permissions?** Run `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure`, or `cleancloud doctor --provider gcp` first.
+**Not sure if your credentials have the right permissions?** 
+
+Run:
+
+`cleancloud doctor --provider aws`, 
+
+`cleancloud doctor --provider azure`, or 
+
+`cleancloud doctor --provider gcp` first.
 
 ### Scan flags:
 
 | Flag | What it does |
 |---|---|
 | `--provider aws\|azure\|gcp` | Cloud provider to scan *(required)* |
+| `--category hygiene\|ai\|all` | Rule category: `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` (hygiene + AI) |
 | `--region REGION` | Scan a single region |
 | `--all-regions` | Scan all active regions — AWS/Azure only |
 | **AWS multi-account** | |
@@ -223,54 +299,6 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 
 ---
 
-## What It Looks Like
-
-```
-Found 6 hygiene issues:
-
-1. [AWS] Unattached EBS Volume
-   Risk       : Low
-   Confidence : High
-   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
-   Region     : us-east-1
-   Rule       : aws.ebs.volume.unattached
-   Reason     : Volume has been unattached for 47 days
-   Details:
-     - size_gb: 500
-     - state: available
-     - tags: {"Project": "legacy-api", "Owner": "platform"}
-
-2. [AWS] Idle NAT Gateway
-   Risk       : Medium
-   Confidence : Medium
-   Resource   : aws.ec2.nat_gateway → nat-0abcdef1234567890
-   Region     : us-west-2
-   Rule       : aws.ec2.nat_gateway.idle
-   Reason     : No traffic detected for 21 days
-   Details:
-     - name: staging-nat
-     - total_bytes_out: 0
-     - estimated_monthly_cost_usd: 32.40
-
-3. [AWS] Unattached Elastic IP
-   Risk       : Low
-   Confidence : High
-   Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
-   Region     : eu-west-1
-   Rule       : aws.ec2.elastic_ip.unattached
-   Reason     : Elastic IP not associated with any instance or ENI (age: 92 days)
-
---- Scan Summary ---
-Total findings: 6
-By risk:        low: 5  medium: 1
-By confidence:  high: 2  medium: 4
-Minimum estimated waste: ~$147/month
-(4 of 6 findings costed)
-Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
-```
-
-No cloud account yet? `cleancloud demo` shows sample output without any credentials.
-
 ### Shareable markdown report
 
 ```bash
@@ -310,7 +338,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 
 ## What CleanCloud Detects
 
-30 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+31 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -319,6 +347,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
+- AI/ML *(opt-in: `--category ai`)*: idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month)
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)
@@ -564,7 +593,9 @@ Full setup guide: [GCP setup →](docs/gcp.md)
 
 **Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config — the top FinOps governance ask for 2025/2026
 
-**More AWS rules** — S3 lifecycle gaps, AI/GPU waste (idle SageMaker endpoints, orphaned GPU instances), Redshift idle, idle load balancers (ALB/NLB with zero traffic), NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
+**More AI/ML waste rules** — Azure ML compute clusters idle, Vertex AI endpoints idle, SageMaker notebook instances running unused, orphaned training artifacts
+
+**More AWS rules** — S3 lifecycle gaps, Redshift idle, NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
 
 **More Azure rules** — Azure Firewall idle, AKS node pool idle, Azure Batch unused pools
 

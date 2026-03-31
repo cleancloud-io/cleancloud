@@ -614,3 +614,51 @@ GCP_FINDINGS: List[Finding] = [
 ]
 
 ALL_FINDINGS: List[Finding] = AWS_FINDINGS + AZURE_FINDINGS + GCP_FINDINGS
+
+AWS_AI_FINDINGS: List[Finding] = [
+    Finding(
+        provider="aws",
+        rule_id="aws.sagemaker.endpoint.idle",
+        resource_type="aws.sagemaker.endpoint",
+        resource_id="llm-inference-prod",
+        region="us-east-1",
+        title="Idle SageMaker Endpoint (No Invocations for 21 Days)",
+        summary=(
+            "SageMaker endpoint 'llm-inference-prod' has received zero invocations "
+            "for 21 days but remains InService, incurring continuous GPU charges."
+        ),
+        reason="SageMaker endpoint has zero invocations for 21 days",
+        risk=RiskLevel.HIGH,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "endpoint_name": "llm-inference-prod",
+            "instance_type": "ml.g5.2xlarge",
+            "is_gpu": True,
+            "variant_count": 1,
+            "total_instances": 1,
+            "age_days": 21,
+            "idle_window_days": 21,
+            "idle_days_threshold": 14,
+            "estimated_monthly_cost": "~$1,008/month",
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Zero recorded invocations for 21 days (CloudWatch metric)",
+                "Endpoint state: InService",
+                "Endpoint age: 21 days",
+                "Total running instances (DesiredInstanceCount): 1",
+                "Instance type: ml.g5.2xlarge",
+                "GPU-backed instance — high hourly cost",
+            ],
+            signals_not_checked=[
+                "Scheduled or batch invocation patterns",
+                "Internal health-check invocations",
+                "Planned future usage",
+                "Shadow mode / canary deployments",
+            ],
+            time_window="21 days",
+        ),
+        estimated_monthly_cost_usd=1008.0,
+    ),
+]

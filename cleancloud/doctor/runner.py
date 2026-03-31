@@ -1,7 +1,7 @@
 import sys
 from typing import Optional
 
-from cleancloud.doctor.aws import run_aws_doctor
+from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
 from cleancloud.doctor.azure import run_azure_doctor
 from cleancloud.doctor.common import DoctorError, info, success
 from cleancloud.doctor.gcp import run_gcp_doctor
@@ -12,6 +12,7 @@ def run_doctor(
     profile: Optional[str] = None,
     region: Optional[str] = None,
     project: Optional[str] = None,
+    category: str = "hygiene",
 ) -> None:
     # Validate provider
     valid_providers = ["aws", "azure", "gcp"]
@@ -47,7 +48,13 @@ def run_doctor(
     for p in providers_to_check:
         try:
             if p == "aws":
-                run_aws_doctor(profile=profile, region=region)
+                if category == "ai":
+                    run_aws_ai_doctor(profile=profile, region=region)
+                elif category == "all":
+                    run_aws_doctor(profile=profile, region=region)
+                    run_aws_ai_doctor(profile=profile, region=region)
+                else:
+                    run_aws_doctor(profile=profile, region=region)
                 results[p] = {"status": "passed", "error": None}
 
             elif p == "azure":

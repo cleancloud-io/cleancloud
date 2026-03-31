@@ -44,7 +44,7 @@ from cleancloud.providers.aws.multi_account import (
     discover_org_accounts,
     scan_multiple_accounts,
 )
-from cleancloud.providers.aws.scan import AWS_RULES, scan_aws_with_region_selection
+from cleancloud.providers.aws.scan import AWS_AI_RULES, AWS_RULES, scan_aws_with_region_selection
 from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_selection
 from cleancloud.providers.gcp.scan import (
     GCP_RULES,
@@ -186,6 +186,13 @@ from cleancloud.providers.gcp.scan import (
     default=False,
     help="Disable post-scan feedback prompt (recommended for CI/CD runs)",
 )
+@click.option(
+    "--category",
+    type=click.Choice(["hygiene", "ai", "all"]),
+    default="hygiene",
+    show_default=True,
+    help="Rule category to run: hygiene (default), ai (AI/ML waste), or all",
+)
 def scan(
     provider: str,
     region: Optional[str],
@@ -204,6 +211,7 @@ def scan(
     config: Optional[str],
     ignore_tag: List[str],
     no_feedback: bool,
+    category: str,
     multi_account_file: Optional[str],
     accounts_inline: Optional[str],
     scan_org: bool,
@@ -251,10 +259,29 @@ def scan(
             if used:
                 raise click.UsageError(f"{flag} is only supported with --provider gcp")
 
+    if category == "ai" and provider != "aws":
+        raise click.UsageError(
+            "--category ai is only supported with --provider aws (SageMaker rules). "
+            "AI/ML rules for Azure and GCP are on the roadmap."
+        )
+
+    # Build the AWS rule list based on --category
+    if provider == "aws":
+        if category == "hygiene":
+            aws_rules_to_run = AWS_RULES
+        elif category == "ai":
+            aws_rules_to_run = AWS_AI_RULES
+        else:  # all
+            aws_rules_to_run = AWS_RULES + AWS_AI_RULES
+    else:
+        aws_rules_to_run = AWS_RULES  # unused for non-AWS but keeps type consistent
+
     click.echo()
     click.echo("Starting CleanCloud scan...")
     click.echo()
     click.echo(f"Provider: {provider}")
+    if provider == "aws" and category != "hygiene":
+        click.echo(f"Category: {category}")
     click.echo()
 
     try:
@@ -318,6 +345,7 @@ def scan(
                 profile=profile,
                 max_concurrent=concurrency,
                 per_account_regions=per_account_regions,
+                rules=aws_rules_to_run,
             )
 
             # Aggregate findings and metadata from all accounts
@@ -335,7 +363,10 @@ def scan(
         elif provider == "aws":
             region_selection_mode, findings, regions_scanned, skipped_rules = (
                 scan_aws_with_region_selection(
-                    profile=profile, region=region, all_regions=all_regions
+                    profile=profile,
+                    region=region,
+                    all_regions=all_regions,
+                    rules=aws_rules_to_run,
                 )
             )
 
@@ -453,7 +484,7 @@ def scan(
         # Add provider-specific fields
         if provider == "aws":
             summary["region_selection_mode"] = region_selection_mode
-            summary["total_rules"] = len(AWS_RULES)
+            summary["total_rules"] = len(aws_rules_to_run)
         elif provider == "azure":
             summary["total_rules"] = len(AZURE_RULES)
             summary["subscription_selection_mode"] = subscription_selection_mode
@@ -541,6 +572,12 @@ def scan(
         else:
             print_human(findings)
             _print_summary(summary, region_selection_mode, multi_account_results or None)
+            if provider == "aws" and category == "hygiene":
+                click.echo(
+                    "Tip: Run AI/ML cost checks with: "
+                    "cleancloud scan --provider aws --category ai"
+                )
+                click.echo()
 
         # Community prompt (all output modes)
         click.echo()

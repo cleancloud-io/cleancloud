@@ -475,11 +475,24 @@ aws iam create-role \
 
 aws iam put-role-policy \
   --role-name CleanCloudReadOnlyRole \
-  --policy-name CleanCloudReadOnly \
-  --policy-document file://security/aws-readonly-policy.json
+  --policy-name CleanCloudBase \
+  --policy-document file://security/aws/base-readonly.json
+
+aws iam put-role-policy \
+  --role-name CleanCloudReadOnlyRole \
+  --policy-name CleanCloudHygiene \
+  --policy-document file://security/aws/hygiene-readonly.json
 ```
 
-> `security/aws-readonly-policy.json` is in the [CleanCloud repo](https://github.com/cleancloud-io/cleancloud/blob/main/security/aws-readonly-policy.json). Download it first or clone the repo, then run the commands above.
+> The policy files are in the [CleanCloud repo](https://github.com/cleancloud-io/cleancloud/tree/main/security/aws). Download or clone the repo first, then run the commands above.
+>
+> To also enable AI/ML rules (`--category ai`), attach the AI policy:
+> ```bash
+> aws iam put-role-policy \
+>   --role-name CleanCloudReadOnlyRole \
+>   --policy-name CleanCloudAI \
+>   --policy-document file://security/aws/ai-readonly.json
+> ```
 
 Repeat for each spoke account — takes under 30 seconds per account.
 

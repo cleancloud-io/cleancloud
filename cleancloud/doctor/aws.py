@@ -239,8 +239,9 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  s3:GetBucketTagging")
         info("  sts:GetCallerIdentity")
         info("")
-        info("Copy the ready-to-use IAM policy from:")
-        info("  security/aws-readonly-policy.json  (in this repo)")
+        info("Copy the ready-to-use IAM policies from:")
+        info("  security/aws/base-readonly.json     (required for all scans)")
+        info("  security/aws/hygiene-readonly.json  (hygiene rules, default)")
         info("  or: docs/aws.md (full setup guide with OIDC)")
         fail("No credentials — configure AWS access and re-run doctor")
 
@@ -584,6 +585,110 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         warn("AWS ENVIRONMENT READY (partial coverage)")
     else:
         success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
+        info("")
+        info("Tip: To also validate AI/ML permissions (SageMaker rules), run:")
+        info("  cleancloud doctor --provider aws --category ai")
+    info("=" * 70)
+    info("")
+
+
+def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> None:
+    """Validate AWS permissions for --category ai (SageMaker rules)."""
+    if region is None:
+        region = "us-east-1"
+
+    info("")
+    info("=" * 70)
+    info("AWS AI/ML PERMISSION VALIDATION")
+    info("=" * 70)
+    info("")
+    info("Validating permissions for: cleancloud scan --provider aws --category ai")
+    info(f"Region: {region}")
+    info("")
+
+    try:
+        session = create_aws_session(profile=profile, region=region)
+    except Exception as e:
+        fail(f"Failed to create AWS session: {e}")
+        return
+
+    # Verify identity
+    try:
+        sts = session.client("sts")
+        identity = sts.get_caller_identity()
+        success(f"Account: {identity['Account']}  ({identity['Arn']})")
+    except Exception as e:
+        fail(f"AWS identity verification failed: {e}")
+        return
+
+    info("")
+    info("Permission Checks")
+    info("-" * 70)
+
+    permissions_tested = []
+    permissions_failed = []
+
+    from datetime import datetime, timedelta, timezone
+
+    sagemaker = session.client("sagemaker", region_name=region)
+
+    try:
+        sagemaker.list_endpoints(MaxResults=1)
+        permissions_tested.append("sagemaker:ListEndpoints")
+        success("sagemaker:ListEndpoints")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListEndpoints", str(e)))
+        warn(f"sagemaker:ListEndpoints - {e}")
+
+    try:
+        # Describe the first InService endpoint if one exists; otherwise permission is assumed
+        # present since ListEndpoints already confirmed SageMaker access.
+        endpoints = sagemaker.list_endpoints(MaxResults=1, StatusEquals="InService")
+        endpoint_list = endpoints.get("Endpoints", [])
+        if endpoint_list:
+            sagemaker.describe_endpoint(EndpointName=endpoint_list[0]["EndpointName"])
+        permissions_tested.append("sagemaker:DescribeEndpoint")
+        success("sagemaker:DescribeEndpoint")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeEndpoint", str(e)))
+        warn(f"sagemaker:DescribeEndpoint - {e}")
+
+    try:
+        cloudwatch = session.client("cloudwatch", region_name=region)
+        now = datetime.now(timezone.utc)
+        cloudwatch.get_metric_statistics(
+            Namespace="AWS/SageMaker",
+            MetricName="Invocations",
+            Dimensions=[],
+            StartTime=now - timedelta(hours=1),
+            EndTime=now,
+            Period=3600,
+            Statistics=["Sum"],
+        )
+        permissions_tested.append("cloudwatch:GetMetricStatistics")
+        success("cloudwatch:GetMetricStatistics")
+    except Exception as e:
+        permissions_failed.append(("cloudwatch:GetMetricStatistics", str(e)))
+        warn(f"cloudwatch:GetMetricStatistics - {e}")
+
+    info("")
+    info("=" * 70)
+    total = len(permissions_tested) + len(permissions_failed)
+    info(f"Permissions: {len(permissions_tested)}/{total} passed")
+
+    if permissions_failed:
+        info("")
+        for perm, _ in permissions_failed:
+            warn(f"  missing: {perm}")
+        info("")
+        info("Attach security/aws/ai-readonly.json to your IAM role/user.")
+        info("Then re-run: cleancloud doctor --provider aws --category ai")
+        info("")
+        warn("AWS AI/ML PERMISSIONS INCOMPLETE")
+    else:
+        info("")
+        success("AWS AI/ML PERMISSIONS READY")
+        info("Run: cleancloud scan --provider aws --category ai")
     info("=" * 70)
     info("")
 

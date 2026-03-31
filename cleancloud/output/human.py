@@ -5,10 +5,10 @@ from cleancloud.core.finding import Finding
 
 def print_human(findings: List[Finding]):
     if not findings:
-        print("No hygiene issues detected")
+        print("No issues detected")
         return
 
-    print(f"\nFound {len(findings)} hygiene issues:\n")
+    print(f"\nFound {len(findings)} issue(s):\n")
 
     for i, f in enumerate(findings, start=1):
         print(f"{i}. [{f.provider.upper()}] {f.title}")

@@ -84,7 +84,7 @@ def test_cli_shows_skipped_rules_in_output(monkeypatch):
     """Scan output includes skipped rules section when permissions are missing."""
     monkeypatch.setattr(
         "cleancloud.providers.aws.scan._scan_aws_region",
-        lambda profile, region: ([_fake_finding()], _SKIPPED),
+        lambda profile, region, rules: ([_fake_finding()], _SKIPPED),
     )
 
     runner = CliRunner()
@@ -104,7 +104,7 @@ def test_cli_exits_0_with_skipped_rules_and_no_policy_flags(monkeypatch):
     """Skipped rules alone do not trigger a non-zero exit code."""
     monkeypatch.setattr(
         "cleancloud.providers.aws.scan._scan_aws_region",
-        lambda profile, region: ([], _SKIPPED),
+        lambda profile, region, rules: ([], _SKIPPED),
     )
 
     runner = CliRunner()
@@ -120,7 +120,7 @@ def test_cli_findings_still_reported_alongside_skipped_rules(monkeypatch):
     """Findings from successful rules are still reported when other rules are skipped."""
     monkeypatch.setattr(
         "cleancloud.providers.aws.scan._scan_aws_region",
-        lambda profile, region: ([_fake_finding("vol-99")], _SKIPPED),
+        lambda profile, region, rules: ([_fake_finding("vol-99")], _SKIPPED),
     )
 
     runner = CliRunner()
@@ -138,7 +138,7 @@ def test_cli_no_skipped_section_when_all_rules_pass(monkeypatch):
     """No skipped rules section shown when all rules complete successfully."""
     monkeypatch.setattr(
         "cleancloud.providers.aws.scan._scan_aws_region",
-        lambda profile, region: ([_fake_finding()], []),
+        lambda profile, region, rules: ([_fake_finding()], []),
     )
 
     runner = CliRunner()

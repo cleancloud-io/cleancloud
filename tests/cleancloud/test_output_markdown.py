@@ -50,7 +50,7 @@ def test_no_findings_output():
     summary = _make_summary([])
     summary["total_findings"] = 0
     output = write_markdown([], summary)
-    assert "No hygiene issues detected" in output
+    assert "No issues detected" in output
 
 
 def test_findings_table_present():
