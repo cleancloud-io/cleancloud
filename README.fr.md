@@ -60,17 +60,87 @@ Toutes les opérations sont en lecture seule. Sûr pour les comptes de productio
 - Gouvernance d'hygiène planifiée — job hebdomadaire qui détecte les nouveaux gaspillages et applique les seuils sur tous les comptes
 - Rapports pré-revue — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
 
-```
-6 problèmes d'hygiène détectés :
+## Exemple de résultat détaillé
 
-1. [AWS] Volume EBS non attaché      — $40/mois
-2. [AWS] NAT Gateway inactive        — $32.40/mois
-3. [AWS] Elastic IP non attachée     — $0/mois
-...
-
-Gaspillage mensuel estimé : ~$147
-Régions scannées : us-east-1, us-west-2, eu-west-1
 ```
+6 problèmes détectés :
+
+1. [AWS] Instance RDS inactive (aucune connexion depuis 21 jours)
+   Risque     : Élevé
+   Confiance  : High
+   Ressource  : aws.rds.instance → db-prod-analytics
+   Région     : us-east-1
+   Règle      : aws.rds.instance.idle
+   Raison     : Instance RDS sans connexion depuis 21 jours
+   Détails :
+     - instance_class: db.r5.large
+     - engine: postgres 15.4
+     - estimated_monthly_cost: ~$380/mois
+
+2. [AWS] Volume EBS non attaché
+   Risque     : Faible
+   Confiance  : High
+   Ressource  : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Région     : us-east-1
+   Règle      : aws.ebs.volume.unattached
+   Raison     : Volume non attaché depuis 47 jours
+   Détails :
+     - size_gb: 500
+     - state: available
+     - tags: {"Project": "legacy-api", "Owner": "platform"}
+
+3. [AWS] NAT Gateway inactive
+   Risque     : Moyen
+   Confiance  : Medium
+   Ressource  : aws.ec2.nat_gateway → nat-0abcdef1234567890
+   Région     : us-west-2
+   Règle      : aws.ec2.nat_gateway.idle
+   Raison     : Aucun trafic détecté depuis 21 jours
+   Détails :
+     - name: staging-nat
+     - total_bytes_out: 0
+     - estimated_monthly_cost: ~$32/mois
+
+4. [AWS] Load Balancer inactif (aucune cible saine)
+   Risque     : Moyen
+   Confiance  : High
+   Ressource  : aws.elbv2.load_balancer → alb-staging-api
+   Région     : us-east-1
+   Règle      : aws.elbv2.load_balancer.idle
+   Raison     : Load balancer sans cible saine depuis 30 jours
+   Détails :
+     - type: application
+     - estimated_monthly_cost: ~$18/mois
+
+5. [AWS] Elastic IP non attachée
+   Risque     : Faible
+   Confiance  : High
+   Ressource  : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
+   Région     : eu-west-1
+   Règle      : aws.ec2.elastic_ip.unattached
+   Raison     : Elastic IP non associée à aucune instance ou ENI (ancienneté : 92 jours)
+
+6. [AWS] Ancien snapshot EBS (438 jours)
+   Risque     : Faible
+   Confiance  : High
+   Ressource  : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
+   Région     : us-west-2
+   Règle      : aws.ebs.snapshot.old
+   Raison     : Snapshot âgé de 438 jours sans activité récente
+   Détails :
+     - size_gb: 200
+     - estimated_monthly_cost: ~$10/mois
+
+--- Résumé du scan ---
+Total findings : 6
+Par risque :     faible: 3  moyen: 2  élevé: 1
+Par confiance :  high: 5  medium: 1
+Gaspillage minimum estimé : ~$480/mois
+(5 findings sur 6 chiffrés)
+Régions scannées : us-east-1, us-west-2, eu-west-1 (auto-détectées)
+```
+
+Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans aucun credential.
 
 ## Mentionné dans la presse
 
@@ -218,54 +288,6 @@ pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
 </details>
 
 ---
-
-## Exemple de résultat détaillé
-
-```
-6 problèmes d'hygiène détectés :
-
-1. [AWS] Volume EBS non attaché
-   Risque     : Faible
-   Confiance  : High
-   Ressource  : aws.ebs.volume → vol-0a1b2c3d4e5f67890
-   Région     : us-east-1
-   Règle      : aws.ebs.volume.unattached
-   Raison     : Volume non attaché depuis 47 jours
-   Détails :
-     - size_gb: 500
-     - state: available
-     - tags: {"Project": "legacy-api", "Owner": "platform"}
-
-2. [AWS] NAT Gateway inactive
-   Risque     : Moyen
-   Confiance  : Medium
-   Ressource  : aws.ec2.nat_gateway → nat-0abcdef1234567890
-   Région     : us-west-2
-   Règle      : aws.ec2.nat_gateway.idle
-   Raison     : Aucun trafic détecté depuis 21 jours
-   Détails :
-     - name: staging-nat
-     - total_bytes_out: 0
-     - estimated_monthly_cost_usd: 32.40
-
-3. [AWS] Elastic IP non attachée
-   Risque     : Faible
-   Confiance  : High
-   Ressource  : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
-   Région     : eu-west-1
-   Règle      : aws.ec2.elastic_ip.unattached
-   Raison     : Elastic IP non associée à aucune instance ou ENI (ancienneté : 92 jours)
-
---- Résumé du scan ---
-Total findings : 6
-Par risque :     faible: 5  moyen: 1
-Par confiance :  high: 2  medium: 4
-Gaspillage minimum estimé : ~$147/mois
-(4 findings sur 6 chiffrés)
-Régions scannées : us-east-1, us-west-2, eu-west-1 (auto-détectées)
-```
-
-Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans aucun credential.
 
 ### Rapport markdown partageable
 

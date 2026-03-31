@@ -585,6 +585,9 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         warn("AWS ENVIRONMENT READY (partial coverage)")
     else:
         success("AWS ENVIRONMENT READY FOR CLEANCLOUD")
+        info("")
+        info("Tip: To also validate AI/ML permissions (SageMaker rules), run:")
+        info("  cleancloud doctor --provider aws --category ai")
     info("=" * 70)
     info("")
 
