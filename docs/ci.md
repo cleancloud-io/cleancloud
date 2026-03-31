@@ -122,6 +122,25 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
     artifact-name: cleancloud-scan-results
 ```
 
+### GCP (Workload Identity Federation)
+
+```yaml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    all-projects: 'true'
+    fail-on-confidence: HIGH
+    fail-on-cost: '100'
+    output: json
+    output-file: scan-results.json
+    artifact-name: cleancloud-scan-results
+```
+
 ### AWS Multi-Account (via action)
 
 ```yaml
@@ -147,6 +166,7 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 | Input | Description | AWS | Azure | GCP |
 |---|---|:---:|:---:|:---:|
 | `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
+
 | `category` | `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` | ✓ | — | — |
 | `region` | Single region/location filter | ✓ | ✓ | — |
 | `all-regions` | Scan all active regions | ✓ | — | — |
