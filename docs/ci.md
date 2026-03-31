@@ -122,6 +122,25 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
     artifact-name: cleancloud-scan-results
 ```
 
+### GCP (Workload Identity Federation)
+
+```yaml
+- uses: google-github-actions/auth@v2
+  with:
+    workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+    service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: gcp
+    all-projects: 'true'
+    fail-on-confidence: HIGH
+    fail-on-cost: '100'
+    output: json
+    output-file: scan-results.json
+    artifact-name: cleancloud-scan-results
+```
+
 ### AWS Multi-Account (via action)
 
 ```yaml
@@ -144,30 +163,32 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 
 ### Full Inputs Reference
 
-| Input | Description | AWS | Azure |
-|---|---|:---:|:---:|
-| `provider` | `aws` or `azure` (required) | ✓ | ✓ |
-| `region` | Single region/location filter | ✓ | ✓ |
-| `all-regions` | Scan all active regions | ✓ | — |
-| `org` | Auto-discover all AWS Organization accounts | ✓ | — |
-| `accounts` | Comma-separated account IDs | ✓ | — |
-| `multi-account` | Path to accounts config YAML | ✓ | — |
-| `role-name` | Cross-account role name (default: `CleanCloudReadOnlyRole`) | ✓ | — |
-| `external-id` | External ID for cross-account role assumption | ✓ | — |
-| `concurrency` | Parallel account scan limit | ✓ | — |
-| `timeout` | Total scan timeout in seconds | ✓ | — |
-| `per-account-regions` | Detect active regions per account (slower, more accurate) | ✓ | — |
-| `subscription` | Comma-separated subscription IDs | — | ✓ |
-| `management-group` | Management Group ID for subscription discovery | — | ✓ |
-| `fail-on-confidence` | Fail on `LOW`, `MEDIUM`, or `HIGH` confidence findings | ✓ | ✓ |
-| `fail-on-cost` | Fail if estimated waste exceeds this USD amount | ✓ | ✓ |
-| `fail-on-findings` | Fail on any finding | ✓ | ✓ |
-| `output` | `human`, `json`, `csv`, or `markdown` | ✓ | ✓ |
-| `output-file` | Path to write output (required for `json`/`csv`) | ✓ | ✓ |
-| `artifact-name` | Upload `output-file` as a GitHub artifact with this name | ✓ | ✓ |
-| `config` | Path to `cleancloud.yaml` config file | ✓ | ✓ |
-| `ignore-tag` | Comma-separated `key` or `key:value` tags to ignore | ✓ | ✓ |
-| `version` | CleanCloud version to install (default: latest) | ✓ | ✓ |
+| Input | Description | AWS | Azure | GCP |
+|---|---|:---:|:---:|:---:|
+| `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
+| `region` | Single region/location filter | ✓ | ✓ | — |
+| `all-regions` | Scan all active regions | ✓ | — | — |
+| `org` | Auto-discover all AWS Organization accounts | ✓ | — | — |
+| `accounts` | Comma-separated account IDs | ✓ | — | — |
+| `multi-account` | Path to accounts config YAML | ✓ | — | — |
+| `role-name` | Cross-account role name (default: `CleanCloudReadOnlyRole`) | ✓ | — | — |
+| `external-id` | External ID for cross-account role assumption | ✓ | — | — |
+| `concurrency` | Parallel account scan limit | ✓ | — | — |
+| `timeout` | Total scan timeout in seconds | ✓ | — | — |
+| `per-account-regions` | Detect active regions per account (slower, more accurate) | ✓ | — | — |
+| `subscription` | Comma-separated subscription IDs | — | ✓ | — |
+| `management-group` | Management Group ID for subscription discovery | — | ✓ | — |
+| `project` | Comma-separated GCP project IDs | — | — | ✓ |
+| `all-projects` | Scan all accessible GCP projects | — | — | ✓ |
+| `fail-on-confidence` | Fail on `LOW`, `MEDIUM`, or `HIGH` confidence findings | ✓ | ✓ | ✓ |
+| `fail-on-cost` | Fail if estimated waste exceeds this USD amount | ✓ | ✓ | ✓ |
+| `fail-on-findings` | Fail on any finding | ✓ | ✓ | ✓ |
+| `output` | `human`, `json`, `csv`, or `markdown` | ✓ | ✓ | ✓ |
+| `output-file` | Path to write output (required for `json`/`csv`) | ✓ | ✓ | ✓ |
+| `artifact-name` | Upload `output-file` as a GitHub artifact with this name | ✓ | ✓ | ✓ |
+| `config` | Path to `cleancloud.yaml` config file | ✓ | ✓ | ✓ |
+| `ignore-tag` | Comma-separated `key` or `key:value` tags to ignore | ✓ | ✓ | ✓ |
+| `version` | CleanCloud version to install (default: latest) | ✓ | ✓ | ✓ |
 
 > When `artifact-name` is set the action uploads `output-file` automatically — no separate `upload-artifact` step needed.
 
