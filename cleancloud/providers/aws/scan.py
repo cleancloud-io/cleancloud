@@ -23,6 +23,9 @@ from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
+from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
+    find_idle_sagemaker_endpoints,
+)
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -45,9 +48,18 @@ AWS_RULES: List[Callable] = [
     find_old_rds_snapshots,
 ]
 
+# AI/ML waste rules — not run by default; use --category ai or --category all
+AWS_AI_RULES: List[Callable] = [
+    find_idle_sagemaker_endpoints,
+]
+
 
 def scan_aws_with_region_selection(
-    *, profile: Optional[str], region: Optional[str], all_regions: bool
+    *,
+    profile: Optional[str],
+    region: Optional[str],
+    all_regions: bool,
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[str, List[Finding], List[str], List[dict]]:
 
     validate_region_params(region, all_regions)
@@ -89,7 +101,7 @@ def scan_aws_with_region_selection(
 
     click.echo()
 
-    findings, skipped_rules = scan_aws_regions(profile, regions_to_scan)
+    findings, skipped_rules = scan_aws_regions(profile, regions_to_scan, rules=rules)
     regions_scanned = regions_to_scan
 
     return region_selection_mode, findings, regions_scanned, skipped_rules
@@ -244,7 +256,9 @@ def _get_all_aws_regions(session) -> List[str]:
 def scan_aws_regions(
     profile: Optional[str],
     regions_to_scan: List[str],
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[List[Finding], List[dict]]:
+    active_rules = rules if rules is not None else AWS_RULES
     findings: List[Finding] = []
     all_skipped_rules: List[dict] = []
 
@@ -256,7 +270,7 @@ def scan_aws_regions(
     ) as bar:
         with ThreadPoolExecutor(max_workers=min(5, len(regions_to_scan))) as executor:
             futures = {
-                executor.submit(_scan_aws_region, profile, region): region
+                executor.submit(_scan_aws_region, profile, region, active_rules): region
                 for region in regions_to_scan
             }
 
@@ -286,19 +300,21 @@ def scan_aws_regions(
 def scan_aws_regions_with_session(
     session,
     regions_to_scan: List[str],
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[List[Finding], List[dict], List[str]]:
     """
     Scan a list of regions using a pre-existing boto3 session (e.g. assumed role).
     Used by multi-account scanning. No progress bars — account-level logging handles UX.
     Returns (findings, skipped_rules, failed_regions).
     """
+    active_rules = rules if rules is not None else AWS_RULES
     findings: List[Finding] = []
     all_skipped_rules: List[dict] = []
     failed_regions: List[str] = []
 
     with ThreadPoolExecutor(max_workers=min(5, len(regions_to_scan))) as executor:
         futures = {
-            executor.submit(_scan_aws_region_with_session, session, region): region
+            executor.submit(_scan_aws_region_with_session, session, region, active_rules): region
             for region in regions_to_scan
         }
         for future in as_completed(futures):
@@ -316,7 +332,9 @@ def scan_aws_regions_with_session(
     return findings, all_skipped_rules, failed_regions
 
 
-def _scan_aws_region_with_session(session, region: str) -> Tuple[List[Finding], List[dict]]:
+def _scan_aws_region_with_session(
+    session, region: str, rules: List[Callable]
+) -> Tuple[List[Finding], List[dict]]:
     """
     Scan a single region using a pre-existing session. Used for assumed-role
     (multi-account) scans where the session is already scoped to the target account.
@@ -324,8 +342,8 @@ def _scan_aws_region_with_session(session, region: str) -> Tuple[List[Finding], 
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
 
-    with ThreadPoolExecutor(max_workers=min(4, len(AWS_RULES))) as executor:
-        futures = {executor.submit(rule, session, region): rule for rule in AWS_RULES}
+    with ThreadPoolExecutor(max_workers=min(4, len(rules))) as executor:
+        futures = {executor.submit(rule, session, region): rule for rule in rules}
 
         for future in as_completed(futures):
             rule = futures[future]
@@ -347,7 +365,9 @@ def _scan_aws_region_with_session(session, region: str) -> Tuple[List[Finding], 
     return findings, skipped_rules
 
 
-def _scan_aws_region(profile: Optional[str], region: str) -> Tuple[List[Finding], List[dict]]:
+def _scan_aws_region(
+    profile: Optional[str], region: str, rules: List[Callable]
+) -> Tuple[List[Finding], List[dict]]:
     session = create_aws_session(profile=profile, region=region)
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
@@ -356,13 +376,13 @@ def _scan_aws_region(profile: Optional[str], region: str) -> Tuple[List[Finding]
     endpoint_errors = 0
 
     with click.progressbar(
-        length=len(AWS_RULES),
+        length=len(rules),
         label=f"Scanning AWS rules in {region}",
         show_eta=True,
         show_percent=True,
     ) as bar:
-        with ThreadPoolExecutor(max_workers=min(4, len(AWS_RULES))) as executor:
-            futures = {executor.submit(rule, session, region): rule for rule in AWS_RULES}
+        with ThreadPoolExecutor(max_workers=min(4, len(rules))) as executor:
+            futures = {executor.submit(rule, session, region): rule for rule in rules}
 
             for future in as_completed(futures):
                 rule = futures[future]

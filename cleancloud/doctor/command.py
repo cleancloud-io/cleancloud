@@ -22,6 +22,12 @@ from cleancloud.doctor.runner import run_doctor
     help="GCP project ID to probe permissions against (GCP only)",
 )
 @click.option(
+    "--category",
+    default="hygiene",
+    type=click.Choice(["hygiene", "ai"]),
+    help="Permission set to validate: hygiene (default) or ai (SageMaker)",
+)
+@click.option(
     "--config",
     type=click.Path(exists=True),
     help="Path to cleancloud.yaml",
@@ -44,12 +50,19 @@ def doctor(
     region: str,
     profile: Optional[str],
     project: Optional[str],
+    category: str,
     config: Optional[str],
     multi_account_file: Optional[str],
     role_name: str,
 ):
     click.echo("Running CleanCloud doctor")
     click.echo()
+
+    if category == "ai" and provider not in (None, "aws"):
+        raise click.UsageError(
+            "--category ai is only supported with --provider aws (SageMaker rules). "
+            "AI/ML rules for Azure and GCP are on the roadmap."
+        )
 
     if multi_account_file:
         if provider != "aws" and provider is not None:
@@ -66,7 +79,9 @@ def doctor(
         run_aws_multi_account_doctor(ma_config, profile=profile, region=region)
         return
 
-    run_doctor(provider=provider, profile=profile, region=region, project=project)
+    run_doctor(
+        provider=provider, profile=profile, region=region, project=project, category=category
+    )
 
     try:
         cfg = CleanCloudConfig.empty()

@@ -33,7 +33,7 @@ C'est CleanCloud. Scannez vos environnements AWS, Azure et GCP, obtenez des find
 | Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
 | Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
 
-- **30 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **31 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe. Les règles IA/ML (SageMaker) sont opt-in via `--category ai`
 - **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
@@ -317,6 +317,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
 - Gouvernance : ressources sans tags, security groups inutilisés
+- IA/ML *(opt-in : `--category ai`)* : endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois)
 
 **Azure :**
 - Compute : VMs arrêtées (non désallouées) (HIGH)
@@ -562,7 +563,9 @@ Guide complet : [Configuration GCP →](docs/gcp.md)
 
 **Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 
-**Plus de règles AWS** — lacunes de cycle de vie S3, gaspillage IA/GPU (endpoints SageMaker inactifs, instances GPU orphelines), Redshift inactif
+**Plus de règles IA/ML** — clusters de calcul Azure ML inactifs, endpoints Vertex AI inactifs, instances de notebook SageMaker inutilisées, artefacts d'entraînement orphelins
+
+**Plus de règles AWS** — lacunes de cycle de vie S3, Redshift inactif, fuite de coût NAT Gateway (services internes routant via NAT au lieu de VPC endpoints — S3, DynamoDB, ECR, SSM), VPC endpoints inutilisés
 
 **Plus de règles Azure** — Azure Firewall inactif, pools de nœuds AKS inactifs, pools Azure Batch inutilisés
 

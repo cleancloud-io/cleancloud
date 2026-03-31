@@ -37,12 +37,9 @@
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchReadOnly",
+      "Sid": "CloudWatchLogsReadOnly",
       "Effect": "Allow",
-      "Action": [
-        "logs:DescribeLogGroups",
-        "cloudwatch:GetMetricStatistics"
-      ],
+      "Action": "logs:DescribeLogGroups",
       "Resource": "*"
     },
     {
@@ -52,12 +49,6 @@
         "s3:ListAllMyBuckets",
         "s3:GetBucketTagging"
       ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "STSIdentity",
-      "Effect": "Allow",
-      "Action": "sts:GetCallerIdentity",
       "Resource": "*"
     }
   ]

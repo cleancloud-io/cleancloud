@@ -136,7 +136,7 @@ def test_scan_account_all_regions_uses_assumed_session(
 
     # Region discovery must use the assumed session, not hub
     mock_get_regions.assert_called_once_with(assumed_session)
-    mock_scan.assert_called_once_with(assumed_session, ["us-east-1", "eu-west-1"])
+    mock_scan.assert_called_once_with(assumed_session, ["us-east-1", "eu-west-1"], rules=None)
 
 
 @patch("cleancloud.providers.aws.multi_account.scan_aws_regions_with_session")
@@ -160,7 +160,7 @@ def test_scan_account_all_regions_falls_back_to_us_east_1_when_none_detected(
         regions_override=None,  # triggers per-account discovery
     )
 
-    mock_scan.assert_called_once_with(mock_assume.return_value, ["us-east-1"])
+    mock_scan.assert_called_once_with(mock_assume.return_value, ["us-east-1"], rules=None)
     assert result.regions_scanned == ["us-east-1"]
 
 

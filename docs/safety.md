@@ -60,7 +60,10 @@ cleancloud/
 │       ├── test_gcp_runtime_readonly.py
 │       └── test_gcp_iam_roles_readonly.py
 ├── security/                       # Canonical IAM policies, role definitions, and verification scripts
-│   ├── aws-readonly-policy.json
+│   ├── aws/
+│   │   ├── base-readonly.json      # STS + CloudWatch (required for all scans)
+│   │   ├── hygiene-readonly.json   # EC2, RDS, ELB, S3, logs (--category hygiene)
+│   │   └── ai-readonly.json        # SageMaker etc. (--category ai)
 │   ├── azure-readonly-role.json
 │   ├── gcp-readonly-roles.json
 │   ├── verify-aws-policy.sh
@@ -70,7 +73,7 @@ cleancloud/
 
 - **`cleancloud/safety/`** → allowlists defining permitted read-only SDK methods
 - **`tests/cleancloud/safety/`** → static, runtime, and policy/role safety tests
-- **`security/`** → canonical AWS IAM policy, Azure role definition, and verification scripts
+- **`security/aws/`** → split AWS IAM policies: base (all scans), hygiene, ai; plus Azure and GCP definitions
 
 ---
 
@@ -92,9 +95,9 @@ cleancloud/
 ### IAM Policy Test
 
 - File: `tests/cleancloud/safety/aws/test_aws_iam_policy_readonly.py`
-- Purpose: Ensure `security/aws-readonly-policy.json` grants **read-only permissions only**.
-- Checks: No `Delete*`, `Put*`, `Update*`, `Create*` actions.
-- CI failure occurs if policy grants unsafe actions.
+- Purpose: Ensure all policies under `security/aws/` grant **read-only permissions only**.
+- Checks: No `Delete*`, `Put*`, `Update*`, `Create*` actions in any of the three policy files.
+- CI failure occurs if any policy grants unsafe actions.
 
 ---
 

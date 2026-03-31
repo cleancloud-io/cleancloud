@@ -14,10 +14,12 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 
 | File | Description |
 |------|-------------|
-| `aws-readonly-policy.json` | AWS IAM policy with minimum required read-only permissions |
+| `aws/base-readonly.json` | AWS IAM policy — STS + CloudWatch (required for all scans) |
+| `aws/hygiene-readonly.json` | AWS IAM policy — EC2, RDS, ELB, S3, logs (`--category hygiene`, default) |
+| `aws/ai-readonly.json` | AWS IAM policy — SageMaker etc. (`--category ai`) |
 | `azure-readonly-role.json` | Azure custom role definition with minimum required read-only permissions |
 | `gcp-readonly-roles.json` | GCP predefined IAM roles required for read-only scanning |
-| `verify-aws-policy.sh` | Script to verify AWS IAM policy contains no write/delete permissions |
+| `verify-aws-policy.sh` | Script to verify AWS IAM policies contain no write/delete permissions |
 | `verify-azure-role.sh` | Script to verify Azure role is read-only |
 | `verify-gcp-roles.sh` | Script to verify GCP service account has only read-only roles |
 
@@ -27,52 +29,32 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 
 ### 1. AWS IAM Policy Verification
 
-**Verify the policy file:**
+**Verify all three policy files:**
 
 ```bash
-./verify-aws-policy.sh aws-readonly-policy.json
+./verify-aws-policy.sh
 ```
 
-**Expected output:**
-```
-Verifying AWS IAM Policy: aws-readonly-policy.json
+The script iterates over `aws/base-readonly.json`, `aws/hygiene-readonly.json`, and `aws/ai-readonly.json` automatically.
 
-PASS: No write/delete/tag permissions found
-
-Allowed actions:
-cloudwatch:GetMetricStatistics
-ec2:DescribeAddresses
-ec2:DescribeImages
-ec2:DescribeInstances
-ec2:DescribeNatGateways
-ec2:DescribeNetworkInterfaces
-ec2:DescribeRegions
-ec2:DescribeSecurityGroups
-ec2:DescribeSnapshots
-ec2:DescribeVolumes
-elasticloadbalancing:DescribeLoadBalancers
-elasticloadbalancing:DescribeTargetGroups
-elasticloadbalancing:DescribeTargetHealth
-logs:DescribeLogGroups
-rds:DescribeDBInstances
-rds:DescribeDBSnapshots
-s3:GetBucketTagging
-s3:ListAllMyBuckets
-sts:GetCallerIdentity
-```
-
-**Create IAM policy in AWS:**
+**Attach to IAM role (hygiene scan — default):**
 
 ```bash
-# Create IAM policy
-aws iam create-policy \
-  --policy-name CleanCloudReadOnly \
-  --policy-document file://aws-readonly-policy.json
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudBase \
+  --policy-document file://aws/base-readonly.json
 
-# Attach to existing role (e.g., OIDC role)
-aws iam attach-role-policy \
-  --role-name CleanCloudCIReadOnly \
-  --policy-arn arn:aws:iam::123456789012:policy/CleanCloudReadOnly
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudHygiene \
+  --policy-document file://aws/hygiene-readonly.json
+```
+
+**Additionally, for AI/ML scans (`--category ai`):**
+
+```bash
+aws iam put-role-policy --role-name CleanCloudCIReadOnly \
+  --policy-name CleanCloudAI \
+  --policy-document file://aws/ai-readonly.json
 ```
 
 ---

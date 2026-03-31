@@ -49,11 +49,9 @@ def _error_rule(session, region):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_permission_error_goes_to_skipped_not_failed(mock_session):
     """A rule raising PermissionError is recorded in skipped_rules, not as a scan failure."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_good_rule, _permission_error_rule],
-    ):
-        findings, skipped_rules = _scan_aws_region(profile=None, region="us-east-1")
+    findings, skipped_rules = _scan_aws_region(
+        profile=None, region="us-east-1", rules=[_good_rule, _permission_error_rule]
+    )
 
     assert len(findings) == 1
     assert len(skipped_rules) == 1
@@ -64,11 +62,11 @@ def test_permission_error_goes_to_skipped_not_failed(mock_session):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_all_permission_errors_returns_empty_no_exception(mock_session):
     """All rules failing with PermissionError returns ([], skipped_all) without RuntimeError."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_permission_error_rule, _another_permission_error_rule],
-    ):
-        findings, skipped_rules = _scan_aws_region(profile=None, region="us-east-1")
+    findings, skipped_rules = _scan_aws_region(
+        profile=None,
+        region="us-east-1",
+        rules=[_permission_error_rule, _another_permission_error_rule],
+    )
 
     assert findings == []
     assert len(skipped_rules) == 2
@@ -80,11 +78,9 @@ def test_all_permission_errors_returns_empty_no_exception(mock_session):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_mixed_success_and_permission_error(mock_session):
     """Findings from successful rules are returned alongside skipped rule info."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_good_rule, _permission_error_rule],
-    ):
-        findings, skipped_rules = _scan_aws_region(profile=None, region="us-east-1")
+    findings, skipped_rules = _scan_aws_region(
+        profile=None, region="us-east-1", rules=[_good_rule, _permission_error_rule]
+    )
 
     assert len(findings) == 1
     assert findings[0].resource_id == "vol-1"
@@ -94,11 +90,9 @@ def test_mixed_success_and_permission_error(mock_session):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_non_permission_error_still_counted_as_failure(mock_session):
     """Non-PermissionError exceptions are still counted as rule failures (existing behavior)."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_good_rule, _error_rule],
-    ):
-        findings, skipped_rules = _scan_aws_region(profile=None, region="us-east-1")
+    findings, skipped_rules = _scan_aws_region(
+        profile=None, region="us-east-1", rules=[_good_rule, _error_rule]
+    )
 
     # Good rule still returns findings
     assert len(findings) == 1
@@ -109,15 +103,12 @@ def test_non_permission_error_still_counted_as_failure(mock_session):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_skipped_rules_deduplicated_across_regions(mock_session):
     """scan_aws_regions deduplicates the same skipped rule reported by multiple regions."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_good_rule, _permission_error_rule],
-    ):
-        # Both regions will skip _permission_error_rule — should only appear once in summary
-        findings, skipped_rules = scan_aws_regions(
-            profile=None,
-            regions_to_scan=["us-east-1", "eu-west-1"],
-        )
+    # Both regions will skip _permission_error_rule — should only appear once in summary
+    findings, skipped_rules = scan_aws_regions(
+        profile=None,
+        regions_to_scan=["us-east-1", "eu-west-1"],
+        rules=[_good_rule, _permission_error_rule],
+    )
 
     assert len(findings) == 2  # one finding per region
     # Same rule skipped in both regions — deduplicated to one entry
@@ -128,10 +119,10 @@ def test_skipped_rules_deduplicated_across_regions(mock_session):
 @patch("cleancloud.providers.aws.scan.create_aws_session")
 def test_region_still_stamped_on_findings(mock_session):
     """Region is correctly set on findings even when some rules are skipped."""
-    with patch(
-        "cleancloud.providers.aws.scan.AWS_RULES",
-        [_good_rule, _permission_error_rule],
-    ):
-        findings, _ = _scan_aws_region(profile=None, region="ap-southeast-1")
+    findings, _ = _scan_aws_region(
+        profile=None,
+        region="ap-southeast-1",
+        rules=[_good_rule, _permission_error_rule],
+    )
 
     assert all(f.region == "ap-southeast-1" for f in findings)

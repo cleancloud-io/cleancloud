@@ -1,7 +1,7 @@
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import botocore.exceptions
 import click
@@ -35,6 +35,7 @@ def scan_account(
     region: Optional[str],
     external_id: Optional[str],
     regions_override: Optional[List[str]] = None,
+    rules: Optional[List[Callable]] = None,
 ) -> AccountScanResult:
     start = time.monotonic()
     click.echo(f"  {account.name} ({account.id}) starting...")
@@ -63,7 +64,7 @@ def scan_account(
             )
 
         findings, skipped_rules, regions_failed = scan_aws_regions_with_session(
-            assumed_session, regions_to_scan
+            assumed_session, regions_to_scan, rules=rules
         )
 
         for f in findings:
@@ -121,6 +122,7 @@ def scan_multiple_accounts(
     profile: Optional[str],
     max_concurrent: int = 5,
     per_account_regions: bool = False,
+    rules: Optional[List[Callable]] = None,
 ) -> List[AccountScanResult]:
     hub_session = create_aws_session(profile=profile, region=region or "us-east-1")
 
@@ -159,6 +161,7 @@ def scan_multiple_accounts(
                 region,
                 config.external_id,
                 regions_override,
+                rules,
             ): account
             for account in config.accounts
         }

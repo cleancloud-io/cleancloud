@@ -33,7 +33,7 @@ That's CleanCloud. Scan your AWS, Azure, and GCP environments, get specific acti
 | Multi-account / multi-subscription / multi-project | ❌ | ✅ | ✅ |
 | CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
 
-- **30 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **31 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker) are opt-in via `--category ai`
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
@@ -310,7 +310,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 
 ## What CleanCloud Detects
 
-30 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+31 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -319,6 +319,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
+- AI/ML *(opt-in: `--category ai`)*: idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month)
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)
@@ -564,7 +565,9 @@ Full setup guide: [GCP setup →](docs/gcp.md)
 
 **Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config — the top FinOps governance ask for 2025/2026
 
-**More AWS rules** — S3 lifecycle gaps, AI/GPU waste (idle SageMaker endpoints, orphaned GPU instances), Redshift idle, idle load balancers (ALB/NLB with zero traffic), NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
+**More AI/ML waste rules** — Azure ML compute clusters idle, Vertex AI endpoints idle, SageMaker notebook instances running unused, orphaned training artifacts
+
+**More AWS rules** — S3 lifecycle gaps, Redshift idle, NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
 
 **More Azure rules** — Azure Firewall idle, AKS node pool idle, Azure Batch unused pools
 

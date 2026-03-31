@@ -181,3 +181,20 @@ def test_per_account_regions_rejected_for_gcp(runner):
     assert result.exit_code != 0
     assert "--per-account-regions" in result.output
     assert "aws" in result.output.lower()
+
+
+# ---------------------------------------------------------------------------
+# --category ai rejected for non-AWS providers
+# ---------------------------------------------------------------------------
+
+
+def test_category_ai_rejected_for_gcp(runner):
+    result = runner.invoke(cli, ["scan", "--provider", "gcp", "--category", "ai"])
+    assert result.exit_code != 0
+    assert "aws" in result.output.lower()
+
+
+def test_category_ai_rejected_for_azure(runner):
+    result = runner.invoke(cli, ["scan", "--provider", "azure", "--category", "ai"])
+    assert result.exit_code != 0
+    assert "aws" in result.output.lower()
