@@ -166,7 +166,6 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 | Input | Description | AWS | Azure | GCP |
 |---|---|:---:|:---:|:---:|
 | `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
-
 | `category` | `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` | ✓ | — | — |
 | `region` | Single region/location filter | ✓ | ✓ | — |
 | `all-regions` | Scan all active regions | ✓ | — | — |
