@@ -310,39 +310,54 @@ aws iam put-role-policy --role-name CleanCloudCIReadOnly \
 
 ---
 
-#### 2. Azure RBAC Role (Reader)
+#### 2. Azure RBAC Roles
 
-**Minimum Required Role:** `Reader` (built-in Azure role)
+Azure permissions are split into two custom role files under [`security/azure/`](../security/azure/):
 
-**Role ID:** `acdd72a7-3385-48ef-bd42-f606fba81ae7`
+| File | Purpose | Required for |
+|------|---------|--------------|
+| [`hygiene-readonly-role.json`](../security/azure/hygiene-readonly-role.json) | Compute, Network, Web, SQL, Monitor metrics | `--category hygiene` (default) |
+| [`ai-readonly-role.json`](../security/azure/ai-readonly-role.json) | Azure ML workspaces and computes | `--category ai` |
 
-**Permissions:** Read-only across all resource types
+> Alternatively, the built-in **Reader** role covers all hygiene permissions. `ai-readonly-role.json` must always be assigned separately — Reader does not grant `Microsoft.MachineLearningServices` access.
+
+**Minimum Required Role (hygiene):** `Reader` (built-in) **or** `CleanCloudReadOnly` (custom)
+
+**Role ID (Reader):** `acdd72a7-3385-48ef-bd42-f606fba81ae7`
 
 **Verification:**
 
 ```bash
-# List Reader role permissions
-az role definition list --name "Reader" --output json \
- | jq '.[0].permissions[0].actions'
+# Verify hygiene role has no write permissions
+az role definition list --name "CleanCloudReadOnly" --output json \
+ | jq '.[0].permissions[0].actions[]' | grep -iE '(delete|write|create|update)'
+# Expected: No results (exit code 1)
 
-# Expected output (read-only actions):
-[
- "*/read"
-]
-
-# Verify no write permissions
-az role definition list --name "Reader" --output json \
+# Verify AI role has no write permissions
+az role definition list --name "CleanCloudAIReadOnly" --output json \
  | jq '.[0].permissions[0].actions[]' | grep -iE '(delete|write|create|update)'
 # Expected: No results (exit code 1)
 ```
 
-**Assign to service principal:**
+**Assign to service principal (hygiene scan):**
 
 ```bash
-# Assign Reader role to CleanCloud service principal
+az role definition create --role-definition security/azure/hygiene-readonly-role.json
+
 az role assignment create \
   --assignee <service-principal-id> \
-  --role "Reader" \
+  --role "CleanCloudReadOnly" \
+  --scope /subscriptions/<subscription-id>
+```
+
+**Additionally, for AI/ML scans (`--category ai`):**
+
+```bash
+az role definition create --role-definition security/azure/ai-readonly-role.json
+
+az role assignment create \
+  --assignee <service-principal-id> \
+  --role "CleanCloudAIReadOnly" \
   --scope /subscriptions/<subscription-id>
 ```
 
@@ -386,27 +401,31 @@ chmod +x verify-aws-policy.sh
 
 ```bash
 #!/bin/bash
-# File: verify-azure-role.sh
-# Verifies Azure role is read-only
+# File: security/verify-azure-role.sh
+# Verifies Azure custom role definitions are read-only
+# Usage: ./verify-azure-role.sh [role-name]  (default: CleanCloudReadOnly)
 
-ROLE_NAME="Reader"
+for ROLE_NAME in CleanCloudReadOnly CleanCloudAIReadOnly; do
+  echo " Verifying Azure Role: $ROLE_NAME"
 
-echo " Verifying Azure Role: $ROLE_NAME"
+  ACTIONS=$(az role definition list --name "$ROLE_NAME" --output json \
+    | jq -r '.[0].permissions[0].actions[]?' 2>/dev/null)
 
-# Get role definition
-ACTIONS=$(az role definition list --name "$ROLE_NAME" --output json | jq -r '.[0].permissions[0].actions[]')
+  if [ -z "$ACTIONS" ]; then
+    echo " SKIP: Role '$ROLE_NAME' not found (not yet deployed)"
+    continue
+  fi
 
-# Check for write actions
-FORBIDDEN=$(echo "$ACTIONS" | grep -iE '(delete|write|create|update|action)')
+  FORBIDDEN=$(echo "$ACTIONS" | grep -iE '(delete|write|create|update|action)')
 
-if [ -z "$FORBIDDEN" ]; then
- echo " PASS: Role is read-only"
- exit 0
-else
- echo " FAIL: Found write permissions:"
- echo "$FORBIDDEN"
- exit 1
-fi
+  if [ -z "$FORBIDDEN" ]; then
+    echo " PASS: Role is read-only"
+  else
+    echo " FAIL: Found write permissions:"
+    echo "$FORBIDDEN"
+    exit 1
+  fi
+done
 ```
 
 ---
@@ -565,9 +584,13 @@ git clone https://github.com/cleancloud-io/cleancloud.git
 cd cleancloud
 
 # IAM Proof Pack files:
-# - security/aws/base-readonly.json     (AWS base policy — all scans)
-# - security/aws/hygiene-readonly.json  (AWS hygiene rules policy)
-# - security/aws/ai-readonly.json       (AWS AI/ML rules policy)
+# AWS
+# - security/aws/base-readonly.json              (AWS base policy — all scans)
+# - security/aws/hygiene-readonly.json           (AWS hygiene rules policy)
+# - security/aws/ai-readonly.json                (AWS AI/ML rules policy — SageMaker)
+# Azure
+# - security/azure/hygiene-readonly-role.json    (Azure hygiene rules custom role)
+# - security/azure/ai-readonly-role.json         (Azure AI/ML rules custom role — AML Compute)
 # - docs/infosec-readiness.md (this document)
 # - tests/cleancloud/safety/ (automated safety tests)
 ```
@@ -578,6 +601,15 @@ cd cleancloud
 for f in base-readonly.json hygiene-readonly.json ai-readonly.json; do
   curl -o $f \
     https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/aws/$f
+done
+```
+
+**Quick Download (Azure Role Definitions):**
+
+```bash
+for f in hygiene-readonly-role.json ai-readonly-role.json; do
+  curl -o $f \
+    https://raw.githubusercontent.com/cleancloud-io/cleancloud/main/security/azure/$f
 done
 ```
 
@@ -1093,15 +1125,17 @@ The minimum required permissions are **read-only** — see [`security/aws/`](../
 
 See: [`docs/aws.md`](aws.md) for full policy
 
-#### Azure RBAC Role
+#### Azure RBAC Roles
 
-**Minimum role required:** `Reader` at subscription scope
+**Minimum role required (hygiene):** `Reader` at subscription scope, or custom `CleanCloudReadOnly`
 
-- Built-in Azure role (no custom role needed)
-- Read-only across all resource types
-- No write, delete, or tag modification permissions
+**Additional role required (AI/ML):** `CleanCloudAIReadOnly` — Reader does not grant `Microsoft.MachineLearningServices` access
 
-See: [`docs/azure.md`](azure.md) for OIDC setup
+- Split into two custom role files: `security/azure/hygiene-readonly-role.json` and `security/azure/ai-readonly-role.json`
+- Read-only across all resource types — no write, delete, or tag modification permissions
+- AI/ML rules skipped gracefully if `CleanCloudAIReadOnly` is not assigned
+
+See: [`docs/azure.md`](azure.md) for OIDC setup and role assignment commands
 
 ### Credential Security Best Practices
 

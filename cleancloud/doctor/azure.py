@@ -301,6 +301,9 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Insights/metrics/read")
     info("    - Microsoft.Resources/subscriptions/read")
     info("    - Microsoft.Resources/resources/read")
+    info("  AI/ML rules (opt-in via --category ai):")
+    info("    - Microsoft.MachineLearningServices/workspaces/read")
+    info("    - Microsoft.MachineLearningServices/workspaces/computes/read")
 
     # Summary
     info("")
@@ -317,5 +320,122 @@ def run_azure_doctor() -> None:
 
     info("")
     success("AZURE ENVIRONMENT READY FOR CLEANCLOUD")
+    info("")
+    info("Tip: To also validate AI/ML permissions (Azure ML rules), run:")
+    info("  cleancloud doctor --provider azure --category ai")
+    info("=" * 70)
+    info("")
+
+
+def run_azure_ai_doctor(subscription_id: str = None) -> None:
+    """Validate Azure permissions for --category ai (Azure ML compute rules)."""
+    info("")
+    info("=" * 70)
+    info("AZURE AI/ML PERMISSION VALIDATION")
+    info("=" * 70)
+    info("")
+    info("Validating permissions for: cleancloud scan --provider azure --category ai")
+    info("")
+
+    try:
+        from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
+
+        credential = DefaultAzureCredential()
+    except Exception as e:
+        fail(f"Azure authentication failed — configure credentials and re-run doctor: {e}")
+        return
+
+    # Resolve a subscription to test against
+    try:
+        sub_client = SubscriptionClient(credential)
+        subscriptions = list(sub_client.subscriptions.list())
+        if not subscriptions:
+            fail("No accessible Azure subscriptions found")
+            return
+        test_sub = subscription_id or subscriptions[0].subscription_id
+        success(f"Using subscription: {test_sub}")
+    except Exception as e:
+        fail(f"Failed to list subscriptions: {e}")
+        return
+
+    info("")
+    info("Permission Checks")
+    info("-" * 70)
+
+    permissions_tested = []
+    permissions_failed = []
+
+    # Check: Microsoft.MachineLearningServices/workspaces/read
+    try:
+        ml_client = AzureMachineLearningWorkspaces(
+            credential=credential,
+            subscription_id=test_sub,
+        )
+        workspaces = list(ml_client.workspaces.list_by_subscription())
+        permissions_tested.append("Microsoft.MachineLearningServices/workspaces/read")
+        success(
+            f"Microsoft.MachineLearningServices/workspaces/read "
+            f"({len(workspaces)} workspace(s) found)"
+        )
+    except Exception as e:
+        permissions_failed.append(("Microsoft.MachineLearningServices/workspaces/read", str(e)))
+        warn(f"Microsoft.MachineLearningServices/workspaces/read — {e}")
+        workspaces = []
+
+    # Check: Microsoft.MachineLearningServices/workspaces/computes/read
+    if workspaces:
+        try:
+            ws = workspaces[0]
+            rg = ws.id.split("/")[ws.id.lower().split("/").index("resourcegroups") + 1]
+            list(ml_client.compute.list(rg, ws.name))
+            permissions_tested.append("Microsoft.MachineLearningServices/workspaces/computes/read")
+            success("Microsoft.MachineLearningServices/workspaces/computes/read")
+        except Exception as e:
+            permissions_failed.append(
+                ("Microsoft.MachineLearningServices/workspaces/computes/read", str(e))
+            )
+            warn(f"Microsoft.MachineLearningServices/workspaces/computes/read — {e}")
+    else:
+        info(
+            "  Skipping computes/read check — no workspaces found to test against "
+            "(permission may still be present)"
+        )
+
+    # Check: Microsoft.Insights/metrics/read (already required by hygiene rules)
+    try:
+        from azure.mgmt.monitor import MonitorManagementClient
+
+        monitor = MonitorManagementClient(credential=credential, subscription_id=test_sub)
+        # A lightweight call — list metric definitions for a subscription-level scope
+        monitor.metric_definitions.list(
+            f"/subscriptions/{test_sub}",
+        )
+        permissions_tested.append("Microsoft.Insights/metrics/read")
+        success("Microsoft.Insights/metrics/read")
+    except Exception as e:
+        permissions_failed.append(("Microsoft.Insights/metrics/read", str(e)))
+        warn(f"Microsoft.Insights/metrics/read — {e}")
+
+    info("")
+    info("=" * 70)
+    total = len(permissions_tested) + len(permissions_failed)
+    info(f"Permissions: {len(permissions_tested)}/{total} passed")
+
+    if permissions_failed:
+        info("")
+        for perm, _ in permissions_failed:
+            warn(f"  missing: {perm}")
+        info("")
+        info("Assign the AI role to your service principal:")
+        info("  az role definition create --role-definition security/azure/ai-readonly-role.json")
+        info('  az role assignment create --assignee <APP_ID> --role "CleanCloudAIReadOnly" \\')
+        info("    --scope /subscriptions/<SUBSCRIPTION_ID>")
+        info("Then re-run: cleancloud doctor --provider azure --category ai")
+        info("")
+        warn("AZURE AI/ML PERMISSIONS INCOMPLETE")
+    else:
+        info("")
+        success("AZURE AI/ML PERMISSIONS READY")
+        info("Run: cleancloud scan --provider azure --category ai")
     info("=" * 70)
     info("")

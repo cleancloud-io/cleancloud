@@ -64,7 +64,10 @@ cleancloud/
 │   │   ├── base-readonly.json      # STS + CloudWatch (required for all scans)
 │   │   ├── hygiene-readonly.json   # EC2, RDS, ELB, S3, logs (--category hygiene)
 │   │   └── ai-readonly.json        # SageMaker etc. (--category ai)
-│   ├── azure-readonly-role.json
+│   ├── azure/
+│   │   ├── hygiene-readonly-role.json  # Compute, Network, Web, SQL, etc. (--category hygiene)
+│   │   └── ai-readonly-role.json       # MachineLearningServices (--category ai)
+│   ├── azure-readonly-role.json        # Legacy hygiene-only role (kept for backwards compat)
 │   ├── gcp-readonly-roles.json
 │   ├── verify-aws-policy.sh
 │   ├── verify-azure-role.sh
@@ -73,7 +76,8 @@ cleancloud/
 
 - **`cleancloud/safety/`** → allowlists defining permitted read-only SDK methods
 - **`tests/cleancloud/safety/`** → static, runtime, and policy/role safety tests
-- **`security/aws/`** → split AWS IAM policies: base (all scans), hygiene, ai; plus Azure and GCP definitions
+- **`security/aws/`** → split AWS IAM policies: base (all scans), hygiene, ai
+- **`security/azure/`** → split Azure custom roles: hygiene-readonly-role.json, ai-readonly-role.json
 
 ---
 
@@ -119,7 +123,7 @@ cleancloud/
 ### Role Definition Test
 
 - File: `tests/cleancloud/safety/azure/test_azure_role_definition_readonly.py`
-- Purpose: Validate `security/azure-readonly-role.json` is read-only.
+- Purpose: Validate `security/azure/hygiene-readonly-role.json` and `security/azure/ai-readonly-role.json` are read-only.
 - Forbidden actions: `*/delete`, `*/write`, `*/create`, `*/update`
 - Any violation fails the test.
 

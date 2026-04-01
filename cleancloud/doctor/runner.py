@@ -2,7 +2,7 @@ import sys
 from typing import Optional
 
 from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
-from cleancloud.doctor.azure import run_azure_doctor
+from cleancloud.doctor.azure import run_azure_ai_doctor, run_azure_doctor
 from cleancloud.doctor.common import DoctorError, info, success
 from cleancloud.doctor.gcp import run_gcp_doctor
 
@@ -66,7 +66,13 @@ def run_doctor(
                     info("   The --region parameter is only used for AWS provider")
                     info("")
 
-                run_azure_doctor()
+                if category == "ai":
+                    run_azure_ai_doctor()
+                elif category == "all":
+                    run_azure_doctor()
+                    run_azure_ai_doctor()
+                else:
+                    run_azure_doctor()
                 results[p] = {"status": "passed", "error": None}
 
             elif p == "gcp":

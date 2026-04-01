@@ -143,6 +143,7 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             missing = skipped.get("missing_permissions", "")
             # Strip verbose prefix if present
             missing = missing.replace("Missing required IAM permissions: ", "")
+            missing = missing.replace("Missing required permissions: ", "")
             click.echo(f"  - {rule_name}")
             if missing:
                 click.echo(f"      needs: {missing}")
@@ -162,7 +163,7 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             )
         if has_azure:
             click.echo(
-                "  Azure: https://github.com/cleancloud-io/cleancloud/blob/main/security/azure-readonly-role.json"
+                "  Azure: https://github.com/cleancloud-io/cleancloud/tree/main/security/azure/"
             )
             click.echo(
                 "  Run 'cleancloud doctor --provider azure' to validate permissions after updating."
