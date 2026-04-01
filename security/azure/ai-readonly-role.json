@@ -1,0 +1,19 @@
+{
+  "Name": "CleanCloudAIReadOnly",
+  "IsCustom": true,
+  "Description": "Additional read-only permissions for CleanCloud AI/ML scanning (--category ai)",
+  "AssignableScopes": [
+    "/subscriptions/<SUBSCRIPTION_ID>"
+  ],
+  "Permissions": [
+    {
+      "Actions": [
+        "Microsoft.MachineLearningServices/workspaces/read",
+        "Microsoft.MachineLearningServices/workspaces/computes/read"
+      ],
+      "NotActions": [],
+      "DataActions": [],
+      "NotDataActions": []
+    }
+  ]
+}

@@ -233,9 +233,9 @@ az role assignment create \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 
-**What Reader allows (all 16 permissions CleanCloud uses):**
+**Hygiene rules — all 17 permissions covered by Reader:**
 
-| Permission | Rule |
+| Permission | Used by |
 |---|---|
 | `Microsoft.Compute/disks/read` | Unattached managed disks |
 | `Microsoft.Compute/snapshots/read` | Old snapshots |
@@ -251,9 +251,20 @@ az role assignment create \
 | `Microsoft.ContainerRegistry/registries/read` | Unused Container Registries |
 | `Microsoft.Sql/servers/read` | SQL server discovery |
 | `Microsoft.Sql/servers/databases/read` | Idle SQL databases |
-| `Microsoft.Insights/metrics/read` | SQL connection metrics, idle App Services, unused Container Registries |
+| `Microsoft.Insights/metrics/read` | SQL connection metrics, idle App Services, idle VNet gateways, unused Container Registries, idle AML compute |
 | `Microsoft.Resources/subscriptions/read` | Subscription discovery |
 | `Microsoft.Resources/resources/read` | Resource discovery |
+
+**AI/ML rules (`--category ai`) — NOT included in Reader, require additional role assignment:**
+
+| Permission | Used by |
+|---|---|
+| `Microsoft.MachineLearningServices/workspaces/read` | Idle AML compute clusters |
+| `Microsoft.MachineLearningServices/workspaces/computes/read` | Idle AML compute clusters |
+
+> Reader does not grant `Microsoft.MachineLearningServices` access. Assign `CleanCloudAIReadOnly` (see [Custom Role](#custom-role-optional-least-privilege)) or a built-in role such as **AzureML Data Scientist** in addition to Reader.
+>
+> Rules that require missing permissions are skipped gracefully — hygiene rules continue to run unaffected. Run `cleancloud doctor --provider azure --category ai` to validate.
 
 **What Reader does NOT allow:**
 
@@ -264,42 +275,27 @@ az role assignment create \
 
 ### Custom Role (Optional Least-Privilege)
 
-```json
-{
-  "Name": "CleanCloud Scanner",
-  "Description": "Minimal read-only access for CleanCloud",
-  "Actions": [
-    "Microsoft.Compute/disks/read",
-    "Microsoft.Compute/snapshots/read",
-    "Microsoft.Compute/virtualMachines/read",
-    "Microsoft.Network/publicIPAddresses/read",
-    "Microsoft.Network/loadBalancers/read",
-    "Microsoft.Network/applicationGateways/read",
-    "Microsoft.Network/virtualNetworkGateways/read",
-    "Microsoft.Network/connections/read",
-    "Microsoft.Web/serverfarms/read",
-    "Microsoft.Web/serverfarms/sites/read",
-    "Microsoft.Web/sites/read",
-    "Microsoft.ContainerRegistry/registries/read",
-    "Microsoft.Sql/servers/read",
-    "Microsoft.Sql/servers/databases/read",
-    "Microsoft.Insights/metrics/read",
-    "Microsoft.Resources/subscriptions/read",
-    "Microsoft.Resources/resources/read"
-  ],
-  "NotActions": [],
-  "AssignableScopes": [
-    "/subscriptions/<SUBSCRIPTION_ID>"
-  ]
-}
-```
+The policy files are in the [CleanCloud repo](https://github.com/cleancloud-io/cleancloud/tree/main/security/azure). Download or clone the repo first, then run the commands below.
+
+**Hygiene rules** (`cleancloud scan --provider azure`):
 
 ```bash
-az role definition create --role-definition cleancloud-role.json
+az role definition create --role-definition security/azure/hygiene-readonly-role.json
 
 az role assignment create \
   --assignee <APP_ID> \
-  --role "CleanCloud Scanner" \
+  --role "CleanCloudReadOnly" \
+  --scope /subscriptions/<SUBSCRIPTION_ID>
+```
+
+> To also enable AI/ML rules (`--category ai`), assign the AI role in addition:
+
+```bash
+az role definition create --role-definition security/azure/ai-readonly-role.json
+
+az role assignment create \
+  --assignee <APP_ID> \
+  --role "CleanCloudAIReadOnly" \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
 

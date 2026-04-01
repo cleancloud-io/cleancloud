@@ -615,6 +615,64 @@ GCP_FINDINGS: List[Finding] = [
 
 ALL_FINDINGS: List[Finding] = AWS_FINDINGS + AZURE_FINDINGS + GCP_FINDINGS
 
+AZURE_AI_FINDINGS: List[Finding] = [
+    Finding(
+        provider="azure",
+        rule_id="azure.aml.compute.idle",
+        resource_type="azure.aml.compute",
+        resource_id=(
+            "/subscriptions/29d91ee0-922f-483a-a81f-1a5eff4ecfa2"
+            "/resourceGroups/rg-ml-platform"
+            "/providers/Microsoft.MachineLearningServices"
+            "/workspaces/ml-platform-prod"
+            "/computes/gpu-train-cluster"
+        ),
+        region="East US",
+        title="Idle Azure ML Compute Cluster (Baseline Capacity Waste for 21 Days)",
+        summary=(
+            "AML compute cluster 'gpu-train-cluster' in workspace 'ml-platform-prod' "
+            "is configured to keep 2 node(s) always running (min_node_count=2) but no "
+            "workload activity was observed for 21 days — baseline capacity waste."
+        ),
+        reason="AML compute cluster has min_node_count=2 with no workload activity for 21 days",
+        risk=RiskLevel.HIGH,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "cluster_name": "gpu-train-cluster",
+            "workspace_name": "ml-platform-prod",
+            "resource_group": "rg-ml-platform",
+            "vm_size": "Standard_NC6s_v3",
+            "min_node_count": 2,
+            "is_gpu": True,
+            "age_days": 21,
+            "idle_window_days": 21,
+            "idle_days_threshold": 14,
+            "estimated_monthly_cost": "~$4,406/month",
+            "cost_estimate_type": "mapped",
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Cluster configured with non-zero baseline capacity but no workload observed for 21 days (Azure Monitor: Active Nodes)",
+                "Baseline cost driver: min_node_count=2 (always-on compute — billed continuously)",
+                "Compute type: AmlCompute",
+                "Cluster age: 21 days",
+                "VM size: Standard_NC6s_v3",
+                "GPU cluster with no workload — high-cost idle state",
+            ],
+            signals_not_checked=[
+                "Scheduled or periodic training jobs",
+                "Jobs submitted outside the observation window",
+                "Planned future usage",
+                "Cluster configured with min_node_count for warm-start latency",
+                "Cluster reserved for interactive development",
+            ],
+            time_window="21 days",
+        ),
+        estimated_monthly_cost_usd=4406.0,
+    ),
+]
+
 AWS_AI_FINDINGS: List[Finding] = [
     Finding(
         provider="aws",

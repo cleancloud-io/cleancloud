@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 31 rules implemented by CleanCloud (30 hygiene + 1 AI/ML).
+Complete reference for all 32 rules implemented by CleanCloud (30 hygiene + 2 AI/ML).
 
 ---
 
@@ -68,6 +68,7 @@ Every finding includes a confidence level:
 | `azure.sql_database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
 | `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
 | `azure.untagged_resource` | Governance | Disks and snapshots with zero tags |
+| `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
 
 **GCP:**
 
@@ -735,6 +736,45 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `cloudwatch:GetMetricStatistics`
 
 > **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+
+---
+
+#### Idle Azure ML Compute Clusters
+
+**Rule ID:** `azure.aml.compute.idle`
+
+**Category:** `ai`
+
+**What it detects:** Azure Machine Learning compute clusters (`AmlCompute`) with `min_node_count > 0` and zero active nodes over 14+ days. Clusters configured with a non-zero minimum keep instances running continuously regardless of job activity — identical billing model to SageMaker InService endpoints. GPU clusters (NC/ND/NV series) cost $600–$15K/month at minimum node count.
+
+**Confidence:**
+- **HIGH:** Zero active nodes for the full 14-day window (cluster age ≥ 14 days)
+- **MEDIUM:** Zero active nodes, cluster age is 7–13 days, or cluster creation time unavailable
+
+**Risk:**
+- **HIGH:** GPU-backed VM size (`Standard_NC*`, `Standard_ND*`, `Standard_NV*`)
+- **MEDIUM:** CPU-backed VM size
+
+**Why this matters:**
+- `min_node_count > 0` means instances are always running, always billed — even with no jobs submitted
+- GPU clusters cost $600–$15K/month per node at minimum capacity
+- Clusters are frequently created for experiments or training runs and left with non-zero minimums for "warm-start convenience"
+
+**Metric strategy:** Queries Azure Monitor `Active Nodes` metric (with `ComputeName` dimension filter). Falls back to `NodeCount` and `CurrentNodeCount` if the primary metric is unavailable. Only dimension-filtered metrics are used to confirm idle — workspace-level unfiltered queries cannot safely confirm individual cluster state.
+
+**Estimated monthly cost (per node at `min_node_count`):**
+- `Standard_NC6` — ~$648/month
+- `Standard_NC12` — ~$1,296/month
+- `Standard_NC6s_v3` — ~$2,203/month
+- `Standard_ND40rs_v2` — ~$15,862/month
+- `Standard_D4_v2` — ~$259/month
+
+**Required permissions:**
+- `Microsoft.MachineLearningServices/workspaces/read`
+- `Microsoft.MachineLearningServices/workspaces/computes/read`
+- `Microsoft.Insights/metrics/read`
+
+> **Not run by default.** Run with `cleancloud scan --provider azure --category ai` (or `--category all`). Add `Microsoft.MachineLearningServices/workspaces/read` and `Microsoft.MachineLearningServices/workspaces/computes/read` to your custom role or use the built-in `AzureML Data Scientist` role in read-only mode.
 
 ---
 
@@ -1520,7 +1560,6 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AI/ML (all providers):**
-- Azure ML compute clusters idle (min_instances > 0, no jobs running)
 - Vertex AI endpoints with zero predictions (GCP)
 - SageMaker notebook instances left running unused (AWS)
 - Orphaned SageMaker training artifacts in S3 (AWS)

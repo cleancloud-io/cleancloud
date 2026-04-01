@@ -45,7 +45,11 @@ from cleancloud.providers.aws.multi_account import (
     scan_multiple_accounts,
 )
 from cleancloud.providers.aws.scan import AWS_AI_RULES, AWS_RULES, scan_aws_with_region_selection
-from cleancloud.providers.azure.scan import AZURE_RULES, scan_azure_with_region_selection
+from cleancloud.providers.azure.scan import (
+    AZURE_AI_RULES,
+    AZURE_RULES,
+    scan_azure_with_region_selection,
+)
 from cleancloud.providers.gcp.scan import (
     GCP_RULES,
     ProjectScanResult,
@@ -259,10 +263,10 @@ def scan(
             if used:
                 raise click.UsageError(f"{flag} is only supported with --provider gcp")
 
-    if category == "ai" and provider != "aws":
+    if category == "ai" and provider not in ("aws", "azure"):
         raise click.UsageError(
-            "--category ai is only supported with --provider aws (SageMaker rules). "
-            "AI/ML rules for Azure and GCP are on the roadmap."
+            "--category ai is only supported with --provider aws or --provider azure. "
+            "AI/ML rules for GCP are on the roadmap."
         )
 
     # Build the AWS rule list based on --category
@@ -275,6 +279,17 @@ def scan(
             aws_rules_to_run = AWS_RULES + AWS_AI_RULES
     else:
         aws_rules_to_run = AWS_RULES  # unused for non-AWS but keeps type consistent
+
+    # Build the Azure rule list based on --category
+    if provider == "azure":
+        if category == "hygiene":
+            azure_rules_to_run = AZURE_RULES
+        elif category == "ai":
+            azure_rules_to_run = AZURE_AI_RULES
+        else:  # all
+            azure_rules_to_run = AZURE_RULES + AZURE_AI_RULES
+    else:
+        azure_rules_to_run = AZURE_RULES  # unused for non-Azure but keeps type consistent
 
     click.echo()
     click.echo("Starting CleanCloud scan...")
@@ -383,6 +398,7 @@ def scan(
                 subscriptions=subscription_list,
                 all_subscriptions=all_subscriptions,
                 management_group=management_group,
+                rules=azure_rules_to_run,
             )
             # Extract unique regions from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
@@ -486,7 +502,7 @@ def scan(
             summary["region_selection_mode"] = region_selection_mode
             summary["total_rules"] = len(aws_rules_to_run)
         elif provider == "azure":
-            summary["total_rules"] = len(AZURE_RULES)
+            summary["total_rules"] = len(azure_rules_to_run)
             summary["subscription_selection_mode"] = subscription_selection_mode
             summary["subscriptions_scanned"] = subscriptions_scanned
             failed_subs = [r for r in azure_sub_results if r.status == "failed"]
@@ -572,12 +588,19 @@ def scan(
         else:
             print_human(findings)
             _print_summary(summary, region_selection_mode, multi_account_results or None)
-            if provider == "aws" and category == "hygiene":
-                click.echo(
-                    "Tip: Run AI/ML cost checks with: "
-                    "cleancloud scan --provider aws --category ai"
-                )
-                click.echo()
+            if category == "hygiene":
+                if provider == "aws":
+                    click.echo(
+                        "Tip: Run AI/ML cost checks with: "
+                        "cleancloud scan --provider aws --category ai"
+                    )
+                    click.echo()
+                elif provider == "azure":
+                    click.echo(
+                        "Tip: Run AI/ML cost checks with: "
+                        "cleancloud scan --provider azure --category ai"
+                    )
+                    click.echo()
 
         # Community prompt (all output modes)
         click.echo()

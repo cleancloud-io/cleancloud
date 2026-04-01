@@ -166,7 +166,7 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 | Input | Description | AWS | Azure | GCP |
 |---|---|:---:|:---:|:---:|
 | `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
-| `category` | `hygiene` (default), `ai` (SageMaker, AWS-only), or `all` | ✓ | — | — |
+| `category` | `hygiene` (default), `ai` (SageMaker on AWS, AML Compute on Azure), or `all` | ✓ | ✓ | — |
 | `region` | Single region/location filter | ✓ | ✓ | — |
 | `all-regions` | Scan all active regions | ✓ | — | — |
 | `org` | Auto-discover all AWS Organization accounts | ✓ | — | — |
@@ -478,7 +478,7 @@ jobs:
 
 ### AWS AI/ML Scan (SageMaker)
 
-Run SageMaker idle endpoint detection separately — requires the `ai-readonly.json` policy on your IAM role.
+Run SageMaker idle endpoint detection separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
 
 ```yaml
 name: CleanCloud AI/ML Scan
@@ -525,6 +525,61 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cleancloud-ai-scan-results
+          path: ai-scan-results.json
+          retention-days: 30
+```
+
+> To run hygiene and AI rules together, use `--category all`.
+
+### Azure AI/ML Scan (AML Compute)
+
+Run idle AML compute cluster detection separately — requires `security/azure/ai-readonly-role.json` assigned to your service principal in addition to Reader. See [azure.md](azure.md#custom-role-optional-least-privilege) for setup.
+
+```yaml
+name: CleanCloud Azure AI/ML Scan
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9 AM
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud-ai:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate AI permissions
+        run: cleancloud doctor --provider azure --category ai
+
+      - name: Run AI/ML scan
+        run: |
+          cleancloud scan \
+            --provider azure \
+            --category ai \
+            --output json \
+            --output-file ai-scan-results.json \
+            --fail-on-confidence HIGH
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleancloud-azure-ai-scan-results
           path: ai-scan-results.json
           retention-days: 30
 ```

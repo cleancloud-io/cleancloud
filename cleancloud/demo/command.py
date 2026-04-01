@@ -7,6 +7,7 @@ from cleancloud.demo.findings import (
     ALL_FINDINGS,
     AWS_AI_FINDINGS,
     AWS_FINDINGS,
+    AZURE_AI_FINDINGS,
     AZURE_FINDINGS,
     GCP_FINDINGS,
 )
@@ -25,7 +26,7 @@ from cleancloud.output.summary import _print_summary, build_summary
     "--category",
     type=click.Choice(["hygiene", "ai"]),
     default="hygiene",
-    help="Rule category to demo: hygiene (default) or ai (SageMaker)",
+    help="Rule category to demo: hygiene (default) or ai (SageMaker on AWS, AML Compute on Azure)",
 )
 def demo(provider: Optional[str], category: str):
     """Show realistic sample findings without cloud credentials."""
@@ -36,9 +37,18 @@ def demo(provider: Optional[str], category: str):
     click.echo("=" * 60)
 
     if category == "ai":
-        findings = AWS_AI_FINDINGS
-        regions = ["us-east-1"]
-        region_mode = "explicit"
+        if provider == "aws":
+            findings = AWS_AI_FINDINGS
+            regions = ["us-east-1"]
+            region_mode = "explicit"
+        elif provider == "azure":
+            findings = AZURE_AI_FINDINGS
+            regions = ["East US"]
+            region_mode = "all"
+        else:
+            findings = AWS_AI_FINDINGS + AZURE_AI_FINDINGS
+            regions = ["us-east-1", "East US"]
+            region_mode = "all"
     elif provider == "aws":
         findings = AWS_FINDINGS
         regions = ["us-east-1", "us-west-2", "eu-west-1"]
@@ -60,7 +70,7 @@ def demo(provider: Optional[str], category: str):
 
     summary = build_summary(findings)
     summary["scanned_at"] = datetime.now(timezone.utc).isoformat()
-    summary["provider"] = provider or ("aws" if category == "ai" else "mixed")
+    summary["provider"] = provider or "mixed"
     summary["regions_scanned"] = regions
 
     _print_summary(summary, region_selection_mode=region_mode)

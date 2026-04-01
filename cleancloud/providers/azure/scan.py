@@ -8,6 +8,7 @@ from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoun
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
 from cleancloud.providers.azure.rules.app_gateway_no_backends import (
     find_app_gateway_no_backends,
 )
@@ -72,6 +73,11 @@ AZURE_RULES: List[Callable] = [
     find_unused_container_registries,
 ]
 
+# AI/ML waste rules — not run by default; use --category ai or --category all
+AZURE_AI_RULES: List[Callable] = [
+    find_idle_aml_compute,
+]
+
 _TRANSIENT_STATUS_CODES = {429, 500, 503}
 _MAX_RETRIES = 3
 
@@ -114,6 +120,7 @@ def scan_azure_with_region_selection(
     subscriptions: Optional[List[str]] = None,
     all_subscriptions: bool = False,
     management_group: Optional[str] = None,
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[str, List[Finding], List[str], List[dict], List[SubscriptionScanResult]]:
     # Validate subscription parameters
     validate_subscription_params(subscriptions, all_subscriptions)
@@ -174,6 +181,7 @@ def scan_azure_with_region_selection(
         sub_name_map,
         session.credential,
         region,
+        rules=rules,
     )
 
     click.echo()
@@ -197,6 +205,7 @@ def scan_azure_subscriptions(
     sub_name_map: Dict[str, str],
     credential,
     region_filter: Optional[str],
+    rules: Optional[List[Callable]] = None,
 ) -> List[SubscriptionScanResult]:
     results: List[SubscriptionScanResult] = []
 
@@ -214,6 +223,7 @@ def scan_azure_subscriptions(
                     subscription_name=sub_name_map.get(sub_id, sub_id),
                     credential=credential,
                     region_filter=region_filter,
+                    rules=rules,
                 ): sub_id
                 for sub_id in subscription_ids
             }
@@ -254,6 +264,7 @@ def _scan_azure_subscription(
     subscription_name: str,
     credential,
     region_filter: Optional[str],
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[List[Finding], List[dict]]:
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
@@ -261,9 +272,11 @@ def _scan_azure_subscription(
     rules_failed = 0
     resource_not_found_errors = 0
 
+    rules_to_run = rules if rules is not None else AZURE_RULES
+
     click.echo(f"  Scanning {subscription_name}")
 
-    with ThreadPoolExecutor(max_workers=min(2, len(AZURE_RULES))) as executor:
+    with ThreadPoolExecutor(max_workers=min(2, len(rules_to_run))) as executor:
         futures = {
             executor.submit(
                 _run_rule_with_retry,
@@ -272,7 +285,7 @@ def _scan_azure_subscription(
                 credential,
                 region_filter,
             ): rule
-            for rule in AZURE_RULES
+            for rule in rules_to_run
         }
 
         for future in as_completed(futures):

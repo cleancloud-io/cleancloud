@@ -5,19 +5,29 @@ import pytest
 
 FORBIDDEN_ACTIONS = ("*/delete", "*/write", "*/create", "*/update")
 
-ROLE_PATH = Path("security/azure-readonly-role.json")
+ROLE_FILES = [
+    Path("security/azure/hygiene-readonly-role.json"),
+    Path("security/azure/ai-readonly-role.json"),
+]
+
+
+def _check_role_file(role_path: Path) -> None:
+    role = json.loads(role_path.read_text())
+
+    for perm in role.get("Permissions", []):
+        for action in perm.get("Actions", []):
+            for forbidden in FORBIDDEN_ACTIONS:
+                assert (
+                    forbidden not in action.lower()
+                ), f"Forbidden Azure action detected in {role_path.name}: {action}"
 
 
 @pytest.mark.safety
 @pytest.mark.azure
-def test_azure_role_is_read_only():
+@pytest.mark.parametrize("role_path", ROLE_FILES, ids=lambda p: p.name)
+def test_azure_role_is_read_only(role_path):
     """
-    Ensure the Azure role definition never grants mutating actions.
-    Mirrors AWS IAM policy test.
+    Ensure Azure role definitions never grant mutating actions.
+    Covers both hygiene and AI/ML role files.
     """
-    role = json.loads(ROLE_PATH.read_text())
-
-    for perm in role.get("permissions", []):
-        for action in perm.get("actions", []):
-            for forbidden in FORBIDDEN_ACTIONS:
-                assert forbidden not in action.lower(), f"Forbidden Azure action detected: {action}"
+    _check_role_file(role_path)

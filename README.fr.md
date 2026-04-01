@@ -30,7 +30,7 @@ C'est CleanCloud. Scannez vos environnements AWS, Azure et GCP, obtenez des find
 | Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
 | Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
 
-- **31 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe. Les règles IA/ML (SageMaker) sont opt-in via `--category ai`
+- **32 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe. Les règles IA/ML (SageMaker, Azure ML) sont opt-in via `--category ai`
 - **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
@@ -171,7 +171,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 | Flag | Fonction |
 |---|---|
 | `--provider aws\|azure\|gcp` | Fournisseur cloud à scanner *(obligatoire)* |
-| `--category hygiene\|ai\|all` | Catégorie de règles : `hygiene` (défaut), `ai` (SageMaker, AWS uniquement) ou `all` (hygiene + IA) |
+| `--category hygiene\|ai\|all` | Catégorie de règles : `hygiene` (défaut), `ai` (SageMaker sur AWS, AML Compute sur Azure) ou `all` (hygiene + IA) |
 | `--region REGION` | Scanner une seule région |
 | `--all-regions` | Toutes les régions actives — AWS/Azure uniquement |
 | **AWS multi-comptes** | |
@@ -328,7 +328,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 
 ## Ce que CleanCloud détecte
 
-30 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+32 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -345,6 +345,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
 - Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
+- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois)
 
 **GCP :**
 - Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)
@@ -583,7 +584,7 @@ Guide complet : [Configuration GCP →](docs/gcp.md)
 
 **Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
 
-**Plus de règles IA/ML** — clusters de calcul Azure ML inactifs, endpoints Vertex AI inactifs, instances de notebook SageMaker inutilisées, artefacts d'entraînement orphelins
+**Plus de règles IA/ML** — endpoints Vertex AI inactifs, instances de notebook SageMaker inutilisées, artefacts d'entraînement orphelins
 
 **Plus de règles AWS** — lacunes de cycle de vie S3, Redshift inactif, fuite de coût NAT Gateway (services internes routant via NAT au lieu de VPC endpoints — S3, DynamoDB, ECR, SSM), VPC endpoints inutilisés
 
