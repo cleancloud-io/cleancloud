@@ -184,11 +184,14 @@ def test_per_account_regions_rejected_for_gcp(runner):
 
 
 # ---------------------------------------------------------------------------
-# --category ai rejected for unsupported providers
+# --category ai accepted for gcp (Vertex AI rule)
 # ---------------------------------------------------------------------------
 
 
-def test_category_ai_rejected_for_gcp(runner):
+def test_category_ai_accepted_for_gcp(runner):
+    # GCP now supports --category ai (Vertex AI endpoint rule).
+    # The scan will fail on credentials, not on flag validation.
     result = runner.invoke(cli, ["scan", "--provider", "gcp", "--category", "ai"])
-    assert result.exit_code != 0
-    assert "azure" in result.output.lower() or "aws" in result.output.lower()
+    # Exit code 0 = credentials worked (CI env), or non-zero due to auth/credential failure
+    # either way, it must NOT be a UsageError about --category ai being unsupported
+    assert "category ai is only supported" not in result.output

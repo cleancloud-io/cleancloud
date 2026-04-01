@@ -51,6 +51,7 @@ from cleancloud.providers.azure.scan import (
     scan_azure_with_region_selection,
 )
 from cleancloud.providers.gcp.scan import (
+    GCP_AI_RULES,
     GCP_RULES,
     ProjectScanResult,
     scan_gcp_with_project_selection,
@@ -263,12 +264,6 @@ def scan(
             if used:
                 raise click.UsageError(f"{flag} is only supported with --provider gcp")
 
-    if category == "ai" and provider not in ("aws", "azure"):
-        raise click.UsageError(
-            "--category ai is only supported with --provider aws or --provider azure. "
-            "AI/ML rules for GCP are on the roadmap."
-        )
-
     # Build the AWS rule list based on --category
     if provider == "aws":
         if category == "hygiene":
@@ -291,11 +286,22 @@ def scan(
     else:
         azure_rules_to_run = AZURE_RULES  # unused for non-Azure but keeps type consistent
 
+    # Build the GCP rule list based on --category
+    if provider == "gcp":
+        if category == "hygiene":
+            gcp_rules_to_run = GCP_RULES
+        elif category == "ai":
+            gcp_rules_to_run = GCP_AI_RULES
+        else:  # all
+            gcp_rules_to_run = GCP_RULES + GCP_AI_RULES
+    else:
+        gcp_rules_to_run = GCP_RULES  # unused for non-GCP but keeps type consistent
+
     click.echo()
     click.echo("Starting CleanCloud scan...")
     click.echo()
     click.echo(f"Provider: {provider}")
-    if provider == "aws" and category != "hygiene":
+    if category != "hygiene":
         click.echo(f"Category: {category}")
     click.echo()
 
@@ -416,6 +422,7 @@ def scan(
                 projects=project_list,
                 all_projects=all_projects,
                 concurrency=concurrency,
+                rules=gcp_rules_to_run,
             )
             # Extract unique regions/zones from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
@@ -599,6 +606,12 @@ def scan(
                     click.echo(
                         "Tip: Run AI/ML cost checks with: "
                         "cleancloud scan --provider azure --category ai"
+                    )
+                    click.echo()
+                elif provider == "gcp":
+                    click.echo(
+                        "Tip: Run AI/ML cost checks with: "
+                        "cleancloud scan --provider gcp --category ai"
                     )
                     click.echo()
 

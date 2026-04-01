@@ -141,7 +141,7 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
-- **32 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker, Azure ML) are opt-in via `--category ai`
+- **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker, Azure ML, Vertex AI) are opt-in via `--category ai`
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
@@ -229,7 +229,7 @@ Run `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure`, or
 | Flag | What it does |
 |---|---|
 | `--provider aws\|azure\|gcp` | Cloud provider to scan *(required)* |
-| `--category hygiene\|ai\|all` | Rule category: `hygiene` (default), `ai` (SageMaker on AWS, AML Compute on Azure), or `all` (hygiene + AI) |
+| `--category hygiene\|ai\|all` | Rule category: `hygiene` (default), `ai` (SageMaker on AWS, AML Compute on Azure, Vertex AI on GCP), or `all` (hygiene + AI) |
 | `--region REGION` | Scan a single region |
 | `--all-regions` | Scan all active regions — AWS/Azure only |
 | **AWS multi-account** | |
@@ -346,7 +346,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 
 ## What CleanCloud Detects
 
-32 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+33 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -370,6 +370,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 - Storage: unattached Persistent Disks (HIGH), old snapshots 90+ days
 - Network: unused reserved static IPs — regional and global (HIGH)
 - Platform: idle Cloud SQL instances with zero connections 14+ days (HIGH)
+- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero predictions 14+ days — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month)
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 
@@ -605,7 +606,7 @@ Full setup guide: [GCP setup →](docs/gcp.md)
 
 **Policy-as-code** — `cleancloud.yaml` with rule packs, per-team exceptions, and cost thresholds in config — the top FinOps governance ask for 2025/2026
 
-**More AI/ML waste rules** — Vertex AI endpoints idle, SageMaker notebook instances running unused, orphaned training artifacts
+**More AI/ML waste rules** — SageMaker notebook instances running unused, orphaned training artifacts, Vertex AI notebook instances idle
 
 **More AWS rules** — S3 lifecycle gaps, Redshift idle, NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
 

@@ -13,6 +13,7 @@
 | Single-project scan | `roles/compute.viewer` + `roles/cloudsql.viewer` + `roles/monitoring.viewer` on the target project |
 | Multi-project / org-wide scan | Same 3 roles + `roles/browser` — bound at the **organization or folder level** (covers all projects automatically) |
 | Project enumeration (`--all-projects`) | `roles/browser` at org or folder level |
+| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai) |
 
 All roles are read-only. No create, delete, or modify permissions — ever.
 
@@ -26,9 +27,12 @@ All roles are read-only. No create, delete, or modify permissions — ever.
 | Scan all accessible projects | `cleancloud scan --provider gcp --all-projects` |
 | Scan all projects, higher concurrency | `cleancloud scan --provider gcp --all-projects --concurrency 8` |
 | Filter by region | `cleancloud scan --provider gcp --all-projects --region us-central1` |
+| AI/ML scan (Vertex AI) | `cleancloud scan --provider gcp --category ai --all-projects` |
+| Hygiene + AI together | `cleancloud scan --provider gcp --category all --all-projects` |
 | Fail build on HIGH findings | Add `--fail-on-confidence HIGH` to any scan command |
 | Fail build if waste ≥ $X/month | Add `--fail-on-cost 500` to any scan command |
 | Validate credentials + permissions | `cleancloud doctor --provider gcp --project <PROJECT_ID>` |
+| Validate AI permissions | `cleancloud doctor --provider gcp --project <PROJECT_ID> --category ai` |
 
 ---
 
@@ -513,6 +517,89 @@ CleanCloud never fails a scan due to missing permissions. If a permission is abs
 - All other rules and all other projects continue normally
 
 This means you can run CleanCloud with only the permissions you have — it reports what it found and what it skipped.
+
+---
+
+## AI/ML Scanning (Vertex AI)
+
+Detect idle Vertex AI Online Prediction endpoints — deployed models with `minReplicaCount > 0` that keep dedicated compute running 24/7 with zero prediction traffic. GPU-backed endpoints (T4, V100, A100, L4, H100) cost $300–$8K/month per GPU and are the highest-cost idle resource type in most GCP AI workloads.
+
+AI scanning is **opt-in** — it requires an extra role and runs separately from hygiene scanning.
+
+```bash
+# Demo — see what this rule finds (no credentials needed)
+cleancloud demo --provider gcp --category ai
+
+# Validate permissions first
+cleancloud doctor --provider gcp --project <PROJECT_ID> --category ai
+
+# Run the AI scan
+cleancloud scan --provider gcp --category ai --all-projects
+
+# Hygiene + AI together
+cleancloud scan --provider gcp --category all --all-projects
+```
+
+### Required Permission
+
+One additional role beyond the hygiene roles:
+
+| Role | What it grants |
+|---|---|
+| `roles/aiplatform.viewer` | `aiplatform.endpoints.list` + `aiplatform.endpoints.get` |
+
+`roles/monitoring.viewer` is already required for hygiene rules — no additional grant needed.
+
+**Grant at organization level** (covers all current and future projects):
+```bash
+gcloud organizations add-iam-policy-binding "${ORG_ID}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/aiplatform.viewer"
+```
+
+**Grant at project level** (single project only):
+```bash
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/aiplatform.viewer"
+```
+
+The full role definition is in [`security/gcp/ai-readonly-roles.json`](../security/gcp/ai-readonly-roles.json).
+
+### Enable the Vertex AI API
+
+The Vertex AI API must be enabled in each project you want to scan. Projects with the API disabled return 0 findings (the rule is skipped automatically — not an error):
+
+```bash
+gcloud services enable aiplatform.googleapis.com --project="${PROJECT_ID}"
+```
+
+### What Gets Flagged
+
+| Condition | Flagged |
+|---|---|
+| `dedicatedResources.minReplicaCount > 0` + zero predictions for 14 days | Yes |
+| `automaticResources` (scales to zero when idle) | No — no idle billing |
+| Endpoint with predictions in the last 14 days | No |
+| Endpoint younger than 7 days | No — too new to classify |
+
+### Confidence and Risk
+
+- **HIGH confidence:** Zero predictions for the full 14-day window (endpoint ≥ 14 days old)
+- **MEDIUM confidence:** Zero predictions, endpoint 10–14 days old, or age unknown
+- **HIGH risk:** GPU-backed endpoint (NVIDIA_TESLA_T4, V100, A100, L4, H100, TPU)
+- **MEDIUM risk:** CPU-only endpoint
+
+### Validate Before Running
+
+```bash
+cleancloud doctor --provider gcp --project <PROJECT_ID> --category ai
+```
+
+Output confirms:
+- `aiplatform.endpoints.list` — required for scanning
+- `monitoring.timeSeries.list` — required for idle detection metrics
+- Which projects have the Vertex AI API enabled
 
 ---
 

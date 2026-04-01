@@ -1,0 +1,47 @@
+{
+  "description": "GCP predefined IAM roles required for CleanCloud AI/ML scanning (--category ai)",
+  "note": "Assign these roles in addition to the hygiene roles in security/gcp/hygiene-readonly-roles.json. All roles are read-only.",
+  "usage": "cleancloud scan --provider gcp --category ai",
+  "roles": [
+    {
+      "role": "roles/aiplatform.viewer",
+      "title": "Vertex AI Viewer",
+      "justification": "List and read Vertex AI Online Prediction endpoints to detect idle dedicated capacity",
+      "permissions_used": [
+        "aiplatform.endpoints.list",
+        "aiplatform.endpoints.get"
+      ],
+      "rules_covered": [
+        "gcp.vertex.endpoint.idle"
+      ]
+    },
+    {
+      "role": "roles/monitoring.viewer",
+      "title": "Monitoring Viewer",
+      "justification": "Read Cloud Monitoring time-series metrics for Vertex AI prediction request counts",
+      "note": "Already required for hygiene rules (Cloud SQL idle detection). No additional grant needed if hygiene roles are already bound.",
+      "permissions_used": [
+        "monitoring.timeSeries.list"
+      ],
+      "rules_covered": [
+        "gcp.vertex.endpoint.idle"
+      ]
+    }
+  ],
+  "binding_scope": {
+    "recommended": "Organization level — grants access to all current and future projects",
+    "alternative": "Project level — grants access to a single project only",
+    "command_org": "gcloud organizations add-iam-policy-binding ORG_ID --member=serviceAccount:SA_EMAIL --role=ROLE",
+    "command_project": "gcloud projects add-iam-policy-binding PROJECT_ID --member=serviceAccount:SA_EMAIL --role=ROLE"
+  },
+  "quick_setup": {
+    "description": "Add Vertex AI Viewer to your existing service account",
+    "org_level": "gcloud organizations add-iam-policy-binding $ORG_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/aiplatform.viewer\"",
+    "project_level": "gcloud projects add-iam-policy-binding $PROJECT_ID --member=\"serviceAccount:$SA_EMAIL\" --role=\"roles/aiplatform.viewer\""
+  },
+  "enable_api": {
+    "description": "Vertex AI API must be enabled in each project you want to scan",
+    "command": "gcloud services enable aiplatform.googleapis.com --project=$PROJECT_ID",
+    "note": "Projects with Vertex AI API disabled return 0 findings (rule is skipped, not an error)"
+  }
+}

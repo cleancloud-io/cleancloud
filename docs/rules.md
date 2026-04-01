@@ -79,6 +79,7 @@ Every finding includes a confidence level:
 | `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
 | `gcp.compute.ip.unused` | Network | Reserved static IPs (regional and global) in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 7+ days |
+| `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
 
 ---
 
@@ -1541,6 +1542,63 @@ Costs are approximate for us-central1 with HA disabled.
 
 **Required permissions:**
 - `cloudsql.instances.list` (included in `roles/cloudsql.viewer`)
+- `monitoring.timeSeries.list` (included in `roles/monitoring.viewer`)
+
+---
+
+### AI/ML Waste (opt-in — `--category ai`)
+
+#### Idle Vertex AI Online Prediction Endpoints
+
+**Rule ID:** `gcp.vertex.endpoint.idle`
+
+**What it detects:** Vertex AI Online Prediction endpoints with `dedicatedResources.minReplicaCount > 0` and zero prediction requests for 14+ days
+
+**Confidence:**
+
+- **HIGH:** Zero predictions for the full 14-day window (endpoint age ≥ 14 days)
+- **MEDIUM:** Zero predictions, endpoint age ≥ 75% of threshold (≥ 10.5 days), or age unknown
+
+**Risk:** HIGH (GPU-backed endpoints: T4, V100, A100, L4, H100, TPU), MEDIUM (CPU-only)
+
+**Why this matters:**
+- Vertex AI endpoints with `minReplicaCount > 0` keep dedicated compute running 24/7 regardless of traffic
+- GPU endpoints (T4: $311/month per GPU, A100: $2,933/month, H100: $8,000/month) are especially costly when idle
+- Experiment and prototype endpoints are commonly abandoned after demos without being deleted or scaled to zero
+- Endpoints using `automaticResources` (which scale to zero) are excluded — only `dedicatedResources` incur idle cost
+
+**Detection logic:**
+```python
+for endpoint in vertex_ai_api.list(project_id, location="-"):  # all locations
+    total_min_replicas = sum(
+        m.dedicatedResources.minReplicaCount
+        for m in endpoint.deployedModels
+        if m.dedicatedResources  # skip automaticResources
+    )
+    if total_min_replicas > 0:
+        if not has_predictions(monitoring_client, endpoint_id, days=14):
+            flag(endpoint)
+```
+
+**Conservative monitoring fallback:** If Cloud Monitoring is unavailable or permission-denied, the endpoint is assumed active — it is not flagged.
+
+**Cost estimates by machine type (per node, us-central1):**
+
+| Machine Type | ~Monthly cost/node |
+|---|---|
+| `n1-standard-4` | $138 |
+| `n1-standard-8` | $277 |
+| `n1-standard-4` + T4 GPU | $449 |
+| `n1-standard-4` + V100 GPU | $1,523 |
+| `a2-highgpu-1g` (A100 40GB) | $2,933 |
+| `a2-highgpu-2g` (2× A100) | $5,866 |
+| `a2-ultragpu-1g` (A100 80GB) | $5,103 |
+| `g2-standard-8` (L4 GPU) | $1,060 |
+
+Costs are approximate for us-central1, on-demand. Multiply by `minReplicaCount` for total monthly idle cost.
+
+**Required permissions:**
+- `aiplatform.endpoints.list` (included in `roles/aiplatform.viewer`)
 - `monitoring.timeSeries.list` (included in `roles/monitoring.viewer`)
 
 ---

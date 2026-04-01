@@ -272,7 +272,7 @@ def test_one_project_failure_does_not_stop_others(monkeypatch):
 
     call_order = []
 
-    def scan_project(*, project_id, project_name, credentials, region_filter):
+    def scan_project(*, project_id, project_name, credentials, region_filter, rules=None):
         call_order.append(project_id)
         if project_id == "proj-bad":
             raise RuntimeError("All rules failed")
@@ -309,7 +309,7 @@ def test_one_project_failure_does_not_stop_others(monkeypatch):
 def test_all_projects_fail_returns_all_as_failed(monkeypatch):
     """Every project failing still returns a result entry for each — no exception raised."""
 
-    def scan_project(*, project_id, project_name, credentials, region_filter):
+    def scan_project(*, project_id, project_name, credentials, region_filter, rules=None):
         raise RuntimeError("total failure")
 
     monkeypatch.setattr("cleancloud.providers.gcp.scan._scan_gcp_project", scan_project)
@@ -330,7 +330,7 @@ def test_all_projects_fail_returns_all_as_failed(monkeypatch):
 def test_failed_project_error_message_recorded(monkeypatch):
     """The error message from a failed project is stored in ProjectScanResult.error."""
 
-    def scan_project(*, project_id, project_name, credentials, region_filter):
+    def scan_project(*, project_id, project_name, credentials, region_filter, rules=None):
         raise RuntimeError("quota exceeded")
 
     monkeypatch.setattr("cleancloud.providers.gcp.scan._scan_gcp_project", scan_project)
@@ -354,7 +354,7 @@ def test_concurrency_respected(monkeypatch):
     current = [0]
     lock = threading.Lock()
 
-    def scan_project(*, project_id, project_name, credentials, region_filter):
+    def scan_project(*, project_id, project_name, credentials, region_filter, rules=None):
         with lock:
             current[0] += 1
             peak_concurrent[0] = max(peak_concurrent[0], current[0])

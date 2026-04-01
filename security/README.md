@@ -17,8 +17,10 @@ This directory contains the **IAM Proof Pack** - a collection of artifacts that 
 | `aws/base-readonly.json` | AWS IAM policy — STS + CloudWatch (required for all scans) |
 | `aws/hygiene-readonly.json` | AWS IAM policy — EC2, RDS, ELB, S3, logs (`--category hygiene`, default) |
 | `aws/ai-readonly.json` | AWS IAM policy — SageMaker etc. (`--category ai`) |
-| `azure-readonly-role.json` | Azure custom role definition with minimum required read-only permissions |
-| `gcp-readonly-roles.json` | GCP predefined IAM roles required for read-only scanning |
+| `azure/hygiene-readonly-role.json` | Azure custom role — Compute, Network, Web, SQL, etc. (`--category hygiene`, default) |
+| `azure/ai-readonly-role.json` | Azure custom role — MachineLearningServices (`--category ai`) |
+| `gcp/hygiene-readonly-roles.json` | GCP predefined IAM roles for hygiene scanning (`--category hygiene`, default) |
+| `gcp/ai-readonly-roles.json` | GCP predefined IAM roles — Vertex AI Viewer (`--category ai`) |
 | `verify-aws-policy.sh` | Script to verify AWS IAM policies contain no write/delete permissions |
 | `verify-azure-role.sh` | Script to verify Azure role is read-only |
 | `verify-gcp-roles.sh` | Script to verify GCP service account has only read-only roles |

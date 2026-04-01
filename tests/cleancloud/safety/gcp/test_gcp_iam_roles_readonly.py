@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-ROLES_PATH = Path("security/gcp-readonly-roles.json")
+ROLES_PATH = Path("security/gcp/hygiene-readonly-roles.json")
 
 # GCP predefined roles that would grant write/admin access
 FORBIDDEN_ROLES = {
@@ -38,7 +38,7 @@ def test_gcp_roles_file_exists():
     """Ensure the published GCP roles file exists and is valid JSON."""
     assert ROLES_PATH.exists(), f"GCP roles file not found: {ROLES_PATH}"
     data = json.loads(ROLES_PATH.read_text())
-    assert "roles" in data, "gcp-readonly-roles.json must have a 'roles' key"
+    assert "roles" in data, "hygiene-readonly-roles.json must have a 'roles' key"
 
 
 @pytest.mark.safety
@@ -51,11 +51,11 @@ def test_gcp_roles_are_strictly_read_only():
         role = entry.get("role", "")
         assert (
             role not in FORBIDDEN_ROLES
-        ), f"Forbidden GCP role detected in security/gcp-readonly-roles.json: {role}"
+        ), f"Forbidden GCP role detected in security/gcp/hygiene-readonly-roles.json: {role}"
         # Also reject any role that doesn't end in .viewer, .reader, or .browser
         # (belt-and-suspenders: catches new write roles not yet in FORBIDDEN_ROLES)
         assert role.endswith((".viewer", ".reader", "/browser")), (
-            f"Unexpected non-read-only role in security/gcp-readonly-roles.json: {role} "
+            f"Unexpected non-read-only role in security/gcp/hygiene-readonly-roles.json: {role} "
             f"(expected roles ending in .viewer, .reader, or /browser)"
         )
 
@@ -70,4 +70,4 @@ def test_gcp_all_required_roles_present():
     for role in REQUIRED_ROLES:
         assert (
             role in documented
-        ), f"Required GCP role missing from security/gcp-readonly-roles.json: {role}"
+        ), f"Required GCP role missing from security/gcp/hygiene-readonly-roles.json: {role}"
