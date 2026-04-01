@@ -167,8 +167,8 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 |---|---|:---:|:---:|:---:|
 | `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
 | `category` | `hygiene` (default), `ai` (SageMaker on AWS, AML Compute on Azure), or `all` | ✓ | ✓ | — |
-| `region` | Single region/location filter | ✓ | ✓ | — |
-| `all-regions` | Scan all active regions | ✓ | — | — |
+| `region` | Single region filter (AWS) or location filter (Azure — filters results; all subscriptions always scanned) | ✓ | ✓ | — |
+| `all-regions` | Scan all active AWS regions (AWS-only; Azure scans all subscriptions by default) | ✓ | — | — |
 | `org` | Auto-discover all AWS Organization accounts | ✓ | — | — |
 | `accounts` | Comma-separated account IDs | ✓ | — | — |
 | `multi-account` | Path to accounts config YAML | ✓ | — | — |
@@ -309,6 +309,8 @@ docker run --rm \
 
 ### Pinning to a specific version
 
+**Recommendation:** Pin to an exact version in production pipelines so a new CleanCloud release can't change scan behavior mid-sprint. Use `latest` in development where picking up new rules automatically is fine.
+
 ```yaml
 # Pin to exact version — safest for production pipelines
 getcleancloud/cleancloud:1.9.0
@@ -340,7 +342,9 @@ CleanCloud uses standard Unix exit codes for CI control:
 | `2` | Policy violation - findings detected | Pipeline fails (when enforcement enabled) |
 | `3` | Missing credentials or insufficient permissions | Pipeline fails |
 
-**Note:** Invalid region names (AWS) or location names (Azure) now trigger exit code `1` early in the scan, before attempting API calls.
+**Note:** Exit code `2` is only returned when an enforcement flag is set (`--fail-on-confidence`, `--fail-on-findings`, or `--fail-on-cost`). Without any enforcement flag, the scan always exits `0` regardless of findings.
+
+**Note:** Invalid region names (AWS) or location names (Azure) trigger exit code `1` early in the scan, before attempting API calls.
 
 ---
 
@@ -728,7 +732,7 @@ permissions:
 jobs:
   scan-aws:
     runs-on: ubuntu-latest
-    continue-on-error: true  # Don't fail entire workflow if one provider fails
+    continue-on-error: true  # Each provider job runs to completion independently — a failure in one doesn't cancel the others
     steps:
       - uses: actions/checkout@v4
 
@@ -823,7 +827,7 @@ jobs:
           retention-days: 30
 ```
 
-**Note:** Using `continue-on-error: true` allows the workflow to complete even if one cloud provider scan fails, ensuring you get results from all providers.
+**Note:** `continue-on-error: true` on each provider job ensures all three scans run to completion even if one fails. Without it, a failing AWS scan would cancel the Azure and GCP jobs before they produce results.
 
 ---
 
@@ -1035,6 +1039,37 @@ cleancloud scan \
 ```
 
 **Note:** CLI tags replace config file tags (not merged).
+
+### In GitHub Actions
+
+Use `--config` to reference a `cleancloud.yaml` committed to your repo, or pass `--ignore-tag` flags directly in the run step:
+
+```yaml
+- name: Run hygiene scan (with tag exclusions)
+  run: |
+    cleancloud scan \
+      --provider aws \
+      --all-regions \
+      --config cleancloud.yaml \
+      --output json \
+      --output-file scan-results.json \
+      --fail-on-confidence HIGH
+```
+
+Or inline with the GitHub Action input:
+
+```yaml
+- uses: cleancloud-io/scan-action@v1
+  with:
+    provider: aws
+    all-regions: 'true'
+    config: cleancloud.yaml
+    fail-on-confidence: HIGH
+    output: json
+    output-file: scan-results.json
+```
+
+> See [cleancloud.yaml examples](../README.md#configuration) for a full config reference.
 
 ---
 

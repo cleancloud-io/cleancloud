@@ -39,7 +39,7 @@ az role assignment create \
 
 > ⚠️ **Common mistake:** The federated credential subject must exactly match your workflow trigger. Branch push, PR, and GitHub Environment each send a different subject claim — using the wrong one causes a silent auth failure (`AADSTS70021`). See [OIDC subject mismatch](#oidc-subject-claim-mismatch).
 
-Full walkthrough → [Azure OIDC setup](#1-azure-oidc-with-workload-identity-recommended-for-cicd)
+Full walkthrough → [Azure OIDC setup](#azure-oidc-with-workload-identity-recommended-for-cicd)
 
 ---
 
@@ -47,7 +47,7 @@ Full walkthrough → [Azure OIDC setup](#1-azure-oidc-with-workload-identity-rec
 
 CleanCloud supports multiple Azure authentication methods:
 
-### 1. Azure OIDC with Workload Identity (Recommended for CI/CD)
+### Azure OIDC with Workload Identity (Recommended for CI/CD)
 
 Microsoft Entra ID Workload Identity Federation — no client secrets, temporary tokens only.
 
@@ -78,9 +78,10 @@ Choose the subject format that matches how your GitHub Actions workflow runs:
 
 > ⚠️ **Common mistake:** If your workflow uses `environment: production`, GitHub sends the `environment` subject claim — not the `ref` one. Using the wrong format causes silent auth failures. See [OIDC subject mismatch](#oidc-subject-claim-mismatch) in Troubleshooting.
 
-**For branch-based workflows:**
+Create one federated credential per workflow trigger. Azure allows up to 20 per App Registration.
 
 ```bash
+# Branch push (e.g. main)
 az ad app federated-credential create \
   --id <APP_ID> \
   --parameters '{
@@ -89,11 +90,8 @@ az ad app federated-credential create \
     "subject": "repo:<YOUR_ORG>/<YOUR_REPO>:ref:refs/heads/main",
     "audiences": ["api://AzureADTokenExchange"]
   }'
-```
 
-**For GitHub Environment workflows:**
-
-```bash
+# GitHub Environment (e.g. production)
 az ad app federated-credential create \
   --id <APP_ID> \
   --parameters '{
@@ -104,7 +102,7 @@ az ad app federated-credential create \
   }'
 ```
 
-> 💡 **Tip:** You can add multiple federated credentials to the same App Registration. If you use both branch pushes and environments, create one credential for each. Azure allows up to 20 federated credentials per App Registration.
+> 💡 If you only use one trigger type, create only that credential. See [OIDC subject mismatch](#oidc-subject-claim-mismatch) if authentication fails.
 
 **Step 4: Assign Reader Role**
 
@@ -159,7 +157,7 @@ For the complete production workflow with enforcement flags, scheduling, and art
 
 ---
 
-### 2. Service Principal with Environment Variables (Local Development)
+### Service Principal with Environment Variables (Local Development)
 
 Quick setup for local testing and evaluation.
 
@@ -196,7 +194,7 @@ cleancloud scan --provider azure
 
 ---
 
-### 3. Azure CLI (Local Development)
+### Azure CLI (Local Development)
 
 Recommended for interactive local development.
 
@@ -232,6 +230,8 @@ az role assignment create \
   --role "Reader" \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 ```
+
+> ⏱ RBAC assignments take 5–10 minutes to propagate. Run `cleancloud doctor --provider azure` after waiting to confirm access.
 
 **Hygiene rules — all 17 permissions covered by Reader:**
 
@@ -361,7 +361,7 @@ JSON output includes `per_subscription` with findings count and estimated cost p
 
 ### Performance
 
-Subscriptions are scanned in parallel (up to 4 concurrent). Rules within each subscription also run in parallel. A 10-subscription tenant typically completes in the same time as scanning 2–3 sequentially.
+Subscriptions are scanned in parallel (default: 4 concurrent, configurable with `--concurrency N`). Rules within each subscription also run in parallel. A 10-subscription tenant typically completes in the same time as scanning 2–3 sequentially.
 
 ### Subscription Filtering
 
@@ -381,6 +381,8 @@ cleancloud scan --provider azure --subscription invalid-sub-id
 export AZURE_SUBSCRIPTION_ID="12345678-1234-1234-1234-123456789abc"
 cleancloud scan --provider azure
 ```
+
+> `AZURE_SUBSCRIPTION_ID` is optional if your identity has Reader on only one subscription — CleanCloud will discover and scan it automatically. Set it explicitly to target a specific subscription when multiple are accessible.
 
 ---
 
@@ -626,7 +628,7 @@ az role assignment create \
   --role "Reader" \
   --scope /subscriptions/<SUBSCRIPTION_ID>
 
-# Wait 5-10 minutes for RBAC propagation
+# RBAC changes take 5–10 minutes to propagate — wait, then re-run doctor
 ```
 
 ---
@@ -638,9 +640,9 @@ az role assignment create \
 az role assignment list \
   --assignee <APP_ID> \
   --scope /subscriptions/<SUBSCRIPTION_ID>
-
-# Wait 5-10 minutes for RBAC propagation
 ```
+
+> RBAC changes take 5–10 minutes to propagate — see the note in [Reader Role](#reader-role-recommended).
 
 ---
 
@@ -690,8 +692,8 @@ az role assignment list \
 ## Supported Azure Clouds
 
 - Azure Commercial ✅
-- Azure Government (not tested)
-- Azure China (not tested)
+- Azure Government — not tested. If you try it: set `AZURE_ENVIRONMENT=AzureUSGovernment` before running. The OIDC issuer endpoint and ARM resource URIs differ from commercial — federated credentials may need adjustment.
+- Azure China — not tested. Set `AZURE_ENVIRONMENT=AzureChinaCloud`. Azure China uses a separate Entra ID endpoint (`login.chinacloudapi.cn`) which may not be compatible with the standard `DefaultAzureCredential` chain without additional configuration.
 
 ---
 

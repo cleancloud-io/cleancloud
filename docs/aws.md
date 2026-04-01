@@ -1,6 +1,44 @@
 # AWS Setup
 
+Scan your AWS accounts for idle resources and cost waste — safely, with read-only access.
+
+> CleanCloud is strictly read-only: no resource deletion, no changes or tagging, no background agents or telemetry. It literally cannot mutate your cloud.
+
 > **Rules Reference:** [rules.md](rules.md) · **CI/CD Guide:** [ci.md](ci.md) · **Example Outputs:** [example-outputs.md](example-outputs.md)
+
+---
+
+## 60-Second Quick Start
+
+Find idle resources and wasted cloud spend in under 2 minutes:
+
+```bash
+# 1. Verify AWS credentials (or configure if needed)
+aws sts get-caller-identity || aws configure
+
+# 2. Validate permissions
+cleancloud doctor --provider aws
+
+# 3. Run your first scan
+cleancloud scan --provider aws --all-regions
+```
+
+You should see output like:
+
+```
+--- Scan Summary ---
+Total findings: 8
+By risk:        low: 3  medium: 3  high: 2
+By confidence:  high: 6  medium: 2
+Minimum estimated waste: ~$312/month
+
+Top findings:
+- Unattached EBS volumes (3)
+- Idle load balancer (1)
+- Old RDS snapshot (2)
+```
+
+If `doctor` reports missing permissions, see [IAM Policy](#iam-policy-minimum-required-permissions). That's it for most local and single-account use cases — the sections below cover CI/CD setup (OIDC) and multi-account scanning.
 
 ---
 
@@ -8,14 +46,16 @@
 
 ### Permissions
 
+> ✔ Only 19 read-only permissions
+> ✔ No write, delete, or tagging access
+> ✔ Safe for production accounts — CleanCloud cannot mutate your cloud
+
 | Scenario | What you need |
 |---|---|
 | Single-account scan | [19 read-only permissions](#iam-policy-minimum-required-permissions) |
 | Multi-account — spoke accounts | Same 19 permissions (no changes needed) |
 | Multi-account — hub account | Same 19 + `sts:AssumeRole` on spoke roles |
 | `--org` auto-discovery (hub only) | Above + `organizations:ListAccounts` |
-
-All permissions are read-only. No `Delete*`, `Create*`, or `Tag*` actions — ever.
 
 ---
 
@@ -51,9 +91,41 @@ cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-r
 
 ---
 
-## Quick Setup
+## Authentication Methods
 
-Get OIDC running in 3 steps:
+### 1. Local Development (AWS CLI Profile)
+
+The simplest setup for running scans locally.
+
+```bash
+# Configure a named profile
+aws configure --profile cleancloud
+
+# Use with CleanCloud
+cleancloud scan --provider aws --profile cleancloud --all-regions
+```
+
+Or use your default profile (no `--profile` flag needed):
+
+```bash
+aws configure
+cleancloud scan --provider aws --all-regions
+```
+
+---
+
+### 2. CI/CD Setup (Optional – for automation)
+
+Only needed if you want:
+- Scheduled scans running automatically
+- CI enforcement (`--fail-on-cost`, `--fail-on-confidence`)
+- No long-lived credentials in your pipeline (SOC2 compliant)
+
+Otherwise, skip this section — local CLI setup is enough.
+
+**No long-lived credentials, temporary tokens only.**
+
+#### Quick setup (3 steps)
 
 ```bash
 # 1. Create OIDC identity provider (one-time per AWS account)
@@ -84,21 +156,27 @@ Then add to your workflow:
 
 > ⚠️ **Common mistake:** The trust policy subject must exactly match your workflow trigger. Branch push, PR, and GitHub Environment each send a different subject claim — using the wrong one causes `AccessDenied`. See [OIDC subject mismatch](#oidc-subject-claim-mismatch).
 
-Full walkthrough → [GitHub Actions OIDC setup](#1-github-actions-oidc-recommended-for-cicd)
+Full walkthrough → [Full OIDC Setup](#full-oidc-setup)
 
 ---
 
-## Authentication Methods
+### 3. Environment Variables
 
-CleanCloud supports multiple AWS authentication methods:
+```bash
+export AWS_ACCESS_KEY_ID=<your-key>
+export AWS_SECRET_ACCESS_KEY=<your-secret>
+export AWS_DEFAULT_REGION=us-east-1
 
-### 1. GitHub Actions OIDC (Recommended for CI/CD)
+cleancloud scan --provider aws --region us-east-1
+```
 
-**No long-lived credentials, temporary tokens only, SOC2 compliant.**
+**Not recommended for CI/CD** — use OIDC instead (no long-lived credentials to rotate or leak).
 
-#### Setup Steps
+---
 
-**Step 1: Create the OIDC Identity Provider** (one-time per AWS account)
+## Full OIDC Setup
+
+#### Step 1: Create the OIDC Identity Provider (one-time per AWS account)
 ```bash
 aws iam create-open-id-connect-provider \
   --url https://token.actions.githubusercontent.com \
@@ -107,7 +185,7 @@ aws iam create-open-id-connect-provider \
 
 > **Note:** A `--thumbprint-list` parameter is no longer required. AWS validates GitHub's OIDC tokens directly without certificate pinning. See [aws-actions/configure-aws-credentials](https://github.com/aws-actions/configure-aws-credentials) for details.
 
-**Step 2: Create the trust policy file** (`cleancloud-trust-policy.json`)
+#### Step 2: Create the trust policy file (`cleancloud-trust-policy.json`)
 
 Choose the subject format that matches how your GitHub Actions workflow runs:
 
@@ -167,14 +245,14 @@ Replace:
 - `<ACCOUNT_ID>` — Your AWS account ID
 - `<YOUR_ORG>/<YOUR_REPO>` — Your GitHub organization and repository
 
-**Step 3: Create the IAM role**
+#### Step 3: Create the IAM role
 ```bash
 aws iam create-role \
   --role-name CleanCloudCIReadOnly \
   --assume-role-policy-document file://cleancloud-trust-policy.json
 ```
 
-**Step 4: Attach the read-only policy** (see [IAM Policy](#iam-policy-minimum-required-permissions) below)
+#### Step 4: Attach the read-only policy (see [IAM Policy](#iam-policy-minimum-required-permissions) below)
 ```bash
 aws iam put-role-policy \
   --role-name CleanCloudCIReadOnly \
@@ -182,7 +260,7 @@ aws iam put-role-policy \
   --policy-document file://cleancloud-policy.json
 ```
 
-**Step 5: Add your AWS account ID as a GitHub repository variable**
+#### Step 5: Add your AWS account ID as a GitHub repository variable
 
 Go to your repo → Settings → Secrets and variables → Actions → Variables tab → New repository variable:
 - Name: `AWS_ACCOUNT_ID`
@@ -218,32 +296,6 @@ jobs:
 ```
 
 For the complete production workflow with enforcement flags, scheduling, and artifact upload: **[CI/CD guide →](ci.md)**
-
----
-
-### 2. AWS CLI Profiles (Local Development)
-
-```bash
-# Configure profile
-aws configure --profile cleancloud
-
-# Use with CleanCloud
-cleancloud scan --provider aws --profile cleancloud --region us-east-1
-```
-
----
-
-### 3. Environment Variables
-
-```bash
-export AWS_ACCESS_KEY_ID=<your-key>
-export AWS_SECRET_ACCESS_KEY=<your-secret>
-export AWS_DEFAULT_REGION=us-east-1
-
-cleancloud scan --provider aws --region us-east-1
-```
-
-**Not recommended for CI/CD** - Use OIDC instead
 
 ---
 
@@ -326,9 +378,26 @@ Attach this policy to your IAM role or user:
 
 ---
 
-## Multi-Account Scanning
+## Multi-Account Scanning (Advanced)
 
 Scan multiple AWS accounts in a single run. CleanCloud assumes a cross-account IAM role in each target account, scans in parallel, and produces an aggregated report.
+
+### Choose your setup
+
+| Scale | Recommended approach |
+|---|---|
+| 1–5 accounts | [Option A: AWS CLI](#option-a-aws-cli-quickest----1-to-10-accounts) — no prerequisites, 30 seconds per account |
+| 5–50 accounts | [Option B: CloudFormation StackSet](#option-b-cloudformation-stackset-10-accounts-aws-native) — deploys to all accounts in one operation |
+| Already using Terraform | [Option C: Terraform module](#option-c-terraform-if-you-already-manage-iam-with-terraform) — drop into your existing codebase |
+
+> **Two roles, two purposes.** Multi-account scanning uses two distinct IAM roles — don't confuse them:
+>
+> | Role | Lives in | Trusted by | Purpose |
+> |---|---|---|---|
+> | `CleanCloudCIReadOnly` | Hub account | GitHub Actions OIDC | What CleanCloud *runs as* in CI |
+> | `CleanCloudReadOnlyRole` | Each spoke account | Hub account (STS) | What CleanCloud *assumes into* per target account |
+>
+> The [CI/CD Setup](#2-cicd-setup-oidc--recommended) section above covers `CleanCloudCIReadOnly`. This section covers `CleanCloudReadOnlyRole`.
 
 ### Choosing a discovery mode
 
@@ -348,7 +417,7 @@ Three steps, done once:
 
 Use the CloudFormation template or Terraform module to create `CleanCloudReadOnlyRole` in every account you want to scan. For an AWS Organization, a single StackSet deploys to all accounts at once.
 
-→ [CloudFormation StackSet](#option-a-cloudformation-stackset-aws-native-recommended) · [Terraform module](#option-b-terraform-module)
+→ [CloudFormation StackSet](#option-b-cloudformation-stackset-10-accounts-aws-native) · [Terraform module](#option-c-terraform-if-you-already-manage-iam-with-terraform)
 
 **Step 2 — Ensure your hub account has `sts:AssumeRole` permission**
 
@@ -375,15 +444,6 @@ cleancloud scan --provider aws --multi-account .cleancloud/accounts.yaml --all-r
 Not sure if everything is wired up correctly? Run `cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml` first — it validates role assumption account by account before touching anything.
 
 ---
-
-> **Two roles, two purposes.** Multi-account scanning uses two distinct IAM roles — don't confuse them:
->
-> | Role | Lives in | Trusted by | Purpose |
-> |---|---|---|---|
-> | `CleanCloudCIReadOnly` | Hub account | GitHub Actions OIDC | What CleanCloud *runs as* in CI |
-> | `CleanCloudReadOnlyRole` | Each spoke account | Hub account (STS) | What CleanCloud *assumes into* per target account |
->
-> The sections above cover `CleanCloudCIReadOnly`. This section covers `CleanCloudReadOnlyRole`.
 
 ### IAM Setup (Target Accounts)
 
@@ -448,8 +508,6 @@ Replace `<HUB_ACCOUNT_ID>` with the account ID where CleanCloud runs (your CI/CD
   "Resource": "*"
 }
 ```
-
-> **Deploy the spoke role once per account.** Three options depending on your scale — start with Option A if you have a handful of accounts.
 
 ---
 
@@ -545,6 +603,15 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM
 ```
 
+**To include AI/ML rules:**
+```bash
+aws cloudformation deploy \
+  --stack-name cleancloud-role \
+  --template-file deploy/cloudformation/cleancloud-role.yaml \
+  --parameter-overrides HubAccountId=<HUB_ACCOUNT_ID> EnableAIScan=true \
+  --capabilities CAPABILITY_NAMED_IAM
+```
+
 ---
 
 #### Option C: Terraform (if you already manage IAM with Terraform)
@@ -590,6 +657,16 @@ module "cleancloud_role" {
 
   hub_account_id = "<HUB_ACCOUNT_ID>"
   external_id    = "my-secret-token"
+}
+```
+
+**With AI/ML rules:**
+```hcl
+module "cleancloud_role" {
+  source = "github.com/cleancloud-io/cleancloud//deploy/terraform/aws"
+
+  hub_account_id = "<HUB_ACCOUNT_ID>"
+  enable_ai      = true
 }
 ```
 
@@ -736,7 +813,7 @@ cleancloud doctor --provider aws --region us-east-1
 - Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
 - CI/CD readiness and compliance compatibility
 - Account ID, User ID, and ARN
-- All 18 required read-only permissions
+- All 19 required read-only permissions
 
 **Example output:**
 ```
@@ -789,10 +866,12 @@ Step 4: Read-Only Permission Validation
 [OK] rds:DescribeDBSnapshots
 [OK] elasticloadbalancing:DescribeLoadBalancers
 [OK] elasticloadbalancing:DescribeTargetGroups
+[OK] elasticloadbalancing:DescribeTargetHealth
 [OK] logs:DescribeLogGroups
 [OK] cloudwatch:GetMetricStatistics
 [OK] s3:ListAllMyBuckets
 [OK] s3:GetBucketTagging
+[OK] sts:GetCallerIdentity
 
 ======================================================================
 VALIDATION SUMMARY
