@@ -33,6 +33,29 @@ resource "aws_iam_role" "cleancloud" {
   })
 }
 
+resource "aws_iam_role_policy" "cleancloud_ai" {
+  count = var.enable_ai ? 1 : 0
+
+  name = "CleanCloudAIReadOnly"
+  role = aws_iam_role.cleancloud.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SageMakerReadOnly"
+        Effect = "Allow"
+        Action = [
+          "sagemaker:ListEndpoints",
+          "sagemaker:DescribeEndpoint",
+          "sagemaker:DescribeEndpointConfig",
+        ]
+        Resource = "*"
+      },
+    ]
+  })
+}
+
 resource "aws_iam_role_policy" "cleancloud" {
   name = "CleanCloudReadOnly"
   role = aws_iam_role.cleancloud.id

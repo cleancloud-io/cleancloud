@@ -20,6 +20,12 @@ variable "external_id" {
   description = "Optional. If set, adds an ExternalId condition to the trust policy (confused deputy protection). Pass the same value via --external-id in CleanCloud."
 }
 
+variable "enable_ai" {
+  type        = bool
+  default     = false
+  description = "Attach the AI/ML policy (SageMaker idle endpoint detection). Required for: cleancloud scan --category ai. See: security/aws/ai-readonly.json"
+}
+
 variable "tags" {
   type        = map(string)
   default     = {}

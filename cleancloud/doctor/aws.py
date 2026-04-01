@@ -645,13 +645,26 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         # present since ListEndpoints already confirmed SageMaker access.
         endpoints = sagemaker.list_endpoints(MaxResults=1, StatusEquals="InService")
         endpoint_list = endpoints.get("Endpoints", [])
+        endpoint_config_name = None
         if endpoint_list:
-            sagemaker.describe_endpoint(EndpointName=endpoint_list[0]["EndpointName"])
+            ep = sagemaker.describe_endpoint(EndpointName=endpoint_list[0]["EndpointName"])
+            endpoint_config_name = ep.get("EndpointConfigName")
         permissions_tested.append("sagemaker:DescribeEndpoint")
         success("sagemaker:DescribeEndpoint")
     except Exception as e:
         permissions_failed.append(("sagemaker:DescribeEndpoint", str(e)))
         warn(f"sagemaker:DescribeEndpoint - {e}")
+        endpoint_config_name = None
+
+    try:
+        # DescribeEndpointConfig — needed to resolve instance type (not in DescribeEndpoint response)
+        if endpoint_config_name:
+            sagemaker.describe_endpoint_config(EndpointConfigName=endpoint_config_name)
+        permissions_tested.append("sagemaker:DescribeEndpointConfig")
+        success("sagemaker:DescribeEndpointConfig")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeEndpointConfig", str(e)))
+        warn(f"sagemaker:DescribeEndpointConfig - {e}")
 
     try:
         cloudwatch = session.client("cloudwatch", region_name=region)

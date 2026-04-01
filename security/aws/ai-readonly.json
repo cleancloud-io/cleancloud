@@ -6,7 +6,8 @@
       "Effect": "Allow",
       "Action": [
         "sagemaker:ListEndpoints",
-        "sagemaker:DescribeEndpoint"
+        "sagemaker:DescribeEndpoint",
+        "sagemaker:DescribeEndpointConfig"
       ],
       "Resource": "*"
     }

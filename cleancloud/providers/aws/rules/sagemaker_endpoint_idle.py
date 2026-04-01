@@ -199,7 +199,7 @@ def find_idle_sagemaker_endpoints(
             raise PermissionError(
                 "Missing required IAM permissions: "
                 "sagemaker:ListEndpoints, sagemaker:DescribeEndpoint, "
-                "cloudwatch:GetMetricStatistics"
+                "sagemaker:DescribeEndpointConfig, cloudwatch:GetMetricStatistics"
             ) from e
         raise
 
@@ -246,17 +246,34 @@ def _describe_endpoint(
 ) -> Tuple[float, bool, int, int, Optional[str]]:
     """Return (monthly_cost, is_gpu, variant_count, total_instances, primary_instance_type).
 
+    Instance type lives in the endpoint *config* (describe_endpoint_config), not in
+    the endpoint summary (describe_endpoint ProductionVariantSummary has no InstanceType
+    field — only DesiredInstanceCount). We make two calls: one for instance counts,
+    one for instance types, then pair them by VariantName.
+
     Cost is computed per-variant using DesiredInstanceCount × per-instance cost, summed
     across all variants. GPU flag is True if any variant uses an accelerator instance.
 
-    Returns (default_cost, False, 1, 1, None) on failure to ensure the endpoint is
-    still flagged conservatively rather than silently dropped.
+    Returns (0, False, 0, 0, None) on failure so the endpoint is skipped rather than
+    flagged with assumed values.
     """
     try:
-        response = sagemaker.describe_endpoint(EndpointName=endpoint_name)
-        variants = response.get("ProductionVariants", [])
+        endpoint = sagemaker.describe_endpoint(EndpointName=endpoint_name)
+        variants = endpoint.get("ProductionVariants", [])
         if not variants:
             return _DEFAULT_MONTHLY_COST, False, 0, 0, None
+
+        # Fetch instance types from the endpoint config
+        config_name = endpoint.get("EndpointConfigName", "")
+        instance_type_by_variant: dict = {}
+        try:
+            config = sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
+            for cv in config.get("ProductionVariants", []):
+                itype = cv.get("InstanceType")
+                if itype:
+                    instance_type_by_variant[cv["VariantName"]] = itype
+        except ClientError:
+            pass  # config inaccessible — costs/GPU will use defaults
 
         total_monthly_cost = 0.0
         is_gpu = False
@@ -264,7 +281,7 @@ def _describe_endpoint(
         primary_instance_type: Optional[str] = None
 
         for i, v in enumerate(variants):
-            itype = v.get("CurrentInstanceType")
+            itype = instance_type_by_variant.get(v.get("VariantName", ""))
             count = v.get("DesiredInstanceCount") or 0
             total_instances += count
 
