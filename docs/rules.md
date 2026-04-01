@@ -731,6 +731,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 **Required permissions:**
 - `sagemaker:ListEndpoints`
 - `sagemaker:DescribeEndpoint`
+- `sagemaker:DescribeEndpointConfig`
 - `cloudwatch:GetMetricStatistics`
 
 > **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.

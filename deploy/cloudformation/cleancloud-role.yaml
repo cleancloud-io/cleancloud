@@ -23,8 +23,18 @@ Parameters:
       Optional. If set, the hub account must provide this value when assuming the role
       (confused deputy protection). Pass the same value via --external-id in CleanCloud.
 
+  EnableAIScan:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: >
+      Set to true to attach the AI/ML policy (SageMaker idle endpoint detection).
+      Required for: cleancloud scan --category ai
+      See: security/aws/ai-readonly.json
+
 Conditions:
   UseExternalId: !Not [!Equals [!Ref ExternalId, ""]]
+  EnableAIScan: !Equals [!Ref EnableAIScan, "true"]
 
 Resources:
   CleanCloudRole:
@@ -96,6 +106,24 @@ Resources:
           Value: CleanCloud
         - Key: Purpose
           Value: CrossAccountReadOnlyScanning
+
+  CleanCloudAIPolicy:
+    Type: AWS::IAM::Policy
+    Condition: EnableAIScan
+    Properties:
+      PolicyName: CleanCloudAIReadOnly
+      Roles:
+        - !Ref CleanCloudRole
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: SageMakerReadOnly
+            Effect: Allow
+            Action:
+              - sagemaker:ListEndpoints
+              - sagemaker:DescribeEndpoint
+              - sagemaker:DescribeEndpointConfig
+            Resource: "*"
 
 Outputs:
   RoleArn:

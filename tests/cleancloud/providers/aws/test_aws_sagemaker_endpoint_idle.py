@@ -34,15 +34,26 @@ def _make_endpoint(name="test-endpoint", age_days=30):
 def _make_describe_response(
     instance_type="ml.m5.xlarge", variant_count=1, desired_instance_count=1
 ):
-    """Build a describe_endpoint response with DesiredInstanceCount on each variant."""
+    """Build a describe_endpoint response.
+
+    ProductionVariantSummary does NOT include InstanceType — that lives in the
+    endpoint config. We include EndpointConfigName so the rule can fetch it.
+    """
     variants = [
         {
             "VariantName": f"variant-{i}",
-            "CurrentInstanceType": instance_type,
             "CurrentInstanceCount": desired_instance_count,
             "DesiredInstanceCount": desired_instance_count,
         }
         for i in range(variant_count)
+    ]
+    return {"ProductionVariants": variants, "EndpointConfigName": "test-config"}
+
+
+def _make_describe_config_response(instance_type="ml.m5.xlarge", variant_count=1):
+    """Build a describe_endpoint_config response with InstanceType per variant."""
+    variants = [
+        {"VariantName": f"variant-{i}", "InstanceType": instance_type} for i in range(variant_count)
     ]
     return {"ProductionVariants": variants}
 
@@ -73,6 +84,7 @@ def test_idle_cpu_endpoint_detected():
     paginator = sagemaker.get_paginator.return_value
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response("ml.m5.xlarge")
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -99,6 +111,9 @@ def test_idle_gpu_endpoint_detected_high_risk():
     paginator = sagemaker.get_paginator.return_value
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.p3.2xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
+        "ml.p3.2xlarge"
+    )
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -156,6 +171,7 @@ def test_timezone_naive_creation_time_handled():
 
     paginator.paginate.return_value = [{"Endpoints": [endpoint]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response("ml.m5.xlarge")
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -212,7 +228,8 @@ def test_missing_desired_instance_count_treated_as_zero():
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     # No DesiredInstanceCount key — AWS response omits it
     sagemaker.describe_endpoint.return_value = {
-        "ProductionVariants": [{"VariantName": "v1", "CurrentInstanceType": "ml.m5.xlarge"}]
+        "ProductionVariants": [{"VariantName": "v1"}],
+        "EndpointConfigName": "test-config",
     }
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
@@ -233,9 +250,10 @@ def test_partial_scaled_to_zero_still_flagged():
     # 2 variants: one with 1 instance, one with 0
     sagemaker.describe_endpoint.return_value = {
         "ProductionVariants": [
-            {"VariantName": "v1", "CurrentInstanceType": "ml.m5.xlarge", "DesiredInstanceCount": 1},
-            {"VariantName": "v2", "CurrentInstanceType": "ml.m5.xlarge", "DesiredInstanceCount": 0},
-        ]
+            {"VariantName": "v1", "DesiredInstanceCount": 1},
+            {"VariantName": "v2", "DesiredInstanceCount": 0},
+        ],
+        "EndpointConfigName": "test-config",
     }
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
@@ -386,6 +404,9 @@ def test_g4dn_instance_detected_as_gpu():
     paginator = sagemaker.get_paginator.return_value
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.g4dn.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
+        "ml.g4dn.xlarge"
+    )
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -404,6 +425,9 @@ def test_inf1_instance_detected_as_gpu():
     paginator = sagemaker.get_paginator.return_value
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.inf1.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
+        "ml.inf1.xlarge"
+    )
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -427,6 +451,9 @@ def test_multi_variant_cost_scaled():
     sagemaker.describe_endpoint.return_value = _make_describe_response(
         "ml.m5.xlarge", variant_count=3
     )
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
+        "ml.m5.xlarge", variant_count=3
+    )
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
@@ -448,16 +475,15 @@ def test_multi_variant_mixed_instance_types_cost():
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = {
         "ProductionVariants": [
-            {
-                "VariantName": "cpu",
-                "CurrentInstanceType": "ml.m5.xlarge",
-                "DesiredInstanceCount": 2,
-            },
-            {
-                "VariantName": "gpu",
-                "CurrentInstanceType": "ml.g4dn.xlarge",
-                "DesiredInstanceCount": 1,
-            },
+            {"VariantName": "cpu", "DesiredInstanceCount": 2},
+            {"VariantName": "gpu", "DesiredInstanceCount": 1},
+        ],
+        "EndpointConfigName": "test-config",
+    }
+    sagemaker.describe_endpoint_config.return_value = {
+        "ProductionVariants": [
+            {"VariantName": "cpu", "InstanceType": "ml.m5.xlarge"},
+            {"VariantName": "gpu", "InstanceType": "ml.g4dn.xlarge"},
         ]
     }
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
