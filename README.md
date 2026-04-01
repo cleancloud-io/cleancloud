@@ -11,13 +11,28 @@
 
 ---
 
+## Quick Start
+
+```bash
+pipx install cleancloud
+cleancloud demo        # see sample findings — no credentials needed
+```
+
+Scan your cloud:
+
+```bash
+cleancloud scan --provider aws --all-regions
+cleancloud scan --provider azure
+cleancloud scan --provider gcp --all-projects
+```
+
+---
+
 **CleanCloud is the Cloud Hygiene Engine — the missing layer between cost visibility and cleanup.**
 
 **Supports:** AWS · Azure · GCP
 
-Cloud waste hit 29% of spend in 2026 — the first rise in five years (Flexera). Most teams already have cost dashboards. Dashboards show spend trends; they don't tell engineers what to clean up. SaaS FinOps platforms require vendor access to your cloud account — a non-starter for regulated industries. And as cloud environments scale across accounts and subscriptions, unused resources are no longer exceptions — they are continuous drift. Platform teams need a deterministic, enforceable process to turn that drift into a list of exactly what to act on.
-
-That's CleanCloud. Scan your AWS, Azure, and GCP environments, get specific actionable findings with per-resource cost estimates, and enforce waste thresholds on a schedule — no agents, no SaaS, no data leaving your environment.
+CleanCloud scans your AWS, Azure, and GCP environments and tells you exactly what to clean up — with per-resource cost estimates. No agents. No SaaS. Read-only. Runs entirely in your environment.
 
 | | AWS/Azure/GCP native cost tools | FinOps SaaS platforms | **CleanCloud** |
 |---|:---:|:---:|:---:|
@@ -29,36 +44,6 @@ That's CleanCloud. Scan your AWS, Azure, and GCP environments, get specific acti
 | No SaaS account or vendor access required | ❌ | ❌ | ✅ |
 | Multi-account / multi-subscription / multi-project | ❌ | ✅ | ✅ |
 | CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
-
-- **32 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker, Azure ML) are opt-in via `--category ai`
-- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
-- **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
-- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
-- **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
-- **Safe for regulated environments:** read-only, no agents, no telemetry, no SaaS — runs entirely inside your own infrastructure. Suitable for financial services, healthcare, and government accounts where third-party SaaS access is restricted
-- **Ecosystem-ready output:** JSON for Slack alerts, cost dashboards, and ticketing automation — CSV for spreadsheet workflows — markdown to paste directly into GitHub PRs, Jira, or Confluence
-- **No agents. No telemetry. No SaaS.** Data never leaves your environment
-
-### What CleanCloud does NOT do
-
-| | |
-|---|---|
-| ❌ Delete resources | ❌ Modify or create tags |
-| ❌ Write to any cloud API | ❌ Store or log credentials |
-| ❌ Send telemetry or usage data | ❌ Require a SaaS account or agent |
-
-All operations are read-only. Safe for production accounts, air-gapped environments, and security-reviewed pipelines.
-
-**Who uses it:**
-- **Platform and FinOps teams** — run weekly hygiene scans across your AWS Org or Azure tenant, enforce waste thresholds, catch drift before it compounds
-- **Regulated industries** — financial services, healthcare, and government teams that cannot send cloud account data to a SaaS vendor
-- **Mid-market engineering teams** — too large to ignore cloud waste, too lean for enterprise FinOps platforms. Native cost tools show bills; CleanCloud shows you what to fix
-- **Cloud consultants and MSPs** — run a read-only audit against a client account in minutes, export findings to markdown or JSON
-
-**Use cases:**
-- One-time cloud waste audit — run in CloudShell, see findings in 60 seconds
-- Scheduled hygiene governance — weekly job that catches new waste and enforces thresholds across all accounts
-- Pre-review reports — export findings to markdown before a quarterly cost review or board meeting
 
 ## What It Looks Like
 
@@ -154,6 +139,39 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ---
 
+## Key Features
+
+- **32 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker, Azure ML) are opt-in via `--category ai`
+- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
+- **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
+- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
+- **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
+- **Safe for regulated environments:** no agents, no telemetry, no SaaS — runs entirely inside your own infrastructure. Suitable for financial services, healthcare, and government accounts where third-party SaaS access is restricted
+- **Ecosystem-ready output:** JSON for Slack alerts, cost dashboards, and ticketing automation — CSV for spreadsheet workflows — markdown to paste directly into GitHub PRs, Jira, or Confluence
+
+### What CleanCloud does NOT do
+
+| | |
+|---|---|
+| ❌ Delete resources | ❌ Modify or create tags |
+| ❌ Write to any cloud API | ❌ Store or log credentials |
+| ❌ Send telemetry or usage data | ❌ Require a SaaS account or agent |
+
+All operations are read-only. Safe for production accounts, air-gapped environments, and security-reviewed pipelines.
+
+**Who uses it:**
+- **Platform and FinOps teams** — run weekly hygiene scans across your AWS Org or Azure tenant, enforce waste thresholds, catch drift before it compounds
+- **Regulated industries** — financial services, healthcare, and government teams that cannot send cloud account data to a SaaS vendor
+- **Mid-market engineering teams** — too large to ignore cloud waste, too lean for enterprise FinOps platforms. Native cost tools show bills; CleanCloud shows what to fix
+- **Cloud consultants and MSPs** — run a read-only audit against a client account in minutes, export findings to markdown or JSON
+
+**Use cases:**
+- One-time cloud waste audit — run in CloudShell, see findings in 60 seconds
+- Scheduled hygiene governance — weekly job that catches new waste and enforces thresholds across all accounts
+- Pre-review reports — export findings to markdown before a quarterly cost review or board meeting
+
+---
+
 ## Get Started
 
 ### Commands
@@ -202,15 +220,9 @@ cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
 ```
 
-**Not sure if your credentials have the right permissions?** 
+**Not sure if your credentials have the right permissions?**
 
-Run:
-
-`cleancloud doctor --provider aws`, 
-
-`cleancloud doctor --provider azure`, or 
-
-`cleancloud doctor --provider gcp` first.
+Run `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure`, or `cleancloud doctor --provider gcp` first.
 
 ### Scan flags:
 
@@ -267,11 +279,7 @@ cleancloud doctor --provider gcp    # check what permissions your session has
 cleancloud scan --provider gcp --all-projects
 ```
 
-Both AWS and Azure shells authenticate using your portal session — no separate credentials needed. 
-
-GCP Cloud Shell authenticates via gcloud Application Default Credentials, which are pre-configured in Cloud Shell.
-
-Permissions vary by account; `doctor` tells you exactly what's available before you scan. If permissions are missing, CleanCloud skips those rules and reports what was skipped.
+All three shells authenticate using your portal session — no separate credentials needed. Permissions vary by account; `doctor` tells you exactly what's available before you scan. If permissions are missing, CleanCloud skips those rules and reports what was skipped.
 
 <details>
 <summary>Install troubleshooting</summary>
@@ -396,7 +404,7 @@ cleancloud scan --provider azure --management-group <MGMT_GROUP_ID> \
   --fail-on-cost 500
 ```
 
-The JSON output can feed Slack alerts, Jira tickets, or a cost dashboard. No agents, no SaaS — runs entirely in your own infrastructure.
+The JSON output can feed Slack alerts, Jira tickets, or a cost dashboard.
 
 ---
 
@@ -440,13 +448,14 @@ cleancloud scan --provider azure \
 
 Copy-pasteable GitHub Actions workflows for AWS (OIDC) and Azure (Workload Identity) — including auth setup, RBAC, and enforcement patterns:
 
-**[Automation & CI/CD guide →](docs/ci.md)** · [AWS setup →](docs/aws.md) · [Azure setup →](docs/azure.md)
+**[Automation & CI/CD guide →](docs/ci.md)** · [AWS setup →](docs/aws.md) · [Azure setup →](docs/azure.md) · [GCP setup →](docs/gcp.md)
 
 **Need help with OIDC or enforcement flags?** [Ask in our setup discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
 
 ---
 
-## Multi-Account Scanning (AWS only)
+<details>
+<summary>Multi-Account Scanning (AWS)</summary>
 
 Built for enterprises running AWS Organizations. Scan every account in parallel — findings aggregated into one report.
 
@@ -490,23 +499,22 @@ accounts:
 }
 ```
 
-Full IAM policy, trust policy, and IaC templates: [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
-
 **How it works:**
 
 - **Hub-and-spoke** — CleanCloud assumes `CleanCloudReadOnlyRole` in each target account using STS. No persistent access, no stored credentials.
 - **Three discovery modes** — `.cleancloud/accounts.yaml` for explicit control, `--accounts` for quick ad-hoc scans, `--org` for full AWS Organizations auto-discovery.
 - **Efficient region detection** — active regions are discovered once on the hub account and reused across all spokes. Without this: N accounts × 160 API calls just for region probing. With it: 160 calls once.
 - **Parallel with isolation** — each account runs in its own thread with its own session. One account failing (AccessDenied, timeout) never affects the others.
-- **Partial-success visibility** — if 2 regions fail and 7 succeed within an account, the account is marked `partial` with the failed regions named. You see exactly what was missed, not just a binary pass/fail.
+- **Partial-success visibility** — if 2 regions fail and 7 succeed within an account, the account is marked `partial` with the failed regions named.
 - **Live progress** — `[3/50] done production (123456789012) — 47s, 12 findings` printed as each account completes.
 - **Per-account cost breakdown** — JSON output includes estimated monthly waste per account, sortable and scriptable.
 
 Full setup guide (IAM policy, trust policy, IaC templates): [AWS multi-account setup →](docs/aws.md#multi-account-scanning)
 
----
+</details>
 
-## Multi-Subscription Scanning (Azure)
+<details>
+<summary>Multi-Subscription Scanning (Azure)</summary>
 
 Built for enterprises running large Azure tenants. Scan every subscription in parallel with one identity — findings aggregated into one report with a per-subscription cost breakdown.
 
@@ -547,9 +555,10 @@ az role assignment create \
 
 Full setup guide (RBAC, Workload Identity, Management Group): [Azure multi-subscription setup →](docs/azure.md#multi-subscription-scanning)
 
----
+</details>
 
-## Multi-Project Scanning (GCP)
+<details>
+<summary>Multi-Project Scanning (GCP)</summary>
 
 Built for teams running multiple GCP projects. Scan all accessible projects in parallel with one identity — findings aggregated into one report with a per-project cost breakdown.
 
@@ -587,6 +596,8 @@ All read-only permissions are covered by four predefined roles: `roles/compute.v
 - **Per-project cost breakdown** — output shows estimated monthly waste per project.
 
 Full setup guide: [GCP setup →](docs/gcp.md)
+
+</details>
 
 ---
 

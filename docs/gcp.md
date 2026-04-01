@@ -61,7 +61,7 @@ cleancloud scan --provider gcp --all-projects --concurrency 8
 > | **IAM setup** | Create SA and WIF pool here | Grant the SA read-only access here (at org level — covers all at once) |
 > | **AWS equivalent** | Hub account | Spoke accounts |
 >
-> The service account lives in the host project but scans target projects. Unlike AWS (where you deploy a role to each spoke account), GCP uses a single org-level IAM binding that covers every project automatically — present and future.
+> The service account lives in the host project but scans target projects. Unlike AWS (where you deploy a role to each spoke account), GCP uses a single org-level IAM binding that covers all existing and future projects in your org automatically — no per-project setup needed.
 
 ---
 
@@ -132,7 +132,9 @@ gcloud iam workload-identity-pools providers create-oidc "github" \
 
 > `--attribute-condition` restricts token exchange to your repo only. Without it, any GitHub repo could impersonate the service account. Don't skip it.
 >
-> **Multi-trigger workflows** (branch push + PR + schedule): `assertion.repository=='${YOUR_GITHUB_REPO}'` already covers all trigger types — it checks the repo name, not the trigger. You only need a more specific condition if you want to restrict by branch or environment (e.g. `assertion.sub.startsWith('repo:${YOUR_GITHUB_REPO}:ref:refs/heads/main')`). The default shown above is correct for most setups.
+> **Multi-trigger workflows** (branch push + PR + schedule): `assertion.repository=='${YOUR_GITHUB_REPO}'` covers all of these — it checks the repo name, not the trigger type. The default shown above is correct for most setups.
+>
+> ⚠️ **GitHub Environment workflows:** If your workflow uses `environment: production`, GitHub sends a subject like `repo:<ORG>/<REPO>:environment:production`. The repository-based condition still matches, but if you use a *subject-based* condition (e.g. `assertion.sub.startsWith('...:ref:refs/heads/main')`), it will reject environment triggers with `INVALID_ARGUMENT`. If you're seeing token exchange failures only on environment-triggered runs, this is the cause — see [Workload Identity: INVALID_ARGUMENT](#workload-identity-invalid_argument-or-token-exchange-fails) in Troubleshooting.
 
 **Allow GitHub Actions to impersonate the service account:**
 
@@ -314,6 +316,18 @@ cleancloud scan --provider gcp --project "${TARGET_PROJECT_ID}"
 
 > **⚠ Every new project requires a manual IAM update.** If you add a project and forget to run `gcloud projects add-iam-policy-binding`, CleanCloud will silently skip it with no findings. Switch to [org-level binding](#step-2-bind-read-only-roles-at-the-organization-level) to avoid this — it's the same number of steps and covers new projects automatically.
 
+To grant access to multiple projects at once without org-level IAM:
+
+```bash
+for PROJECT_ID in proj-1 proj-2 proj-3; do
+  for ROLE in roles/compute.viewer roles/cloudsql.viewer roles/monitoring.viewer; do
+    gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+      --member="serviceAccount:${SA_EMAIL}" \
+      --role="${ROLE}"
+  done
+done
+```
+
 ---
 
 ## Scanning at Scale
@@ -342,6 +356,12 @@ The maximum is 16 (hard cap). Higher concurrency can hit GCP API quota limits:
 | 100 | 16 | ~3–5 min |
 
 Times vary with API latency. Cloud SQL monitoring queries are the slowest rule per project.
+
+### Output files
+
+When using `--output-file`, the JSON file is written to the current working directory of the process:
+- **Locally:** the directory where you ran `cleancloud scan`
+- **GitHub Actions:** the runner workspace (e.g. `/home/runner/work/<repo>/<repo>/gcp-findings.json`) — use `actions/upload-artifact` to persist it beyond the run (see [Step 3](#step-3-configure-github-actions) workflow above)
 
 ### What `--all-projects` scans
 
@@ -388,13 +408,15 @@ project_id                   → CLEANCLOUD_GCP_TEST_PROJECT variable
 iam_scope                    → confirms org or project level
 ```
 
-**Single-project** (no org access): omit `organization_id` — IAM roles are bound to `project_id` only:
+**Single-project** (no org access): omit `organization_id` — IAM roles are bound to `project_id` only. New projects will **not** be covered automatically; you must re-run Terraform for each additional project.
 
 ```bash
 terraform apply \
   -var="project_id=my-target-project" \
   -var="github_repo=<ORG>/<REPO>"
 ```
+
+> ⚠️ The Terraform identity running `terraform apply` must have `roles/iam.organizationRoleAdmin` (or equivalent) at the org or folder level to bind IAM. If you omit `organization_id`, project-level `roles/owner` or `roles/resourcemanager.projectIamAdmin` on the target project is sufficient.
 
 **Without Workload Identity** (non-GitHub CI):
 
@@ -451,7 +473,9 @@ cleancloud scan --provider gcp --all-projects
 
 ### 4. Attached Service Account (GKE / Cloud Run / Compute Engine)
 
-If CleanCloud runs inside GCP (GKE pod, Cloud Run job, Compute Engine VM), it automatically picks up the attached service account. Ensure that service account has the same roles as `cleancloud-scanner`:
+If CleanCloud runs inside GCP (GKE pod, Cloud Run job, Compute Engine VM), it automatically picks up the attached service account. Ensure that service account has the same roles as `cleancloud-scanner`.
+
+**Org-wide (scans all projects):**
 
 ```bash
 for ROLE in roles/compute.viewer roles/cloudsql.viewer roles/monitoring.viewer roles/browser; do
@@ -460,6 +484,8 @@ for ROLE in roles/compute.viewer roles/cloudsql.viewer roles/monitoring.viewer r
     --role="${ROLE}"
 done
 ```
+
+> If the attached service account only has project-level IAM (not org-level), replace `gcloud organizations add-iam-policy-binding` with `gcloud projects add-iam-policy-binding <PROJECT_ID>` for each project you want to scan. `--all-projects` will only return projects the SA can enumerate via `roles/browser`.
 
 ---
 
