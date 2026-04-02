@@ -29,6 +29,7 @@ from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
     _LOW_TRAFFIC_THRESHOLD,
     _LOW_TRAFFIC_THRESHOLD_GPU,
     _MACHINE_MONTHLY_COST,
+    _MIN_MONTHLY_COST_USD,
     RULE_METADATA,
     find_idle_vertex_endpoints,
 )
@@ -338,21 +339,34 @@ def test_cpu_endpoint_not_affected_by_gpu_threshold():
 
 
 def test_replica_aware_threshold_scales_with_replicas():
-    """3-replica CPU endpoint: effective_threshold = 10 * 3 = 30; count=25 → near-idle."""
+    """3-replica CPU endpoint: threshold = int(10 * sqrt(3)) = 17; count=16 → near-idle."""
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    # 25 requests < 30 (effective threshold) → near-idle for 3-replica endpoint
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 25})
+    # sqrt(3) ≈ 1.732 → threshold = int(10 * 1.732) = 17
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 16})
 
     assert len(findings) == 1
     assert findings[0].confidence.value == "medium"
-    assert findings[0].details["effective_threshold"] == 30
+    assert findings[0].details["effective_threshold"] == 17
 
 
 def test_replica_aware_threshold_active_when_above_scaled():
-    """3-replica CPU endpoint: count=30 → active (at the scaled threshold)."""
+    """3-replica CPU endpoint: count >= sqrt-scaled threshold → active."""
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 30})
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 17})  # at threshold → active
     assert findings == []
+
+
+def test_sublinear_scaling_prevents_over_leniency():
+    """20-replica endpoint: threshold = int(10 * sqrt(20)) ≈ 44, not 200."""
+    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=20)
+    expected_threshold = int(10 * max(1.0, 20**0.5))  # int(44.7) = 44
+
+    # At threshold → active
+    assert _run([ep], request_counts={_ENDPOINT_ID: expected_threshold}) == []
+    # Below threshold → near-idle
+    findings = _run([ep], request_counts={_ENDPOINT_ID: expected_threshold - 1})
+    assert len(findings) == 1
+    assert findings[0].details["effective_threshold"] == expected_threshold
 
 
 def test_no_monitoring_data_unknown_age_skipped():
@@ -365,8 +379,9 @@ def test_no_monitoring_data_unknown_age_skipped():
 
 
 def test_no_monitoring_data_known_age_still_flagged():
-    """No monitoring data but known age ≥ threshold → still flagged (age is known)."""
-    ep = _endpoint(create_time=NOW - timedelta(days=20))  # age=20 ≥ 14
+    """No monitoring data + age ≥ 2×idle_threshold → still flagged (age well-established)."""
+    # Require age >= 2*14=28 before trusting absence of metrics as evidence of idleness
+    ep = _endpoint(create_time=NOW - timedelta(days=30))  # age=30 ≥ 28
     findings = _run([ep], request_counts={})  # no monitoring data
 
     assert len(findings) == 1
@@ -374,10 +389,10 @@ def test_no_monitoring_data_known_age_still_flagged():
 
 
 def test_high_confidence_requires_full_observation_window():
-    """HIGH confidence requires age >= 14 AND effective_window == 14 (full window)."""
-    # Age exactly at threshold → effective_window = min(14, 14) = 14 → HIGH
+    """HIGH confidence requires age >= 14 AND effective_window == 14 AND monitoring data present."""
+    # Age exactly at threshold; provide explicit 0 so monitoring data is present (no_monitoring_data=False)
     ep = _endpoint(create_time=NOW - timedelta(days=14))
-    findings = _run([ep])
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
     assert len(findings) == 1
     assert findings[0].confidence.value == "high"
 
@@ -483,16 +498,25 @@ def test_zero_min_replica_dedicated_resources_skipped():
 
 
 def test_confidence_high_when_age_gte_threshold():
+    """HIGH confidence when age > idle threshold and monitoring data confirms zero traffic."""
     ep = _endpoint(create_time=NOW - timedelta(days=_DAYS_IDLE + 5))
-    findings = _run([ep])
+    # Explicit 0-count series so monitoring data is present (no_monitoring_data=False)
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
     assert len(findings) == 1
     assert findings[0].confidence.value == "high"
 
 
 def test_confidence_medium_when_age_in_75_percent_window():
+    """age=80% of threshold → MEDIUM, but only when monitoring data is present.
+
+    When no monitoring data exists and age < idle threshold, the stricter guard skips
+    the endpoint to avoid false positives from metric lag. Provide explicit zero-count
+    series to confirm that MEDIUM confidence fires when monitoring confirms zero traffic.
+    """
     age = int(_DAYS_IDLE * 0.80)  # 80% of threshold → MEDIUM
     ep = _endpoint(create_time=NOW - timedelta(days=age))
-    findings = _run([ep])
+    # Explicit 0-count series → no_monitoring_data=False (confirmed zero traffic)
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
     assert len(findings) == 1
     assert findings[0].confidence.value == "medium"
 
@@ -923,6 +947,10 @@ def test_finding_fields_are_complete():
     assert d["idle_days_threshold"] == _DAYS_IDLE
     assert d["request_count"] == 0
     assert d["cost_basis"] == "us-central1 baseline estimate"
+    assert "us-central1" in d["cost_variance"]  # universal pricing disclaimer
+    assert isinstance(d["recommendations"], list)
+    assert len(d["recommendations"]) >= 1
+    assert d["waste_score"] > 0
 
 
 def test_no_monitoring_data_adds_transparency_signal():
@@ -1040,6 +1068,79 @@ def test_single_replica_no_replicas_signal():
     assert not any("replicas configured" in s for s in signals)
 
 
+def test_all_endpoints_have_cost_variance_in_details():
+    """All findings carry a cost_variance disclaimer — pricing varies by region for all machine types."""
+    gpu_ep = _endpoint(
+        machine_type="n1-standard-4",
+        accelerator_type="NVIDIA_TESLA_T4",
+        accelerator_count=1,
+    )
+    gpu_findings = _run([gpu_ep])
+    assert len(gpu_findings) == 1
+    assert "us-central1" in gpu_findings[0].details["cost_variance"]
+
+    cpu_ep = _endpoint(machine_type="n1-standard-4")
+    cpu_findings = _run([cpu_ep])
+    assert len(cpu_findings) == 1
+    assert "us-central1" in cpu_findings[0].details["cost_variance"]
+
+
+def test_recommendations_always_present():
+    """Every finding has a non-empty recommendations list."""
+    ep = _endpoint()
+    findings = _run([ep])
+    assert len(findings) == 1
+    recs = findings[0].details["recommendations"]
+    assert isinstance(recs, list)
+    assert len(recs) >= 2  # at minimum: switch to automaticResources + delete
+    assert any("automaticResources" in r for r in recs)
+    assert any("gcloud ai endpoints delete" in r for r in recs)
+
+
+def test_multi_replica_recommendation_included():
+    """Endpoints with multiple replicas get a specific reduce-replicas recommendation."""
+    ep = _endpoint(min_replica_count=3)
+    findings = _run([ep])
+    assert len(findings) == 1
+    recs = findings[0].details["recommendations"]
+    assert any("minReplicaCount" in r for r in recs)
+
+
+def test_experiment_pattern_recommendation_included():
+    """Multi-model endpoints get a consolidate recommendation."""
+    ep = _endpoint(
+        deployed_models=[
+            {
+                "id": "m1",
+                "dedicatedResources": {
+                    "machineSpec": {"machineType": "n1-standard-4"},
+                    "minReplicaCount": 1,
+                },
+            },
+            {
+                "id": "m2",
+                "dedicatedResources": {
+                    "machineSpec": {"machineType": "n1-standard-4"},
+                    "minReplicaCount": 1,
+                },
+            },
+        ]
+    )
+    findings = _run([ep])
+    assert len(findings) == 1
+    recs = findings[0].details["recommendations"]
+    assert any("Consolidate" in r or "consolidate" in r for r in recs)
+
+
+def test_min_cost_constant_is_reasonable():
+    """_MIN_MONTHLY_COST_USD is set and below the cheapest known machine type."""
+    assert _MIN_MONTHLY_COST_USD > 0
+    # All known machine types cost more than the filter threshold
+    from cleancloud.providers.gcp.rules.vertex_endpoint_idle import _MACHINE_MONTHLY_COST
+
+    assert all(cost >= _MIN_MONTHLY_COST_USD for cost in _MACHINE_MONTHLY_COST.values())
+
+
 def test_near_idle_finding_fields():
     """Near-idle findings have correct title, request_count in details, MEDIUM confidence."""
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
@@ -1051,3 +1152,213 @@ def test_near_idle_finding_fields():
     assert f.confidence.value == "medium"
     assert f.details["request_count"] == 3
     assert f.estimated_monthly_cost_usd > 0
+
+
+def test_no_monitoring_data_known_age_below_threshold_skipped():
+    """No monitoring data + known age < idle threshold → skipped (stricter guard).
+
+    Monitoring can be absent due to metric delay or permission gaps — not safe
+    to flag unless we have the full observation window confirmed by age.
+    """
+    # age=12 is >= 7 (past young-endpoint filter) but < 14 (_DAYS_IDLE)
+    ep = _endpoint(create_time=NOW - timedelta(days=12))
+    findings = _run([ep], request_counts={})  # absent from counts → no_monitoring_data=True
+    assert findings == []
+
+
+def test_no_monitoring_data_below_double_threshold_skipped():
+    """No monitoring data + age < 2×idle_threshold → skipped (bias toward false negatives)."""
+    # age=20 < 28 (2*14) → missing metrics insufficient evidence of idleness
+    ep = _endpoint(create_time=NOW - timedelta(days=20))
+    findings = _run([ep], request_counts={})
+    assert findings == []
+
+
+def test_no_monitoring_data_at_double_threshold_flagged():
+    """No monitoring data + age >= 2×idle_threshold → flagged with transparency signal."""
+    ep = _endpoint(create_time=NOW - timedelta(days=28))  # exactly 2×threshold
+    findings = _run([ep], request_counts={})
+    assert len(findings) == 1
+    assert findings[0].details["no_monitoring_data"] is True
+
+
+def test_threshold_strategy_in_details():
+    """All findings expose threshold_strategy='sqrt_replica_scaling' in details."""
+    ep = _endpoint()
+    findings = _run([ep])
+    assert len(findings) == 1
+    assert findings[0].details["threshold_strategy"] == "sqrt_replica_scaling"
+
+
+def test_sqrt_threshold_signal_in_evidence_for_multi_replica():
+    """Multi-replica endpoints include a signal explaining sqrt threshold scaling."""
+    ep = _endpoint(min_replica_count=3)
+    findings = _run([ep])
+    assert len(findings) == 1
+    signals = findings[0].evidence.signals_used
+    assert any("sqrt" in s.lower() or "sublinearly" in s.lower() for s in signals)
+
+
+# ---------------------------------------------------------------------------
+# Metric alignment edge cases (empty / long series, recency guard)
+# ---------------------------------------------------------------------------
+
+
+def _make_monitoring_client_with_empty_points(endpoint_id: str = _ENDPOINT_ID):
+    """Return a monitoring client whose series has zero points."""
+    client = MagicMock()
+    series = MagicMock()
+    series.points = []  # no data points
+    series.resource.labels = {"endpoint_id": endpoint_id}
+    client.list_time_series.return_value = [series]
+    return client
+
+
+def _make_monitoring_client_with_many_points(endpoint_id: str = _ENDPOINT_ID, n: int = 10):
+    """Return a monitoring client whose series has more than 5 points (anomalous)."""
+    client = MagicMock()
+    series = MagicMock()
+    points = []
+    for i in range(n):
+        p = MagicMock()
+        p.value.int64_value = 1
+        p.value.double_value = 0.0
+        points.append(p)
+    series.points = points
+    series.resource.labels = {"endpoint_id": endpoint_id}
+    client.list_time_series.return_value = [series]
+    return client
+
+
+def _make_monitoring_client_with_recent_traffic(endpoint_id: str = _ENDPOINT_ID):
+    """Return a monitoring client where the last point timestamp is within 24 hours."""
+    from datetime import timedelta
+
+    client = MagicMock()
+    series = MagicMock()
+    point = MagicMock()
+    point.value.int64_value = 0
+    point.value.double_value = 0.0
+
+    # Configure interval.end_time.ToDatetime to return a real recent datetime
+    recent_time = NOW - timedelta(hours=6)  # 6 hours ago — within 24h window
+
+    point.interval.end_time.ToDatetime.return_value = recent_time
+    series.points = [point]
+    series.resource.labels = {"endpoint_id": endpoint_id}
+    client.list_time_series.return_value = [series]
+    return client
+
+
+def _run_with_monitoring_client(endpoints, monitoring_client, region_filter=None):
+    """Run rule with a pre-built monitoring client mock."""
+    mock_session = MagicMock()
+    mock_credentials = MagicMock()
+    with (
+        patch(
+            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            return_value=endpoints,
+        ),
+        patch(
+            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            return_value=monitoring_client,
+        ),
+        patch(
+            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            return_value=mock_session,
+        ),
+        patch(
+            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            **{"now.return_value": NOW, "fromisoformat": datetime.fromisoformat},
+        ),
+    ):
+        return find_idle_vertex_endpoints(
+            project_id=_PROJECT,
+            credentials=mock_credentials,
+            region_filter=region_filter,
+        )
+
+
+def test_empty_series_points_treated_as_no_data():
+    """Series with zero points are skipped — endpoint treated as no monitoring data.
+
+    An old (30-day) endpoint with no_monitoring_data=True and age >= _DAYS_IDLE
+    is still flagged (age provides sufficient evidence). The key assertion is that
+    no crash occurs and no_monitoring_data is correctly set to True.
+    """
+    ep = _endpoint(create_time=NOW - timedelta(days=30))
+    client = _make_monitoring_client_with_empty_points()
+    findings = _run_with_monitoring_client([ep], client)
+    # Endpoint is flagged (age=30 provides evidence) but no_monitoring_data=True
+    assert len(findings) == 1
+    assert findings[0].details["no_monitoring_data"] is True
+
+
+def test_long_series_points_skipped():
+    """Series with >5 points are skipped as anomalous — same result as empty series."""
+    ep = _endpoint(create_time=NOW - timedelta(days=30))
+    client = _make_monitoring_client_with_many_points(n=10)
+    findings = _run_with_monitoring_client([ep], client)
+    # Long series skipped → endpoint_id not in counts → no_monitoring_data=True
+    assert len(findings) == 1
+    assert findings[0].details["no_monitoring_data"] is True
+
+
+def test_recent_traffic_spike_skipped():
+    """Endpoint with traffic in the last 24h is NOT flagged — recency dominates.
+
+    An endpoint that received any traffic yesterday is considered active regardless
+    of how low the 14-day total looks. Prevents false positives on bursty workloads.
+    """
+    ep = _endpoint(create_time=NOW - timedelta(days=30))
+    client = _make_monitoring_client_with_recent_traffic()
+    findings = _run_with_monitoring_client([ep], client)
+    assert findings == []
+
+
+def test_cron_pattern_very_low_count_is_medium():
+    """count <= 2 (cron/batch heuristic) → MEDIUM confidence regardless of age.
+
+    Very few requests over 14 days could be a weekly inference job, not abandonment.
+    Behavior-based (count <= 2), not age-based.
+    """
+    ep = _endpoint(create_time=NOW - timedelta(days=30))
+    # count=2: at the cron-protection boundary (≤ 2 = cron pattern)
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 2})
+    assert len(findings) == 1
+    assert findings[0].confidence.value == "medium"
+
+
+def test_cron_pattern_count_above_threshold_still_medium():
+    """count=3 (> 2, so NOT cron pattern) → MEDIUM because is_near_idle, not cron."""
+    ep = _endpoint(create_time=NOW - timedelta(days=30))
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 3})
+    assert len(findings) == 1
+    assert findings[0].confidence.value == "medium"
+
+
+def test_effective_threshold_minimum_is_one():
+    """effective_threshold is always >= 1, even with unusual base_threshold values."""
+
+    # With 1 replica, threshold = max(1, int(base * 1.0)) = base (always >= 1)
+    ep = _endpoint(min_replica_count=1)
+    findings = _run([ep])
+    assert len(findings) == 1
+    assert findings[0].details["effective_threshold"] >= 1
+
+
+def test_requests_per_replica_in_details():
+    """requests_per_replica is present in details and correctly computed."""
+    ep = _endpoint(min_replica_count=2)
+    # count=0, replicas=2 → requests_per_replica = 0 / 2 = 0.0
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+    assert len(findings) == 1
+    assert findings[0].details["requests_per_replica"] == pytest.approx(0.0)
+
+
+def test_cost_confidence_estimate_in_details():
+    """cost_confidence='estimate' is present in all findings."""
+    ep = _endpoint()
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+    assert len(findings) == 1
+    assert findings[0].details["cost_confidence"] == "estimate"
