@@ -605,3 +605,151 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
 
     info("=" * 70)
     info("")
+
+
+def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
+    """Validate GCP permissions for --category ai (Vertex AI endpoint rules)."""
+    info("")
+    info("=" * 70)
+    info("CLEANCLOUD GCP AI/ML DIAGNOSTICS")
+    info("=" * 70)
+    info("")
+    info("Validating permissions for: cleancloud scan --provider gcp --category ai")
+    info("")
+
+    # -------------------------------------------------------------------------
+    # Credential acquisition (same as hygiene doctor)
+    # -------------------------------------------------------------------------
+    info("Step 1: Credential Acquisition")
+    info("-" * 70)
+
+    try:
+        credentials, detected_project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        request = google.auth.transport.requests.Request()
+        credentials.refresh(request)
+        success("GCP credentials acquired successfully")
+    except google.auth.exceptions.DefaultCredentialsError as e:
+        warn(f"GCP credentials not found: {e}")
+        fail(
+            "GCP credentials required. Run: gcloud auth application-default login\n"
+            "Or set GOOGLE_APPLICATION_CREDENTIALS to a service account key file."
+        )
+        return
+
+    # Determine which project to probe
+    probe_project_id = project_id or detected_project or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if not probe_project_id:
+        warn("No project specified. Pass --project <PROJECT_ID> to probe a specific project.")
+        info("Continuing without project-level permission checks.")
+        info("")
+    else:
+        info(f"Probing project: {probe_project_id}")
+        info("")
+
+    # -------------------------------------------------------------------------
+    # Step 2: Vertex AI endpoint permission probe
+    # -------------------------------------------------------------------------
+    info("Step 2: AI/ML Permission Checks (Vertex AI)")
+    info("-" * 70)
+
+    permissions_failed = []
+
+    # --- aiplatform.endpoints.list ---
+    if probe_project_id:
+        try:
+            session = AuthorizedSession(credentials)
+            resp = session.get(
+                f"https://aiplatform.googleapis.com/v1"
+                f"/projects/{probe_project_id}/locations/us-central1/endpoints",
+                params={"pageSize": 1},
+            )
+            if resp.status_code == 403:
+                permissions_failed.append("aiplatform.endpoints.list")
+                warn(
+                    "aiplatform.endpoints.list — MISSING "
+                    "(rule: vertex_endpoint_idle will be skipped)"
+                )
+            elif resp.status_code == 404:
+                info(
+                    "aiplatform.endpoints.list — Vertex AI API not enabled in this project "
+                    "(enable via: gcloud services enable aiplatform.googleapis.com)"
+                )
+            else:
+                success("aiplatform.endpoints.list")
+        except Exception as e:
+            info(f"aiplatform.endpoints.list — check skipped ({type(e).__name__})")
+    else:
+        info("aiplatform.endpoints.list — skipped (no project specified)")
+
+    # --- monitoring.timeSeries.list (shared with hygiene rules) ---
+    if probe_project_id:
+        try:
+            monitoring_client = monitoring_v3.MetricServiceClient(credentials=credentials)
+            monitoring_client.list_time_series(
+                request={
+                    "name": f"projects/{probe_project_id}",
+                    "filter": 'metric.type="aiplatform.googleapis.com/prediction/online/request_count"',
+                    "interval": monitoring_v3.TimeInterval(
+                        start_time=timestamp_pb2.Timestamp(seconds=0),
+                        end_time=timestamp_pb2.Timestamp(seconds=1),
+                    ),
+                    "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.HEADERS,
+                }
+            )
+            success("monitoring.timeSeries.list")
+        except (PermissionDenied, Forbidden):
+            permissions_failed.append("monitoring.timeSeries.list")
+            warn(
+                "monitoring.timeSeries.list — MISSING "
+                "(rule will run without metrics — conservative: assume all endpoints active)"
+            )
+        except Exception:
+            success("monitoring.timeSeries.list")
+    else:
+        info("monitoring.timeSeries.list — skipped (no project specified)")
+
+    # -------------------------------------------------------------------------
+    # Rule coverage summary
+    # -------------------------------------------------------------------------
+    info("")
+    info("Rule Coverage")
+    info("-" * 50)
+
+    if "aiplatform.endpoints.list" not in permissions_failed:
+        metric_note = (
+            "(partial: monitoring missing — metrics fallback active)"
+            if "monitoring.timeSeries.list" in permissions_failed
+            else "(enabled)"
+        )
+        if "monitoring.timeSeries.list" in permissions_failed:
+            warn(f"  ~ gcp.vertex.endpoint.idle          {metric_note}")
+        else:
+            success(f"  ✓ gcp.vertex.endpoint.idle          {metric_note}")
+    else:
+        warn("  ✗ gcp.vertex.endpoint.idle          (disabled: missing aiplatform.endpoints.list)")
+
+    # -------------------------------------------------------------------------
+    # Remediation guidance
+    # -------------------------------------------------------------------------
+    if permissions_failed:
+        info("")
+        info("To grant the required permissions, add roles/aiplatform.viewer:")
+        info("")
+        sa_hint = "SA_EMAIL@PROJECT.iam.gserviceaccount.com"
+        proj_hint = probe_project_id or "PROJECT_ID"
+        info(f"  gcloud projects add-iam-policy-binding {proj_hint} \\")
+        info(f'    --member="serviceAccount:{sa_hint}" \\')
+        info('    --role="roles/aiplatform.viewer"')
+        info("")
+        info("Then re-run: cleancloud doctor --provider gcp --category ai")
+        info("")
+        warn("GCP AI/ML PERMISSIONS INCOMPLETE")
+    else:
+        info("")
+        success("GCP AI/ML PERMISSIONS READY")
+        info("Run: cleancloud scan --provider gcp --category ai")
+
+    info("=" * 70)
+    info("")

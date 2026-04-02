@@ -67,8 +67,9 @@ cleancloud/
 │   ├── azure/
 │   │   ├── hygiene-readonly-role.json  # Compute, Network, Web, SQL, etc. (--category hygiene)
 │   │   └── ai-readonly-role.json       # MachineLearningServices (--category ai)
-│   ├── azure-readonly-role.json        # Legacy hygiene-only role (kept for backwards compat)
-│   ├── gcp-readonly-roles.json
+│   ├── gcp/
+│   │   ├── hygiene-readonly-roles.json # Compute, CloudSQL, Monitoring, Browser (--category hygiene)
+│   │   └── ai-readonly-roles.json      # Vertex AI Viewer (--category ai)
 │   ├── verify-aws-policy.sh
 │   ├── verify-azure-role.sh
 │   └── verify-gcp-roles.sh
@@ -149,7 +150,7 @@ cleancloud/
 ### IAM Roles Test
 
 - File: `tests/cleancloud/safety/gcp/test_gcp_iam_roles_readonly.py`
-- Purpose: Validate `security/gcp-readonly-roles.json` documents only read-only predefined roles.
+- Purpose: Validate `security/gcp/hygiene-readonly-roles.json` documents only read-only predefined roles.
 - Checks: No `roles/owner`, `roles/editor`, or any admin/write role; all four required roles present (`roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, `roles/browser`).
 - Note: GCP uses predefined roles rather than a custom IAM policy, so verification is role-name based rather than action-based.
 

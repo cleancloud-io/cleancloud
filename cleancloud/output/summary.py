@@ -170,10 +170,10 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             )
         if has_gcp:
             click.echo(
-                "  GCP:   https://github.com/cleancloud-io/cleancloud/blob/main/security/gcp-readonly-roles.json"
+                "  GCP:   https://github.com/cleancloud-io/cleancloud/blob/main/security/gcp/"
             )
             click.echo(
-                "  Run 'cleancloud doctor --provider gcp --project PROJECT_ID' to validate permissions after updating."
+                "  Run 'cleancloud doctor --provider gcp' to validate permissions after updating."
             )
 
     # Multi-account breakdown

@@ -58,11 +58,8 @@ def doctor(
     click.echo("Running CleanCloud doctor")
     click.echo()
 
-    if category == "ai" and provider not in (None, "aws"):
-        raise click.UsageError(
-            "--category ai is only supported with --provider aws (SageMaker rules). "
-            "AI/ML rules for Azure and GCP are on the roadmap."
-        )
+    if category == "ai" and provider not in (None, "aws", "azure", "gcp"):
+        raise click.UsageError("--category ai is only supported with --provider aws, azure, or gcp")
 
     if multi_account_file:
         if provider != "aws" and provider is not None:

@@ -4,7 +4,7 @@ from typing import Optional
 from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
 from cleancloud.doctor.azure import run_azure_ai_doctor, run_azure_doctor
 from cleancloud.doctor.common import DoctorError, info, success
-from cleancloud.doctor.gcp import run_gcp_doctor
+from cleancloud.doctor.gcp import run_gcp_ai_doctor, run_gcp_doctor
 
 
 def run_doctor(
@@ -83,7 +83,13 @@ def run_doctor(
                     info("   Use --project to scope permission checks to a specific project")
                     info("")
 
-                run_gcp_doctor(project_id=project)
+                if category == "ai":
+                    run_gcp_ai_doctor(project_id=project)
+                elif category == "all":
+                    run_gcp_doctor(project_id=project)
+                    run_gcp_ai_doctor(project_id=project)
+                else:
+                    run_gcp_doctor(project_id=project)
                 results[p] = {"status": "passed", "error": None}
 
         except DoctorError as e:

@@ -551,8 +551,10 @@ GCP_FINDINGS: List[Finding] = [
                 "Status: READY",
                 "Disk size: 400 GB",
                 "Estimated cost: ~$10.4/month (disk size used as proxy)",
-                "Source disk reference missing — likely orphaned snapshot "
-                "(GCP clears sourceDisk when the backing disk is deleted)",
+                (
+                    "Source disk reference missing — likely orphaned snapshot "
+                    "(GCP clears sourceDisk when the backing disk is deleted)"
+                ),
             ],
             signals_not_checked=[
                 "Compliance or regulatory data retention requirements",
@@ -595,8 +597,10 @@ GCP_FINDINGS: List[Finding] = [
         evidence=Evidence(
             signals_used=[
                 "Instance state: RUNNABLE",
-                "Zero TCP connections observed via Cloud Monitoring over 14 days "
-                "(metric: cloudsql.googleapis.com/database/network/connections)",
+                (
+                    "Zero TCP connections observed via Cloud Monitoring over 14 days "
+                    "(metric: cloudsql.googleapis.com/database/network/connections)"
+                ),
                 "Database version: POSTGRES_14",
                 "Tier 'db-n1-standard-2' costs ~$93.10/month (compute only, no HA)",
                 "Storage: 100 GB (PD_SSD) — billed separately from compute",
@@ -610,6 +614,68 @@ GCP_FINDINGS: List[Finding] = [
             time_window="14 days",
         ),
         estimated_monthly_cost_usd=93.10,
+    ),
+]
+
+GCP_AI_FINDINGS: List[Finding] = [
+    Finding(
+        provider="gcp",
+        rule_id="gcp.vertex.endpoint.idle",
+        resource_type="gcp.vertex.endpoint",
+        resource_id="projects/my-project/locations/us-central1/endpoints/8842019374650589184",
+        region="us-central1",
+        title="Idle Vertex AI Endpoint (No Predictions for 21 Days)",
+        summary=(
+            "Vertex AI endpoint 'llm-serving-v2' in 'us-central1' has received zero predictions "
+            "for 21 days but keeps 1 dedicated node running continuously, incurring compute charges."
+        ),
+        reason=(
+            "Vertex AI endpoint has zero predictions for 21 days "
+            "with dedicated capacity (minReplicaCount=1)"
+        ),
+        risk=RiskLevel.HIGH,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "endpoint_id": "8842019374650589184",
+            "display_name": "llm-serving-v2",
+            "location": "us-central1",
+            "machine_type": "n1-standard-4",
+            "accelerator_type": "NVIDIA_TESLA_T4",
+            "accelerator_count": 1,
+            "is_gpu": True,
+            "min_replica_count": 1,
+            "age_days": 21,
+            "idle_window_days": 21,
+            "idle_days_threshold": 14,
+            "estimated_monthly_cost": "~$449/month",
+        },
+        evidence=Evidence(
+            signals_used=[
+                (
+                    "Zero prediction requests for 21 days "
+                    "(Cloud Monitoring: aiplatform.googleapis.com/prediction/online/request_count)"
+                ),
+                (
+                    "Dedicated capacity configured: minReplicaCount=1 "
+                    "(always-on compute — billed continuously regardless of traffic)"
+                ),
+                "Endpoint age: 21 days",
+                "Machine type: n1-standard-4",
+                "Accelerator: NVIDIA_TESLA_T4 × 1",
+                "GPU-backed endpoint — high continuous cost",
+                "Display name: llm-serving-v2",
+            ],
+            signals_not_checked=[
+                "Scheduled or batch prediction requests outside the observation window",
+                "Internal health-check or canary traffic not tracked by Cloud Monitoring",
+                "Planned future usage or upcoming model promotion",
+                "Shadow mode or A/B test routing with low traffic share",
+                "Endpoints kept warm for latency-sensitive production traffic",
+            ],
+            time_window="21 days",
+        ),
+        estimated_monthly_cost_usd=449.0,
     ),
 ]
 

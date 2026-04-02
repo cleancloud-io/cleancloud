@@ -18,6 +18,7 @@ from cleancloud.providers.gcp.rules.disk_unattached import find_unattached_disks
 from cleancloud.providers.gcp.rules.ip_unused import find_unused_static_ips
 from cleancloud.providers.gcp.rules.snapshot_old import find_old_snapshots
 from cleancloud.providers.gcp.rules.sql_instance_idle import find_idle_sql_instances
+from cleancloud.providers.gcp.rules.vertex_endpoint_idle import find_idle_vertex_endpoints
 from cleancloud.providers.gcp.rules.vm_stopped import find_stopped_vms
 from cleancloud.providers.gcp.session import create_gcp_session
 from cleancloud.providers.gcp.validate import validate_project_params, validate_region_params
@@ -61,6 +62,11 @@ GCP_RULES: List[Callable] = [
     find_idle_sql_instances,
 ]
 
+# AI/ML waste rules — not run by default; use --category ai or --category all
+GCP_AI_RULES: List[Callable] = [
+    find_idle_vertex_endpoints,
+]
+
 
 def _run_rule_with_retry(
     rule: Callable,
@@ -93,6 +99,7 @@ def scan_gcp_with_project_selection(
     projects: Optional[List[str]] = None,
     all_projects: bool = False,
     concurrency: int = 4,
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[str, List[Finding], List[str], List[dict], List[ProjectScanResult]]:
     validate_project_params(projects, all_projects)
     validate_region_params(region)
@@ -142,6 +149,7 @@ def scan_gcp_with_project_selection(
         session.credentials,
         region,
         concurrency=concurrency,
+        rules=rules,
     )
 
     click.echo()
@@ -165,9 +173,11 @@ def scan_gcp_projects(
     credentials,
     region_filter: Optional[str],
     concurrency: int = 4,
+    rules: Optional[List[Callable]] = None,
 ) -> List[ProjectScanResult]:
     if not project_ids:
         return []
+    rules_to_run = rules if rules is not None else GCP_RULES
     results: List[ProjectScanResult] = []
     max_workers = min(concurrency, len(project_ids), _MAX_GLOBAL_WORKERS)
 
@@ -185,6 +195,7 @@ def scan_gcp_projects(
                     project_name=project_name_map.get(proj_id, proj_id),
                     credentials=credentials,
                     region_filter=region_filter,
+                    rules=rules_to_run,
                 ): proj_id
                 for proj_id in project_ids
             }
@@ -227,15 +238,18 @@ def _scan_gcp_project(
     project_name: str,
     credentials,
     region_filter: Optional[str],
+    rules: Optional[List[Callable]] = None,
 ) -> Tuple[List[Finding], List[dict], int, int]:
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
     rules_succeeded = 0
     rules_failed = 0
 
+    rules_to_run = rules if rules is not None else GCP_RULES
+
     click.echo(f"  Scanning {project_name}")
 
-    with ThreadPoolExecutor(max_workers=min(3, len(GCP_RULES))) as executor:
+    with ThreadPoolExecutor(max_workers=min(3, len(rules_to_run))) as executor:
         futures = {
             executor.submit(
                 _run_rule_with_retry,
@@ -244,7 +258,7 @@ def _scan_gcp_project(
                 credentials,
                 region_filter,
             ): rule
-            for rule in GCP_RULES
+            for rule in rules_to_run
         }
 
         for future in as_completed(futures):

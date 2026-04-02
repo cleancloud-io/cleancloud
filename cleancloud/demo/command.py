@@ -9,6 +9,7 @@ from cleancloud.demo.findings import (
     AWS_FINDINGS,
     AZURE_AI_FINDINGS,
     AZURE_FINDINGS,
+    GCP_AI_FINDINGS,
     GCP_FINDINGS,
 )
 from cleancloud.output.human import print_human
@@ -26,7 +27,7 @@ from cleancloud.output.summary import _print_summary, build_summary
     "--category",
     type=click.Choice(["hygiene", "ai"]),
     default="hygiene",
-    help="Rule category to demo: hygiene (default) or ai (SageMaker on AWS, AML Compute on Azure)",
+    help="Rule category to demo: hygiene (default) or ai (SageMaker/AWS, AML Compute/Azure, Vertex AI/GCP)",
 )
 def demo(provider: Optional[str], category: str):
     """Show realistic sample findings without cloud credentials."""
@@ -45,9 +46,13 @@ def demo(provider: Optional[str], category: str):
             findings = AZURE_AI_FINDINGS
             regions = ["East US"]
             region_mode = "all"
+        elif provider == "gcp":
+            findings = GCP_AI_FINDINGS
+            regions = ["us-central1"]
+            region_mode = "all"
         else:
-            findings = AWS_AI_FINDINGS + AZURE_AI_FINDINGS
-            regions = ["us-east-1", "East US"]
+            findings = AWS_AI_FINDINGS + AZURE_AI_FINDINGS + GCP_AI_FINDINGS
+            regions = ["us-east-1", "East US", "us-central1"]
             region_mode = "all"
     elif provider == "aws":
         findings = AWS_FINDINGS

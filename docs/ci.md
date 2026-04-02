@@ -590,6 +590,61 @@ jobs:
 
 > To run hygiene and AI rules together, use `--category all`.
 
+### GCP AI/ML Scan (Vertex AI)
+
+Run idle Vertex AI endpoint detection separately — requires `roles/aiplatform.viewer` bound to your service account in addition to the hygiene roles. See [gcp.md](gcp.md#ai-ml-scanning-vertex-ai) for setup.
+
+```yaml
+name: CleanCloud GCP AI/ML Scan
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'  # Weekly on Monday at 9 AM
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  cleancloud-ai:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Install CleanCloud
+        run: pip install cleancloud
+
+      - name: Validate AI permissions
+        run: cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }} --category ai
+
+      - name: Run AI/ML scan
+        run: |
+          cleancloud scan \
+            --provider gcp \
+            --category ai \
+            --all-projects \
+            --output json \
+            --output-file ai-scan-results.json \
+            --fail-on-confidence HIGH
+
+      - name: Upload scan results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleancloud-gcp-ai-scan-results
+          path: ai-scan-results.json
+          retention-days: 30
+```
+
+> To run hygiene and AI rules together, use `--category all`.
+
 ### Azure with OIDC (Recommended)
 
 ```yaml
