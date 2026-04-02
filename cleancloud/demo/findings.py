@@ -551,8 +551,10 @@ GCP_FINDINGS: List[Finding] = [
                 "Status: READY",
                 "Disk size: 400 GB",
                 "Estimated cost: ~$10.4/month (disk size used as proxy)",
-                "Source disk reference missing — likely orphaned snapshot "
-                "(GCP clears sourceDisk when the backing disk is deleted)",
+                (
+                    "Source disk reference missing — likely orphaned snapshot "
+                    "(GCP clears sourceDisk when the backing disk is deleted)"
+                ),
             ],
             signals_not_checked=[
                 "Compliance or regulatory data retention requirements",
@@ -595,8 +597,10 @@ GCP_FINDINGS: List[Finding] = [
         evidence=Evidence(
             signals_used=[
                 "Instance state: RUNNABLE",
-                "Zero TCP connections observed via Cloud Monitoring over 14 days "
-                "(metric: cloudsql.googleapis.com/database/network/connections)",
+                (
+                    "Zero TCP connections observed via Cloud Monitoring over 14 days "
+                    "(metric: cloudsql.googleapis.com/database/network/connections)"
+                ),
                 "Database version: POSTGRES_14",
                 "Tier 'db-n1-standard-2' costs ~$93.10/month (compute only, no HA)",
                 "Storage: 100 GB (PD_SSD) — billed separately from compute",
@@ -648,10 +652,14 @@ GCP_AI_FINDINGS: List[Finding] = [
         },
         evidence=Evidence(
             signals_used=[
-                "Zero prediction requests for 21 days "
-                "(Cloud Monitoring: aiplatform.googleapis.com/prediction/online/request_count)",
-                "Dedicated capacity configured: minReplicaCount=1 "
-                "(always-on compute — billed continuously regardless of traffic)",
+                (
+                    "Zero prediction requests for 21 days "
+                    "(Cloud Monitoring: aiplatform.googleapis.com/prediction/online/request_count)"
+                ),
+                (
+                    "Dedicated capacity configured: minReplicaCount=1 "
+                    "(always-on compute — billed continuously regardless of traffic)"
+                ),
                 "Endpoint age: 21 days",
                 "Machine type: n1-standard-4",
                 "Accelerator: NVIDIA_TESLA_T4 × 1",

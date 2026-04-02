@@ -24,22 +24,14 @@ def test_azure_ai_rules_run_without_error():
     ]
 
     all_results = []
-    skipped = []
     for rule in rules:
-        try:
-            rule_results = rule(
-                subscription_id=sub_id, credential=credential, region_filter=region_filter
-            )
-        except PermissionError:
-            skipped.append(rule.__name__)
-            continue
+        rule_results = rule(
+            subscription_id=sub_id, credential=credential, region_filter=region_filter
+        )
         assert isinstance(
             rule_results, list
         ), f"{rule.__name__} returned {type(rule_results)} instead of list"
         all_results.extend(rule_results)
-
-    if skipped:
-        pytest.skip(f"Rules skipped (missing permissions): {', '.join(skipped)}")
 
     for f in all_results:
         assert isinstance(f, Finding)
