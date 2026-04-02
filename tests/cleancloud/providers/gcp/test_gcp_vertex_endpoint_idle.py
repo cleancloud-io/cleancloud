@@ -41,7 +41,6 @@ from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
 NOW = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
 _OLD = NOW - timedelta(days=30)
 _YOUNG = NOW - timedelta(days=3)
-_BORDERLINE = NOW - timedelta(days=11)  # 11 days — 75-100% of 14 → MEDIUM
 
 _PROJECT = "my-project"
 _LOCATION = "us-central1"
