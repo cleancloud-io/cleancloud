@@ -15,7 +15,8 @@
 
 ```bash
 pipx install cleancloud
-cleancloud demo        # visualisez des findings — aucun credential requis
+cleancloud demo                      # visualisez des findings — aucun credential requis
+cleancloud demo --category ai        # findings IA/ML (SageMaker, AML, Vertex AI — endpoints/clusters GPU intensifs)
 ```
 
 Scannez votre cloud :
@@ -24,21 +25,23 @@ Scannez votre cloud :
 cleancloud scan --provider aws --all-regions
 cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
+cleancloud scan --provider aws --category ai   # détectez les endpoints SageMaker inactifs
 ```
 
 ---
 
-**CleanCloud est le moteur d'hygiène cloud — la couche manquante entre la visibilité des coûts et le nettoyage.**
+**CleanCloud est le moteur d'hygiène cloud — détecte le gaspillage d'infrastructure inactive et de ressources IA/ML coûteuses sur AWS, Azure et GCP.**
 
 **Supporte :** AWS · Azure · GCP
 
-CleanCloud scanne vos environnements AWS, Azure et GCP et vous indique exactement ce qu'il faut nettoyer — avec des estimations de coût par ressource. Aucun agent. Pas de SaaS. Lecture seule. S'exécute entièrement dans votre environnement.
+CleanCloud scanne vos environnements AWS, Azure et GCP et vous indique exactement ce qu'il faut nettoyer — infrastructure inactive et ressources IA/ML coûteuses (endpoints SageMaker, clusters AML Compute, endpoints Vertex AI) — avec des estimations de coût par ressource. Aucun agent. Pas de SaaS. Lecture seule. S'exécute entièrement dans votre environnement.
 
 | | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
 |---|:---:|:---:|:---:|
 | Affiche les tendances de coûts | ✅ | ✅ | — |
 | Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
 | Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
+| Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
 | Lecture seule, aucun agent | ✅ | ❌ | ✅ |
 | Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
 | Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
@@ -141,7 +144,10 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 
 ## Fonctionnalités clés
 
-- **33 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe. Les règles IA/ML (SageMaker, Azure ML, Vertex AI) sont opt-in via `--category ai`
+- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker inactifs (AWS), clusters AML Compute inactifs (Azure), et endpoints Vertex AI Online Prediction inactifs (GCP) — ressources GPU toujours provisionnées flaggées risque HIGH, avec un gaspillage typique de $449 à $23K+/mois. Opt-in via `--category ai` ou `--category all`
+
+  De nombreuses ressources IA/ML restent provisionnées en permanence (min replicas / baseline capacity) et continuent de facturer même sans trafic — CleanCloud détecte ces déploiements abandonnés ou sous-utilisés dès le début.
+- **33 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
@@ -368,7 +374,7 @@ Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : 
 - Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
 - Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
 - Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
-- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro prédiction depuis 14+ jours — endpoints GPU flaggés risque HIGH ($449–$23K+/mois)
+- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois)
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 

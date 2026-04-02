@@ -15,7 +15,8 @@
 
 ```bash
 pipx install cleancloud
-cleancloud demo        # see sample findings — no credentials needed
+cleancloud demo                      # see sample findings — no credentials needed
+cleancloud demo --category ai        # see AI/ML waste findings (SageMaker, AML, Vertex AI — GPU-heavy endpoints/clusters)
 ```
 
 Scan your cloud:
@@ -24,21 +25,23 @@ Scan your cloud:
 cleancloud scan --provider aws --all-regions
 cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
+cleancloud scan --provider aws --category ai   # detect idle SageMaker endpoints
 ```
 
 ---
 
-**CleanCloud is the Cloud Hygiene Engine — the missing layer between cost visibility and cleanup.**
+**CleanCloud is the Cloud Hygiene Engine — detects idle infrastructure and high-cost AI/ML waste across AWS, Azure, and GCP.**
 
 **Supports:** AWS · Azure · GCP
 
-CleanCloud scans your AWS, Azure, and GCP environments and tells you exactly what to clean up — with per-resource cost estimates. No agents. No SaaS. Read-only. Runs entirely in your environment.
+CleanCloud scans your AWS, Azure, and GCP environments and tells you exactly what to clean up — idle infrastructure and high-cost AI/ML resources (SageMaker endpoints, AML compute clusters, Vertex AI endpoints) — with per-resource cost estimates. No agents. No SaaS. Read-only. Runs entirely in your environment.
 
 | | AWS/Azure/GCP native cost tools | FinOps SaaS platforms | **CleanCloud** |
 |---|:---:|:---:|:---:|
 | Shows cost trends | ✅ | ✅ | — |
 | Names exactly which resources to clean up | ❌ | partial | ✅ |
 | Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
+| Detects idle AI/ML waste (SageMaker, AML, Vertex AI — including GPU-backed endpoints) | ❌ | ❌ | ✅ |
 | Read-only, no agents | ✅ | ❌ | ✅ |
 | Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
 | No SaaS account or vendor access required | ❌ | ❌ | ✅ |
@@ -141,7 +144,10 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
-- **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate. AI/ML rules (SageMaker, Azure ML, Vertex AI) are opt-in via `--category ai`
+- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints (AWS), idle AML compute clusters (Azure), and idle Vertex AI Online Prediction endpoints (GCP) — always-on GPU-backed resources flagged HIGH risk, with typical waste ranging from $449–$23K+/month. Opt-in via `--category ai` or `--category all`
+
+  Many AI/ML serving resources remain permanently provisioned (min replicas / baseline capacity) and continue billing even with zero traffic — CleanCloud detects these abandoned or underutilized deployments early.
+- **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
@@ -370,7 +376,7 @@ For full output examples including `doctor`, JSON, CSV, and markdown: [`docs/exa
 - Storage: unattached Persistent Disks (HIGH), old snapshots 90+ days
 - Network: unused reserved static IPs — regional and global (HIGH)
 - Platform: idle Cloud SQL instances with zero connections 14+ days (HIGH)
-- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero predictions 14+ days — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month)
+- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month)
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 
