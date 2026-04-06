@@ -13,18 +13,18 @@ from cleancloud.core.risk import RiskLevel
 def find_idle_rds_instances(
     session: boto3.Session,
     region: str,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find RDS instances with zero database connections for `days_idle` days.
+    Find RDS instances with zero database connections for `idle_days` days.
 
     RDS instances incur significant hourly charges depending on instance class.
     Idle instances with no connections are a clear cost optimization signal.
 
     Detection logic:
     - Instance status is 'available'
-    - Instance is older than `days_idle` days
-    - CloudWatch DatabaseConnections metric sum is 0 over `days_idle` period
+    - Instance is older than `idle_days` days
+    - CloudWatch DatabaseConnections metric sum is 0 over `idle_days` period
     - Not a read replica (ReadReplicaSourceDBInstanceIdentifier is empty)
     - Not an Aurora cluster member (DBClusterIdentifier is empty)
 
@@ -72,7 +72,7 @@ def find_idle_rds_instances(
                         pass
 
                 # Skip if instance is younger than the idle threshold
-                if age_days < days_idle:
+                if age_days < idle_days:
                     continue
 
                 # Check CloudWatch metrics for connections
@@ -82,7 +82,7 @@ def find_idle_rds_instances(
                     "DatabaseConnections",
                     "DBInstanceIdentifier",
                     db_instance_id,
-                    now - timedelta(days=days_idle),
+                    now - timedelta(days=idle_days),
                     now,
                 )
 
@@ -103,7 +103,7 @@ def find_idle_rds_instances(
                 ]
 
                 signals = [
-                    f"Zero database connections for {days_idle} days (CloudWatch metrics)",
+                    f"Zero database connections for {idle_days} days (CloudWatch metrics)",
                     f"DatabaseConnections sum: {total_connections}",
                     f"Instance status is '{status}'",
                     f"Engine: {engine} {engine_version}",
@@ -116,7 +116,7 @@ def find_idle_rds_instances(
                 evidence = Evidence(
                     signals_used=signals,
                     signals_not_checked=signals_not_checked,
-                    time_window=f"{days_idle} days",
+                    time_window=f"{idle_days} days",
                 )
 
                 estimated_monthly_cost = _estimate_monthly_cost(instance_class, multi_az)
@@ -130,12 +130,12 @@ def find_idle_rds_instances(
                         resource_id=db_instance_id,
                         region=region,
                         estimated_monthly_cost_usd=cost_usd,
-                        title=f"Idle RDS Instance (No Connections for {days_idle}+ Days)",
+                        title=f"Idle RDS Instance (No Connections for {idle_days}+ Days)",
                         summary=(
                             f"RDS instance '{db_instance_id}' ({engine}, {instance_class}) "
-                            f"has had zero database connections for {days_idle}+ days."
+                            f"has had zero database connections for {idle_days}+ days."
                         ),
-                        reason=f"RDS instance has zero connections for {days_idle}+ days",
+                        reason=f"RDS instance has zero connections for {idle_days}+ days",
                         risk=RiskLevel.HIGH,
                         confidence=ConfidenceLevel.HIGH,
                         detected_at=now,
@@ -148,7 +148,7 @@ def find_idle_rds_instances(
                             "multi_az": multi_az,
                             "allocated_storage_gb": storage_gb,
                             "age_days": age_days,
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             **({"tags": {t["Key"]: t["Value"] for t in tags}} if tags else {}),
                         },
                     )

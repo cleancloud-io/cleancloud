@@ -13,17 +13,17 @@ from cleancloud.core.risk import RiskLevel
 def find_idle_nat_gateways(
     session: boto3.Session,
     region: str,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find NAT Gateways with no traffic for `days_idle` days.
+    Find NAT Gateways with no traffic for `idle_days` days.
 
     NAT Gateways incur hourly charges (~$0.045/hour = ~$32.40/month)
     plus data processing fees ($0.045/GB). Idle gateways waste money.
 
     Detection logic:
     - NAT Gateway state is 'available'
-    - CloudWatch metrics show zero bytes transferred for `days_idle` period
+    - CloudWatch metrics show zero bytes transferred for `idle_days` period
     - Uses BytesOutToDestination + BytesInFromSource metrics
 
     Conservative approach:
@@ -63,12 +63,12 @@ def find_idle_nat_gateways(
                         pass
 
                 # Skip if NAT Gateway is younger than the idle threshold
-                if age_days < days_idle:
+                if age_days < idle_days:
                     continue
 
                 # Check CloudWatch metrics for traffic
                 has_traffic, total_bytes_out, total_bytes_in = _check_nat_gateway_traffic(
-                    cloudwatch, nat_gw_id, days_idle
+                    cloudwatch, nat_gw_id, idle_days
                 )
 
                 if has_traffic:
@@ -91,7 +91,7 @@ def find_idle_nat_gateways(
                     )
 
                 signals = [
-                    f"No traffic detected for {days_idle} days (CloudWatch metrics)",
+                    f"No traffic detected for {idle_days} days (CloudWatch metrics)",
                     f"BytesOutToDestination: {total_bytes_out} bytes",
                     f"BytesInFromSource: {total_bytes_in} bytes",
                     f"NAT Gateway state is '{state}'",
@@ -109,7 +109,7 @@ def find_idle_nat_gateways(
                         "Seasonal traffic patterns",
                         "Development/staging environment cycles",
                     ],
-                    time_window=f"{days_idle} days",
+                    time_window=f"{idle_days} days",
                 )
 
                 # Monthly cost estimate (region dependent)
@@ -126,12 +126,12 @@ def find_idle_nat_gateways(
                         resource_id=nat_gw_id,
                         region=region,
                         estimated_monthly_cost_usd=32.40,
-                        title=f"Idle NAT Gateway (No Traffic for {days_idle}+ Days)",
+                        title=f"Idle NAT Gateway (No Traffic for {idle_days}+ Days)",
                         summary=(
                             f"NAT Gateway '{name_tag or nat_gw_id}' has had no traffic for "
-                            f"{days_idle}+ days and is incurring ~$32/month in base charges."
+                            f"{idle_days}+ days and is incurring ~$32/month in base charges."
                         ),
-                        reason=f"NAT Gateway has zero traffic for {days_idle}+ days",
+                        reason=f"NAT Gateway has zero traffic for {idle_days}+ days",
                         risk=RiskLevel.MEDIUM,
                         confidence=ConfidenceLevel.MEDIUM,
                         detected_at=now,
@@ -146,7 +146,7 @@ def find_idle_nat_gateways(
                             "elastic_ips": eip_info,
                             "bytes_out_total": total_bytes_out,
                             "bytes_in_total": total_bytes_in,
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             "estimated_monthly_cost": estimated_monthly_cost,
                             "tags": tags,
                         },

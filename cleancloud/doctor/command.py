@@ -1,9 +1,12 @@
+import sys
 from typing import Optional
 
 import click
 import yaml
 
+from cleancloud.config.accounts import load_accounts_config
 from cleancloud.config.schema import CleanCloudConfig, load_config
+from cleancloud.doctor.aws import run_aws_multi_account_doctor
 from cleancloud.doctor.runner import run_doctor
 
 
@@ -64,12 +67,7 @@ def doctor(
     if multi_account_file:
         if provider != "aws" and provider is not None:
             click.echo("Error: --multi-account is only supported with --provider aws")
-            import sys
-
             sys.exit(1)
-        from cleancloud.config.accounts import load_accounts_config
-        from cleancloud.doctor.aws import run_aws_multi_account_doctor
-
         ma_config = load_accounts_config(multi_account_file)
         if role_name != "CleanCloudReadOnlyRole":
             ma_config.role_name = role_name
@@ -87,11 +85,33 @@ def doctor(
                 raw = yaml.safe_load(f) or {}
                 cfg = load_config(raw)
 
+        policy_notes = []
         if cfg.tag_filtering and cfg.tag_filtering.enabled:
-            click.echo()
-            click.echo(
-                "Note: Tag filtering is enabled - some findings may be intentionally ignored"
+            policy_notes.append(
+                "Tag filtering is enabled — some findings may be intentionally ignored"
             )
+        if cfg.exceptions:
+            policy_notes.append(
+                f"{len(cfg.exceptions)} exception(s) configured — matched findings will be suppressed"
+            )
+        if cfg.rules:
+            policy_notes.append(
+                f"{len(cfg.rules)} rule(s) with custom config (enabled/disabled, params, min_cost, confidence)"
+            )
+        if cfg.thresholds:
+            policy_notes.append(
+                "CI/CD thresholds configured (fail_on_findings / fail_on_confidence / fail_on_cost)"
+            )
+        if cfg.defaults:
+            policy_notes.append(
+                "Global defaults configured (min_cost / confidence / override_risk_level)"
+            )
+
+        if policy_notes:
+            click.echo()
+            click.echo("Policy-as-code (cleancloud.yaml):")
+            for note in policy_notes:
+                click.echo(f"  • {note}")
             click.echo()
 
     except Exception as e:

@@ -63,10 +63,10 @@ def find_idle_app_services(
     region_filter: str = None,
     client: Optional[WebSiteManagementClient] = None,
     monitor_client: Optional[MonitorManagementClient] = None,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find Azure App Service web apps with zero HTTP requests for `days_idle` days.
+    Find Azure App Service web apps with zero HTTP requests for `idle_days` days.
 
     App Services on paid plans (Basic and above) incur compute charges regardless
     of traffic. An app with zero requests for 14+ days is a strong signal of
@@ -79,7 +79,7 @@ def find_idle_app_services(
     Detection logic:
     - App is in a Running state
     - Hosted on a paid App Service Plan (Basic or above)
-    - Azure Monitor `Requests` metric sum is 0 over `days_idle` days
+    - Azure Monitor `Requests` metric sum is 0 over `idle_days` days
 
     IAM permissions:
     - Microsoft.Web/sites/read
@@ -133,7 +133,7 @@ def find_idle_app_services(
             mon_client,
             app.id,
             "Requests",
-            now - timedelta(days=days_idle),
+            now - timedelta(days=idle_days),
             now,
         )
 
@@ -146,7 +146,7 @@ def find_idle_app_services(
         cost_usd = _TIER_COST_USD.get(sku_tier)
 
         signals = [
-            f"Zero HTTP requests for {days_idle} days (Azure Monitor: Requests metric)",
+            f"Zero HTTP requests for {idle_days} days (Azure Monitor: Requests metric)",
             "App state: Running",
             f"App Service Plan tier: {sku_tier}",
             f"Kind: {kind}",
@@ -164,7 +164,7 @@ def find_idle_app_services(
                 "IaC-managed placeholder deployment",
                 "Blue/green deployment staging slot",
             ],
-            time_window=f"{days_idle} days",
+            time_window=f"{idle_days} days",
         )
 
         details = {
@@ -172,7 +172,7 @@ def find_idle_app_services(
             "kind": kind,
             "sku_tier": sku_tier,
             "location": location,
-            "days_idle_threshold": days_idle,
+            "idle_days_threshold": idle_days,
         }
         if tags:
             details["tags"] = tags
@@ -184,12 +184,12 @@ def find_idle_app_services(
                 resource_type="azure.app_service",
                 resource_id=app.id,
                 region=location,
-                title=f"Idle App Service (No Requests for {days_idle}+ Days)",
+                title=f"Idle App Service (No Requests for {idle_days}+ Days)",
                 summary=(
                     f"App Service '{app.name}' ({sku_tier}) has received zero HTTP requests "
-                    f"for {days_idle}+ days but continues to accrue compute charges."
+                    f"for {idle_days}+ days but continues to accrue compute charges."
                 ),
-                reason=f"App Service has zero HTTP requests for {days_idle}+ days",
+                reason=f"App Service has zero HTTP requests for {idle_days}+ days",
                 risk=RiskLevel.MEDIUM,
                 confidence=ConfidenceLevel.HIGH,
                 detected_at=now,

@@ -101,7 +101,7 @@ def test_cli_ignore_tag_overrides_yaml(monkeypatch, tmp_path):
     # vol-1 MUST remain (YAML ignored)
     assert "vol-1" in result.output
     assert "vol-2" not in result.output
-    assert "Ignored by tag policy: 1" in result.output
+    assert "tag: 1" in result.output
 
 
 def test_gcp_cli_ignore_label_overrides_yaml(monkeypatch, tmp_path):
@@ -162,4 +162,4 @@ def test_gcp_cli_ignore_label_overrides_yaml(monkeypatch, tmp_path):
     # disk-1 MUST remain (YAML ignored env:production)
     assert "disk-1" in result.output
     assert "disk-2" not in result.output
-    assert "Ignored by tag policy: 1" in result.output
+    assert "tag: 1" in result.output

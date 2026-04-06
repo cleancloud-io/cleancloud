@@ -127,11 +127,11 @@ def test_find_old_amis_custom_threshold(mock_boto3_session):
     ]
 
     # With 180-day threshold (default), should NOT be flagged
-    findings_180 = find_old_amis(mock_boto3_session, region, days_old=180)
+    findings_180 = find_old_amis(mock_boto3_session, region, max_age_days=180)
     assert len(findings_180) == 0
 
     # With 90-day threshold, should be flagged
-    findings_90 = find_old_amis(mock_boto3_session, region, days_old=90)
+    findings_90 = find_old_amis(mock_boto3_session, region, max_age_days=90)
     assert len(findings_90) == 1
     assert findings_90[0].resource_id == "ami-test"
 

@@ -58,16 +58,17 @@ def _has_connections(
     monitoring_client: monitoring_v3.MetricServiceClient,
     project_id: str,
     instance_name: str,
+    idle_days: int = _DAYS_IDLE,
 ) -> bool:
     """
-    Query Cloud Monitoring for database connections over the last 14 days.
+    Query Cloud Monitoring for database connections over the last `idle_days` days.
 
     Returns True if any connections detected (active instance).
     Returns True on any error — conservative fallback avoids false positives.
     """
     try:
         now = datetime.now(timezone.utc)
-        start = now - timedelta(days=_DAYS_IDLE)
+        start = now - timedelta(days=idle_days)
 
         end_ts = timestamp_pb2.Timestamp()
         end_ts.FromDatetime(now)
@@ -106,9 +107,10 @@ def find_idle_sql_instances(
     project_id: str,
     credentials,
     region_filter: Optional[str] = None,
+    idle_days: int = _DAYS_IDLE,
 ) -> List[Finding]:
     """
-    Find Cloud SQL instances with zero database connections for 14 days.
+    Find Cloud SQL instances with zero database connections for `idle_days` days.
 
     Cloud SQL bills continuously regardless of query load — an idle db-n1-standard-2
     costs ~$93/month with zero queries. Dev and staging databases are frequently
@@ -176,7 +178,7 @@ def find_idle_sql_instances(
                 pass
 
         # Conservative: if monitoring check fails, assume active — don't flag
-        if _has_connections(monitoring_client, project_id, instance_name):
+        if _has_connections(monitoring_client, project_id, instance_name, idle_days=idle_days):
             continue
 
         settings = instance.get("settings") or {}
@@ -188,11 +190,9 @@ def find_idle_sql_instances(
             else f"Tier: {tier or 'unknown'} (cost estimate unavailable)"
         )
 
-        # Confidence scales with cost impact: a $7/month dev DB at zero connections
-        # is ambiguous; a $90+/month instance idle for 14 days is a clear signal.
-        confidence = (
-            ConfidenceLevel.HIGH if monthly_cost and monthly_cost > 50 else ConfidenceLevel.MEDIUM
-        )
+        # Zero connections for idle_days is a reliable signal regardless of cost.
+        # Use min_cost in cleancloud.yaml to suppress low-value findings instead.
+        confidence = ConfidenceLevel.HIGH
 
         labels = settings.get("userLabels", {})
 
@@ -223,7 +223,7 @@ def find_idle_sql_instances(
         signals_used = [
             "Instance state: RUNNABLE",
             f"Zero TCP connections observed via Cloud Monitoring over "
-            f"{_DAYS_IDLE} days "
+            f"{idle_days} days "
             f"(metric: cloudsql.googleapis.com/database/network/connections; "
             f"may not capture short-lived or non-TCP workloads)",
             f"Database version: {database_version}",
@@ -245,7 +245,7 @@ def find_idle_sql_instances(
             "tier": tier,
             "region": region,
             "ha_enabled": ha_enabled,
-            "days_idle_threshold": _DAYS_IDLE,
+            "days_idle_threshold": idle_days,
             "estimated_monthly_cost_usd": monthly_cost,
             "labels": labels,
         }
@@ -266,14 +266,14 @@ def find_idle_sql_instances(
                 resource_type="gcp.sql.instance",
                 resource_id=f"projects/{project_id}/instances/{instance_name}",
                 region=region,
-                title=f"Idle Cloud SQL Instance ({_DAYS_IDLE}+ Days)",
+                title=f"Idle Cloud SQL Instance ({idle_days}+ Days)",
                 summary=(
                     f"Cloud SQL instance '{instance_name}' ({database_version}, {tier}) "
                     f"in region '{region}' has had no observed database connections via "
-                    f"Cloud Monitoring over {_DAYS_IDLE}+ days but continues to incur "
+                    f"Cloud Monitoring over {idle_days}+ days but continues to incur "
                     f"compute charges."
                 ),
-                reason=f"Zero database connections detected over the last {_DAYS_IDLE} days",
+                reason=f"Zero database connections detected over the last {idle_days} days",
                 risk=RiskLevel.HIGH,
                 confidence=confidence,
                 detected_at=now,
@@ -288,7 +288,7 @@ def find_idle_sql_instances(
                         "Storage, backups, HA configuration, and network egress not included "
                         "in cost estimate — actual cost is often 2–5x higher",
                     ],
-                    time_window=f"{_DAYS_IDLE} days",
+                    time_window=f"{idle_days} days",
                 ),
                 details=details,
                 estimated_monthly_cost_usd=monthly_cost,

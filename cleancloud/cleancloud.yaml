@@ -1,11 +1,123 @@
-# cleancloud.yaml
+# cleancloud.yaml — Policy-as-code configuration
+# Auto-detected in the current directory. Override with: cleancloud scan --config path/to/cleancloud.yaml
 version: 1
 
+# ── Filtering precedence (strongest first) ────────────────────────────────────
+# 1. Exceptions       — explicit human approvals, bypass all other filters
+# 2. Tag filtering    — resource-scope exclusion by tag/label
+# 3. Rule enable/disable + params — pre-scan rule selection
+# 4. Defaults         — global fallbacks for min_cost / confidence / override_risk_level
+# 5. Thresholds       — CI/CD exit-code policy
+
+# ── Defaults ─────────────────────────────────────────────────────────────────
+# Global fallbacks applied to all rules unless overridden at the rule level.
+# min_cost: per-finding, using estimated_monthly_cost_usd (not total across findings).
+defaults:
+  min_cost: 10                  # suppress findings below $10/month estimated cost
+  confidence: MEDIUM            # suppress LOW confidence findings globally
+
+# ── Tag filtering ────────────────────────────────────────────────────────────
+# Suppress findings on resources that carry these tags/labels.
+# Applied AFTER exceptions — explicitly-excepted resources are never re-suppressed by a tag rule.
+# Useful for excluding intentional infrastructure (prod keep-warm, IaC-managed resources).
 tag_filtering:
   enabled: true
+  mode: exclude               # "exclude" suppresses findings on matched resources (only supported mode)
   ignore:
     - key: env
-      value: production
-    - key: team
-      value: platform
-    - key: team
+      values: [production, staging]   # suppress findings on prod and staging resources
+    - key: cleancloud-ignore          # key-only match (any value)
+
+# ── Rule configuration ───────────────────────────────────────────────────────
+# Enable or disable rules, tune thresholds, or pass parameters to individual rules.
+# Rules not listed here are enabled by default (opt-out model).
+# Per-rule settings override defaults above.
+# Rule IDs must match exactly — a typo raises an error at scan start with a suggestion.
+# Run `cleancloud scan --help` or see docs/rules.md for the full list.
+rules:
+  aws.resource.untagged:
+    enabled: false              # team manages tags separately
+
+  aws.ec2.ami.old:
+    enabled: true
+    min_cost: 5                 # only flag AMIs with estimated cost >= $5/month (overrides default)
+
+  aws.rds.instance.idle:
+    enabled: true
+    min_cost: 100               # suppress RDS findings below $100/month estimated cost
+    params:
+      idle_days: 21             # require 21 days idle before flagging (default: 14)
+
+  gcp.sql.instance.idle:
+    enabled: true
+    params:
+      idle_days: 21             # require 21 days idle before flagging (default: 14)
+
+  azure.compute.snapshot.old:
+    enabled: true
+    params:
+      max_age_days: 60          # flag snapshots older than 60 days (default: 90)
+    confidence: LOW             # include LOW confidence findings for this rule (overrides global default)
+
+  aws.sagemaker.endpoint.idle:
+    enabled: true
+    # override_risk_level overrides the `risk` field on findings — affects display and reporting only.
+    # It does NOT affect fail_on_confidence thresholds (which use signal strength, not risk).
+    override_risk_level: HIGH
+
+# ── Categories ───────────────────────────────────────────────────────────────
+# Override the default category without using the --category CLI flag.
+# Equivalent to: cleancloud scan --provider aws --category all
+# CLI --category flag takes precedence when explicitly set.
+# categories:
+#   include: [hygiene, ai]    # run both hygiene and AI/ML rules
+
+# ── Exceptions ───────────────────────────────────────────────────────────────
+# Strongest filter — excepted resources bypass tag filtering and all other suppression.
+# Fields: rule_id (exact), resource_id (glob: *, ?, [seq]), account_id, region, reason.
+# account_id and region narrow the match — omit to match any account/region.
+# Document the reason for every exception — these are git-reviewable approvals.
+# Note: require_reason / require_ticket enforcement planned for a future release.
+exceptions:
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — kept stopped intentionally, started on demand"
+    expires_at: "2026-12-31"          # exception reviewed quarterly; auto-expires if not renewed
+
+  - rule_id: aws.rds.instance.idle
+    resource_id: db-prod-reporting
+    reason: "Quarterly reporting DB — idle between cycles, do not terminate"
+
+  - rule_id: aws.rds.instance.idle
+    resource_id: "db-test-*"           # glob — suppress all test databases
+    reason: "Test databases are ephemeral and frequently idle"
+
+  - rule_id: aws.ebs.unattached
+    resource_id: "vol-*"
+    account_id: "111111111111"          # narrow to a specific AWS account
+    region: us-west-2                   # narrow to a specific region
+    reason: "Archive volumes in legacy account, migration planned"
+
+  - rule_id: gcp.sql.instance.idle
+    resource_id: my-project:us-central1:analytics-db
+    reason: "Idle between quarterly runs"
+
+# ── Thresholds ───────────────────────────────────────────────────────────────
+# Config-file equivalents of --fail-on-* CLI flags.
+# CLI flags take precedence if both are set.
+# fail_on_confidence uses signal strength (LOW/MEDIUM/HIGH), not the override_risk_level above.
+#
+# Exit codes:
+#   0 — No findings (or all filtered/suppressed)
+#   1 — Unexpected error (bug or infrastructure failure)
+#   2 — Policy violation — a threshold was breached (CI/CD should fail here)
+#   3 — Permission error — insufficient IAM/RBAC permissions to complete scan
+#
+# Threshold evaluation order (OR logic — first breach triggers exit 2):
+#   1. fail_on_findings: true  → any remaining finding
+#   2. fail_on_confidence: X   → any finding with confidence >= X
+#   3. fail_on_cost: X         → total estimated_monthly_cost_usd across findings >= X
+thresholds:
+  fail_on_confidence: HIGH      # exit 2 if any HIGH confidence finding remains after filtering
+  fail_on_cost: 500             # exit 2 if total estimated waste >= $500/month
+  fail_on_findings: false       # exit 2 on any finding (most strict — usually too noisy for CI)

@@ -11,12 +11,16 @@
 
 ---
 
+CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — avec le coût par ressource.
+
+**Aucun agent. Pas de SaaS. Lecture seule.**
+
 ## Démarrage rapide
 
 ```bash
 pipx install cleancloud
 cleancloud demo                      # visualisez des findings — aucun credential requis
-cleancloud demo --category ai        # findings IA/ML (SageMaker, AML, Vertex AI — endpoints/clusters GPU intensifs)
+cleancloud demo --category ai        # findings IA/ML (SageMaker, AML, Vertex AI)
 ```
 
 Scannez votre cloud :
@@ -29,24 +33,6 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
 ```
 
 ---
-
-**CleanCloud est le moteur d'hygiène cloud — détecte le gaspillage d'infrastructure inactive et de ressources IA/ML coûteuses sur AWS, Azure et GCP.**
-
-**Supporte :** AWS · Azure · GCP
-
-CleanCloud scanne vos environnements AWS, Azure et GCP et vous indique exactement ce qu'il faut nettoyer — infrastructure inactive et ressources IA/ML coûteuses (endpoints SageMaker, clusters AML Compute, endpoints Vertex AI) — avec des estimations de coût par ressource. Aucun agent. Pas de SaaS. Lecture seule. S'exécute entièrement dans votre environnement.
-
-| | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
-|---|:---:|:---:|:---:|
-| Affiche les tendances de coûts | ✅ | ✅ | — |
-| Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
-| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
-| Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
-| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
-| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
-| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
-| Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
-| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
 
 ## Exemple de résultat détaillé
 
@@ -130,332 +116,111 @@ Régions scannées : us-east-1, us-west-2, eu-west-1 (auto-détectées)
 
 Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans aucun credential.
 
+---
+
 ## Mentionné dans la presse
 
 - [Korben](https://korben.info/cleancloud-nettoyeur-cloud-aws-azure.html) 🇫🇷 — Grand média tech français
 - [Last Week in AWS #457](https://www.lastweekinaws.com/newsletter/15259/) — La newsletter AWS de Corey Quinn
-
-## Ce qu'en disent les utilisateurs
 
 > "Outil de découverte solide qui remonte les économies potentielles. Facile à installer et à utiliser !"
 > — [Utilisateur Reddit](https://www.reddit.com/r/AZURE/comments/1rm7an5/comment/o8zfv6a/)
 
 ---
 
+**CleanCloud est le moteur d'hygiène cloud — détecte le gaspillage d'infrastructure inactive et de ressources IA/ML coûteuses sur AWS, Azure et GCP.**
+
+- Nomme exactement les ressources à nettoyer — avec le coût par ressource
+- Détecte le gaspillage IA/ML coûteux (500–20 000 $/mois — SageMaker, AML, Vertex AI)
+- Fonctionne sur AWS, Azure et GCP
+- S'exécute entièrement dans votre environnement — aucun agent, pas de SaaS
+- Prêt pour CI/CD — codes de sortie d'application + sorties JSON/CSV/markdown
+
 ## Fonctionnalités clés
 
-- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker inactifs (AWS), clusters AML Compute inactifs (Azure), et endpoints Vertex AI Online Prediction inactifs (GCP) — ressources GPU toujours provisionnées flaggées risque HIGH, avec un gaspillage typique de $449 à $23K+/mois. Opt-in via `--category ai` ou `--category all`
-
-  De nombreuses ressources IA/ML restent provisionnées en permanence (min replicas / baseline capacity) et continuent de facturer même sans trafic — CleanCloud détecte ces déploiements abandonnés ou sous-utilisés dès le début.
 - **33 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
-- **Gouvernance et application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
+- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker inactifs (AWS), clusters AML Compute inactifs (Azure), et endpoints Vertex AI Online Prediction inactifs (GCP). Ressources GPU flaggées risque HIGH. Opt-in via `--category ai` ou `--category all`
+- **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure
+- **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
-- **Sûr pour les environnements réglementés :** aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre propre infrastructure. Adapté aux comptes de services financiers, de santé et gouvernementaux où l'accès SaaS tiers est restreint
-- **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord de coûts et automatisation des tickets — CSV pour les workflows tableur — markdown à coller directement dans vos PRs GitHub, Jira ou Confluence
+- **Sûr pour les environnements réglementés :** aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre infrastructure. Adapté aux services financiers, à la santé et au gouvernement où l'accès SaaS tiers est restreint
+- **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord et tickets — CSV pour les tableurs — markdown à coller dans vos PRs GitHub, Jira ou Confluence
 
 ### Ce que CleanCloud ne fait PAS
 
-| | |
-|---|---|
-| ❌ Supprimer des ressources | ❌ Modifier ou créer des tags |
-| ❌ Écrire dans une API cloud | ❌ Stocker ou journaliser des credentials |
-| ❌ Envoyer des données de télémétrie | ❌ Nécessiter un compte SaaS ou un agent |
+- Aucune suppression ni modification de ressources cloud
+- Aucun accès en écriture à une API cloud
+- Aucun credential stocké, aucune télémétrie envoyée
+- Aucun compte SaaS ni agent requis
 
-Toutes les opérations sont en lecture seule. Sûr pour les comptes de production, environnements air-gapped, et pipelines soumis à revue de sécurité.
+Entièrement en lecture seule. Sûr pour la production et les environnements réglementés.
 
-**À qui s'adresse CleanCloud :**
+---
+
+| | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Affiche les tendances de coûts | ✅ | ✅ | — |
+| Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
+| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
+| Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
+| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
+| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
+| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
+| Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
+| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
+
+---
+
+## À qui s'adresse CleanCloud
+
 - **Équipes platform et FinOps** — scans d'hygiène hebdomadaires sur votre AWS Org ou tenant Azure, application de seuils de gaspillage, détection de la dérive avant qu'elle ne s'accumule
 - **Industries réglementées** — services financiers, santé et gouvernement qui ne peuvent pas envoyer les données de compte cloud à un fournisseur SaaS
 - **Équipes mid-market** — trop grandes pour ignorer le gaspillage cloud, trop légères pour des plateformes FinOps enterprise. Les outils natifs montrent les factures ; CleanCloud montre ce qu'il faut corriger
 - **Consultants cloud et MSPs** — audit d'un compte client en quelques minutes, export des findings en markdown ou JSON
-
-**Cas d'usage :**
-- Audit ponctuel de gaspillage cloud — exécutez dans CloudShell, findings visibles en 60 secondes
-- Gouvernance d'hygiène planifiée — job hebdomadaire qui détecte les nouveaux gaspillages et applique les seuils sur tous les comptes
-- Rapports pré-revue — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
+- **Audits ponctuels** — exécutez dans CloudShell, findings visibles en 60 secondes, sans installation requise
+- **Rapports pré-revue** — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
 
 ---
 
 ## Démarrage
 
-### Commandes
-
-| Commande | Fonction |
-|---|---|
-| `cleancloud demo` | Affiche des findings exemples — aucun credential requis |
-| `cleancloud scan` | Scanne votre environnement cloud et rapporte les findings |
-| `cleancloud doctor` | Vérifie que les credentials et permissions sont correctement configurés |
-| `cleancloud --version` | Affiche la version installée |
-| `cleancloud --help` | Liste tous les flags |
-
-**Via pipx (recommandé pour usage local) :**
 ```bash
 pipx install cleancloud
-pipx ensurepath        # ajoute cleancloud au PATH — relancez votre shell après
-cleancloud demo        # visualisez des findings sans aucun credential cloud
-```
-
-**Via Docker (Python non requis — fonctionne partout : CI/CD, jobs planifiés, serveurs) :**
-```bash
-docker pull getcleancloud/cleancloud
-docker run --rm getcleancloud/cleancloud demo
-
-# Avec credentials AWS (Docker n'hérite pas de ~/.aws automatiquement)
-docker run --rm \
-  -e AWS_ACCESS_KEY_ID \
-  -e AWS_SECRET_ACCESS_KEY \
-  -e AWS_SESSION_TOKEN \
-  -e AWS_REGION=us-east-1 \
-  getcleancloud/cleancloud scan --provider aws --all-regions
-```
-
-> En CI/CD, `aws-actions/configure-aws-credentials` définit les variables `AWS_*` sur le runner — passez-les avec `-e VAR_NAME` et elles sont transmises au conteneur automatiquement. Voir [Guide CI/CD →](docs/ci.md#using-the-docker-image)
-
-Prêt à scanner votre vrai environnement ? Authentifiez-vous d'abord, puis lancez :
-
-```bash
-# AWS : assurez-vous d'être connecté (aws configure, aws sso login, ou rôle IAM)
-cleancloud scan --provider aws --all-regions
-
-# Azure : assurez-vous d'être connecté (az login)
-cleancloud scan --provider azure
-
-# GCP : assurez-vous d'être connecté (gcloud auth application-default login)
-cleancloud scan --provider gcp --all-projects
-```
-
-Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`, `cleancloud doctor --provider azure` ou `cleancloud doctor --provider gcp`.
-
-### Flags de scan :
-
-| Flag | Fonction |
-|---|---|
-| `--provider aws\|azure\|gcp` | Fournisseur cloud à scanner *(obligatoire)* |
-| `--category hygiene\|ai\|all` | Catégorie de règles : `hygiene` (défaut), `ai` (SageMaker sur AWS, AML Compute sur Azure, Vertex AI sur GCP) ou `all` (hygiene + IA) |
-| `--region REGION` | Scanner une seule région |
-| `--all-regions` | Toutes les régions actives — AWS/Azure uniquement |
-| **AWS multi-comptes** | |
-| `--org` | Auto-découverte via AWS Organizations |
-| `--multi-account FILE` | Fichier de config listant les comptes |
-| `--accounts 111,222` | IDs de comptes inline, séparés par des virgules |
-| `--concurrency N` | Comptes/projets en parallèle (défaut : 3) |
-| `--timeout SECONDS` | Timeout total du scan en secondes (défaut : 3600) |
-| **Azure multi-abonnements** | |
-| `--management-group ID` | Scanner tous les abonnements d'un Management Group |
-| `--subscription ID` | Scanner un abonnement spécifique (défaut : tous les accessibles) |
-| **GCP multi-projets** | |
-| `--all-projects` | Scanner tous les projets GCP accessibles |
-| `--project ID` | Scanner un projet spécifique (répétable) |
-| **Sortie** | |
-| `--output human\|json\|csv\|markdown` | Format de sortie (défaut : human) |
-| `--output-file FILE` | Écrire la sortie dans un fichier |
-| **Application** *(exit code 2 en cas de correspondance)* | |
-| `--fail-on-confidence HIGH\|MEDIUM` | Échec sur les findings à ce niveau de confiance ou supérieur |
-| `--fail-on-cost N` | Échec si gaspillage mensuel estimé ≥ $N |
-| `--fail-on-findings` | Échec sur n'importe quel finding |
-
-### Sans installation — essayez dans votre cloud shell
-
-Vous avez un compte AWS, Azure ou GCP ? Lancez un vrai scan en quelques secondes, sans installation locale.
-
-**AWS — [AWS CloudShell](https://console.aws.amazon.com/cloudshell) :**
-```bash
-pip install --upgrade cleancloud
-cleancloud doctor --provider aws   # vérifiez les permissions de votre session
+cleancloud demo                                    # aucun credential requis
 cleancloud scan --provider aws --all-regions
 ```
 
-**Azure — [Azure Cloud Shell](https://shell.azure.com) :**
-```bash
-pip install --upgrade --user cleancloud
-export PATH="$HOME/.local/bin:$PATH"
-cleancloud doctor --provider azure  # vérifiez les permissions de votre session
-cleancloud scan --provider azure
-```
+Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`.
 
-**GCP — [Cloud Shell](https://shell.cloud.google.com) :**
-```bash
-pip install --upgrade --user cleancloud
-export PATH="$HOME/.local/bin:$PATH"
-cleancloud doctor --provider gcp    # vérifiez les permissions de votre session
-cleancloud scan --provider gcp --all-projects
-```
-
-Les trois shells s'authentifient via votre session du portail — aucun credential séparé requis. Les permissions varient selon les comptes ; `doctor` vous indique exactement ce qui est disponible avant de scanner.
-
-<details>
-<summary>Problèmes d'installation</summary>
-
-**macOS :** `brew install pipx && pipx install cleancloud`
-
-**Linux :** `sudo apt install pipx && pipx install cleancloud`
-
-**Windows :** `python3 -m pip install --user pipx && python3 -m pipx ensurepath && pipx install cleancloud`
-
-**Command not found: cleancloud** — Exécutez `pipx ensurepath` puis relancez votre shell.
-
-**externally-managed-environment** — Utilisez `pipx` à la place de `pip`.
-
-**Mise à jour depuis un `pip install` existant** — supprimez-le d'abord pour éviter les conflits :
-```bash
-pip uninstall cleancloud && pipx install cleancloud && pipx ensurepath
-```
-
-**Mauvaise version après installation** — Exécutez `which cleancloud` ; un ancien `pip install` masque peut-être le pipx.
-
-**Version minimale recommandée : v1.7.2** — les versions antérieures ont des problèmes de setup. Exécutez `cleancloud --version` pour vérifier.
-
-</details>
+Docker, CloudShell, ou problèmes d'installation ? → **[Guide d'installation →](docs/aws.md)**
 
 ---
 
-### Rapport markdown partageable
+## En CI/CD
+
+Les scans retournent `0` par défaut — les findings sont reportés, rien n'est bloqué sauf si vous le demandez.
 
 ```bash
-cleancloud scan --provider aws --all-regions --output markdown
-```
-
-Produit un résumé groupé que vous pouvez coller directement dans un commentaire de PR GitHub, un message Slack, ou une issue :
-
-```markdown
-## Résultats du scan CleanCloud
-
-**Provider :** AWS
-**Régions :** us-east-1, us-west-2, eu-west-1
-**Scanné le :** 2026-03-07
-**Gaspillage mensuel estimé :** ~$147
-
-**Total des findings :** 6
-
-| Finding | Nombre | Coût mensuel estimé |
-|---------|-------:|--------------------:|
-| Volume EBS non attaché | 2 | ~$115 |
-| NAT Gateway inactive | 1 | ~$32 |
-| Elastic IP non attachée | 1 | ~$0 |
-| ENI détachée | 1 | — |
-| CloudWatch Log Group : rétention infinie | 1 | — |
-
-**Confiance :** high: 3 · medium: 3
-
-> Généré par [CleanCloud](https://github.com/cleancloud-io/cleancloud) — scanner d'hygiène cloud lecture seule pour AWS, Azure et GCP.
-```
-
-Sauvegardez dans un fichier avec `--output-file results.md`. Sans `--output-file`, la sortie s'affiche dans stdout.
-
-Pour des exemples de sortie complets incluant `doctor`, JSON, CSV et markdown : [`docs/example-outputs.md`](docs/example-outputs.md)
-
----
-
-## Ce que CleanCloud détecte
-
-33 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
-
-**AWS :**
-- Compute : instances arrêtées 30+ jours (charges EBS continuent)
-- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs, anciens snapshots RDS 90+ jours
-- Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
-- Plateforme : instances RDS inactives (HIGH)
-- Observabilité : logs CloudWatch à rétention infinie
-- Gouvernance : ressources sans tags, security groups inutilisés
-- IA/ML *(opt-in : `--category ai`)* : endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois)
-
-**Azure :**
-- Compute : VMs arrêtées (non désallouées) (HIGH)
-- Stockage : disques managés non attachés (HIGH), anciens snapshots
-- Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
-- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
-- Gouvernance : ressources sans tags
-- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois)
-
-**GCP :**
-- Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)
-- Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
-- Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
-- Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
-- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois)
-
-Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
-
-**Détails complets des règles, signaux et preuves :** [`docs/rules.md`](docs/rules.md)
-
----
-
-## Comment les équipes utilisent CleanCloud
-
-Les scans se terminent avec `0` par défaut — ils reportent les findings sans jamais bloquer quoi que ce soit, sauf si vous le demandez explicitement. Trois patterns courants :
-
----
-
-**Scan de gouvernance hebdomadaire** — le setup le plus courant pour les équipes platform et FinOps. Exécuté sur un planning, indépendamment des déploiements de code. Détecte le nouveau gaspillage avant qu'il ne s'accumule et applique un seuil de coût sur tous les comptes ou abonnements.
-
-```yaml
-# .github/workflows/cleancloud-weekly.yml
-on:
-  schedule:
-    - cron: "0 9 * * 1"   # chaque lundi à 9h
-```
-
-```bash
-# AWS — scan de toute l'org, alerte si le gaspillage mensuel dépasse 500$
+# Gouvernance hebdomadaire : échec si le gaspillage mensuel dépasse 500$
 cleancloud scan --provider aws --org --all-regions \
   --output json --output-file findings.json \
   --fail-on-cost 500
 
-# Azure — scan de tous les abonnements sous un Management Group
-cleancloud scan --provider azure --management-group <MGMT_GROUP_ID> \
-  --output json --output-file findings.json \
-  --fail-on-cost 500
-```
-
-La sortie JSON peut alimenter des alertes Slack, des tickets Jira ou un tableau de bord de coûts.
-
----
-
-**Audit ponctuel** — exécutez depuis CloudShell ou votre terminal pour une vue immédiate à un instant T. Sans installation supplémentaire, sans configuration, findings en moins de 60 secondes. Utile avant une revue trimestrielle des coûts, une migration cloud, ou un audit de sécurité.
-
-```bash
-# AWS CloudShell — utilise votre session portail, pas d'auth supplémentaire
-pip install --upgrade cleancloud
-cleancloud scan --provider aws --all-regions
-
-# Azure Cloud Shell — utilise votre session portail, pas d'auth supplémentaire
-pip install --upgrade --user cleancloud && export PATH="$HOME/.local/bin:$PATH"
-cleancloud scan --provider azure
-```
-
----
-
-**En CI/CD** — exécutez comme étape dans votre workflow de déploiement pour détecter le gaspillage évident avant qu'il ne soit livré. Utilisez les flags d'application pour bloquer ou alerter.
-
-```bash
-# AWS
+# Gate pré-déploiement : bloquer sur le gaspillage HIGH confidence
 cleancloud scan --provider aws --region us-east-1 \
-  --fail-on-confidence HIGH   # exit 2 si gaspillage HIGH confidence détecté
-
-# Azure
-cleancloud scan --provider azure \
   --fail-on-confidence HIGH
 ```
 
----
+| Code de sortie | Signification |
+|----------------|---------------|
+| `0` | Aucune violation (ou aucun flag d'application défini) |
+| `1` | Erreur de configuration ou échec inattendu |
+| `2` | Violation de politique — seuil dépassé |
+| `3` | Credentials manquants ou permissions insuffisantes |
 
-**Seuils d'application** — les scans retournent toujours `0` sauf si vous activez l'application :
-
-| Flag | Comportement | Code de sortie |
-|------|-------------|----------------|
-| *(aucun)* | Rapport uniquement, jamais d'échec | `0` |
-| `--fail-on-confidence HIGH` | Échec sur les findings HIGH | `2` |
-| `--fail-on-confidence MEDIUM` | Échec sur MEDIUM ou supérieur | `2` |
-| `--fail-on-cost 50` | Échec si gaspillage mensuel estimé >= 50$ | `2` |
-| `--fail-on-findings` | Échec sur n'importe quel finding | `2` |
-
-Workflows GitHub Actions complets et prêts à l'emploi pour AWS (OIDC) et Azure (Workload Identity) :
-
-**[Guide automatisation & CI/CD →](docs/ci.md)** · [Configuration AWS →](docs/aws.md) · [Configuration Azure →](docs/azure.md) · [Configuration GCP →](docs/gcp.md)
-
-**Besoin d'aide avec OIDC ou les flags d'application ?** [Posez votre question dans notre discussion →](https://github.com/cleancloud-io/cleancloud/discussions/98)
+**[Guide CI/CD complet →](docs/ci.md)** · [AWS →](docs/aws.md) · [Azure →](docs/azure.md) · [GCP →](docs/gcp.md)
 
 ---
 
@@ -573,9 +338,6 @@ cleancloud scan --provider gcp --all-projects
 
 # Scanner des projets spécifiques
 cleancloud scan --provider gcp --project mon-projet-123 --project autre-projet-456
-
-# Avec filtre de région
-cleancloud scan --provider gcp --all-projects --region us-central1
 ```
 
 **Permissions requises (par projet) :**
@@ -592,23 +354,47 @@ cleancloud scan --provider gcp --all-projects --region us-central1
 
 Toutes les permissions en lecture seule sont couvertes par quatre rôles prédéfinis : `roles/compute.viewer`, `roles/cloudsql.viewer`, `roles/monitoring.viewer`, et `roles/browser`. Pour CI/CD, utilisez Workload Identity Federation — voir [Configuration GCP →](docs/gcp.md).
 
-**Fonctionnement :**
-
-- **Application Default Credentials** — utilise la chaîne d'authentification GCP standard : `GOOGLE_APPLICATION_CREDENTIALS` → gcloud ADC → Workload Identity → service account attaché au serveur de métadonnées.
-- **Auto-découverte** — avec `--all-projects`, CleanCloud énumère tous les projets ACTIFS accessibles via l'API Resource Manager.
-- **Parallèle avec isolation** — chaque projet s'exécute dans son propre thread. Un projet en échec n'affecte jamais les autres.
-- **Dégradation gracieuse** — les règles échouant avec 403 sont enregistrées comme ignorées, pas comme des échecs de scan.
-- **Détail des coûts par projet** — la sortie indique le gaspillage mensuel estimé par projet.
-
 Guide complet : [Configuration GCP →](docs/gcp.md)
 
 </details>
 
 ---
 
-## Feuille de route
+## Ce que CleanCloud détecte
 
-**Policy-as-code** — `cleancloud.yaml` avec packs de règles, exceptions par équipe, et seuils de coût en config — la principale demande de gouvernance FinOps pour 2025/2026
+33 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+
+**AWS :**
+- Compute : instances arrêtées 30+ jours (charges EBS continuent)
+- Stockage : volumes EBS non attachés (HIGH), anciens snapshots EBS, anciennes AMIs, anciens snapshots RDS 90+ jours
+- Réseau : Elastic IPs non attachées (HIGH), ENI détachées, NAT Gateways inactives, Load Balancers inactifs (HIGH)
+- Plateforme : instances RDS inactives (HIGH)
+- Observabilité : logs CloudWatch à rétention infinie
+- Gouvernance : ressources sans tags, security groups inutilisés
+- IA/ML *(opt-in : `--category ai`)* : endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois)
+
+**Azure :**
+- Compute : VMs arrêtées (non désallouées) (HIGH)
+- Stockage : disques managés non attachés (HIGH), anciens snapshots
+- Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
+- Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
+- Gouvernance : ressources sans tags
+- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois)
+
+**GCP :**
+- Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)
+- Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
+- Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
+- Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
+- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois)
+
+Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
+
+**Détails complets des règles, signaux et preuves :** [`docs/rules.md`](docs/rules.md)
+
+---
+
+## Feuille de route
 
 **Plus de règles IA/ML** — instances de notebook SageMaker inutilisées, artefacts d'entraînement orphelins, instances de notebook Vertex AI inactives
 
@@ -629,6 +415,7 @@ Guide complet : [Configuration GCP →](docs/gcp.md)
 - [`docs/azure.md`](docs/azure.md) — RBAC Azure et configuration Workload Identity
 - [`docs/gcp.md`](docs/gcp.md) — Permissions IAM GCP et configuration Application Default Credentials
 - [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
+- [`docs/configuration.md`](docs/configuration.md) — Policy-as-code : exceptions, seuils, filtrage par tag
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, modèle de menace

@@ -54,18 +54,22 @@ class ProjectScanResult:
         )
 
 
-GCP_RULES: List[Callable] = [
-    find_unattached_disks,
-    find_stopped_vms,
-    find_unused_static_ips,
-    find_old_snapshots,
-    find_idle_sql_instances,
-]
+GCP_RULE_MAP: Dict[str, Callable] = {
+    "gcp.compute.disk.unattached": find_unattached_disks,
+    "gcp.compute.vm.stopped": find_stopped_vms,
+    "gcp.compute.ip.unused": find_unused_static_ips,
+    "gcp.compute.snapshot.old": find_old_snapshots,
+    "gcp.sql.instance.idle": find_idle_sql_instances,
+}
+
+GCP_RULE_MAP_AI: Dict[str, Callable] = {
+    "gcp.vertex.endpoint.idle": find_idle_vertex_endpoints,
+}
+
+GCP_RULES: List[Callable] = list(GCP_RULE_MAP.values())
 
 # AI/ML waste rules — not run by default; use --category ai or --category all
-GCP_AI_RULES: List[Callable] = [
-    find_idle_vertex_endpoints,
-]
+GCP_AI_RULES: List[Callable] = list(GCP_RULE_MAP_AI.values())
 
 
 def _run_rule_with_retry(

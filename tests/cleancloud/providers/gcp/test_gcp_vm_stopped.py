@@ -199,7 +199,7 @@ def test_region_filter(monkeypatch):
 
 
 def test_custom_days_stopped_threshold(monkeypatch):
-    """days_stopped parameter controls the threshold."""
+    """max_age_days parameter controls the threshold."""
     _mock_client(
         {
             "zones/us-central1-a": [
@@ -209,11 +209,11 @@ def test_custom_days_stopped_threshold(monkeypatch):
         monkeypatch,
     )
     # With threshold=7, a VM stopped 10 days ago should be flagged
-    findings = find_stopped_vms(project_id="proj-1", credentials=MagicMock(), days_stopped=7)
+    findings = find_stopped_vms(project_id="proj-1", credentials=MagicMock(), max_age_days=7)
     assert len(findings) == 1
 
     # With threshold=30 (default), same VM should not be flagged
-    findings2 = find_stopped_vms(project_id="proj-1", credentials=MagicMock(), days_stopped=30)
+    findings2 = find_stopped_vms(project_id="proj-1", credentials=MagicMock(), max_age_days=30)
     assert len(findings2) == 0
 
 

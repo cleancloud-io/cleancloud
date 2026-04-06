@@ -23,6 +23,7 @@ def find_old_snapshots(
     credential,
     region_filter: str = None,
     client: Optional[ComputeManagementClient] = None,
+    max_age_days: int = MIN_AGE_DAYS_HIGH,
 ) -> List[Finding]:
     """
     Find old Azure managed snapshots that may be orphaned.
@@ -51,7 +52,7 @@ def find_old_snapshots(
 
         age_days = _age_in_days(snapshot.time_created)
 
-        if age_days >= MIN_AGE_DAYS_HIGH:
+        if age_days >= max_age_days:
             confidence_value = ConfidenceLevel.MEDIUM  # conservative
         elif age_days >= MIN_AGE_DAYS_MEDIUM:
             confidence_value = ConfidenceLevel.MEDIUM
@@ -76,8 +77,8 @@ def find_old_snapshots(
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.old_snapshot",
-                resource_type="azure.snapshot",
+                rule_id="azure.compute.snapshot.old",
+                resource_type="azure.compute.snapshot",
                 resource_id=snapshot.id,
                 region=snapshot.location,
                 estimated_monthly_cost_usd=cost_usd,

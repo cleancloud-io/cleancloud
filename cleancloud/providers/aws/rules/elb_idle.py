@@ -13,7 +13,7 @@ from cleancloud.core.risk import RiskLevel
 def find_idle_load_balancers(
     session: boto3.Session,
     region: str,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
     Find idle Elastic Load Balancers (ALB, NLB, CLB) with no traffic.
@@ -22,8 +22,8 @@ def find_idle_load_balancers(
     Idle load balancers with no traffic are a clear cost optimization signal.
 
     Detection logic:
-    - LB is older than `days_idle` days
-    - Zero traffic over the `days_idle` period (CloudWatch metrics)
+    - LB is older than `idle_days` days
+    - Zero traffic over the `idle_days` period (CloudWatch metrics)
     - No registered targets (ALB/NLB) or no registered instances (CLB)
 
     Confidence:
@@ -41,10 +41,10 @@ def find_idle_load_balancers(
     findings: List[Finding] = []
 
     # Scan ALB/NLB via elbv2
-    findings.extend(_scan_elbv2(session, region, cloudwatch, now, days_idle))
+    findings.extend(_scan_elbv2(session, region, cloudwatch, now, idle_days))
 
     # Scan CLB via elb
-    findings.extend(_scan_clb(session, region, cloudwatch, now, days_idle))
+    findings.extend(_scan_clb(session, region, cloudwatch, now, idle_days))
 
     return findings
 
@@ -54,7 +54,7 @@ def _scan_elbv2(
     region: str,
     cloudwatch,
     now: datetime,
-    days_idle: int,
+    idle_days: int,
 ) -> List[Finding]:
     """Scan ALB and NLB load balancers for idle resources."""
     elbv2 = session.client("elbv2", region_name=region)
@@ -79,11 +79,11 @@ def _scan_elbv2(
                         pass
 
                 # Skip if younger than threshold
-                if age_days < days_idle:
+                if age_days < idle_days:
                     continue
 
                 # Check traffic via CloudWatch
-                has_traffic = _check_elbv2_traffic(cloudwatch, lb_arn, lb_type, days_idle)
+                has_traffic = _check_elbv2_traffic(cloudwatch, lb_arn, lb_type, idle_days)
                 if has_traffic:
                     continue
 
@@ -101,7 +101,7 @@ def _scan_elbv2(
                 metric_name = "RequestCount" if lb_type == "application" else "NewFlowCount"
 
                 signals = [
-                    f"Zero {metric_name} for {days_idle} days (CloudWatch metrics)",
+                    f"Zero {metric_name} for {idle_days} days (CloudWatch metrics)",
                     f"Load balancer type: {type_label}",
                     f"State: {lb.get('State', {}).get('Code', 'unknown')}",
                 ]
@@ -119,7 +119,7 @@ def _scan_elbv2(
                         "Seasonal traffic patterns",
                         "Internal health-check-only usage",
                     ],
-                    time_window=f"{days_idle} days",
+                    time_window=f"{idle_days} days",
                 )
 
                 findings.append(
@@ -130,12 +130,12 @@ def _scan_elbv2(
                         resource_id=lb_arn,
                         region=region,
                         estimated_monthly_cost_usd=18.0,
-                        title=f"Idle {type_label} (No Traffic for {days_idle}+ Days)",
+                        title=f"Idle {type_label} (No Traffic for {idle_days}+ Days)",
                         summary=(
                             f"{type_label} '{lb_name}' has had zero traffic for "
-                            f"{days_idle}+ days and is incurring base charges."
+                            f"{idle_days}+ days and is incurring base charges."
                         ),
-                        reason=f"{type_label} has zero traffic for {days_idle}+ days",
+                        reason=f"{type_label} has zero traffic for {idle_days}+ days",
                         risk=RiskLevel.MEDIUM,
                         confidence=confidence,
                         detected_at=now,
@@ -148,7 +148,7 @@ def _scan_elbv2(
                             "vpc_id": lb.get("VpcId"),
                             "age_days": age_days,
                             "has_targets": has_targets,
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             "estimated_monthly_cost": "~$16-22/month (region dependent)",
                         },
                     )
@@ -174,7 +174,7 @@ def _scan_clb(
     region: str,
     cloudwatch,
     now: datetime,
-    days_idle: int,
+    idle_days: int,
 ) -> List[Finding]:
     """Scan Classic Load Balancers for idle resources."""
     elb = session.client("elb", region_name=region)
@@ -197,11 +197,11 @@ def _scan_clb(
                         pass
 
                 # Skip if younger than threshold
-                if age_days < days_idle:
+                if age_days < idle_days:
                     continue
 
                 # Check traffic via CloudWatch
-                has_traffic = _check_clb_traffic(cloudwatch, lb_name, days_idle)
+                has_traffic = _check_clb_traffic(cloudwatch, lb_name, idle_days)
                 if has_traffic:
                     continue
 
@@ -216,7 +216,7 @@ def _scan_clb(
                     confidence = ConfidenceLevel.MEDIUM
 
                 signals = [
-                    f"Zero RequestCount for {days_idle} days (CloudWatch metrics)",
+                    f"Zero RequestCount for {idle_days} days (CloudWatch metrics)",
                     "Load balancer type: CLB",
                 ]
 
@@ -235,7 +235,7 @@ def _scan_clb(
                         "Seasonal traffic patterns",
                         "Internal health-check-only usage",
                     ],
-                    time_window=f"{days_idle} days",
+                    time_window=f"{idle_days} days",
                 )
 
                 findings.append(
@@ -246,12 +246,12 @@ def _scan_clb(
                         resource_id=lb_name,
                         region=region,
                         estimated_monthly_cost_usd=18.0,
-                        title=f"Idle CLB (No Traffic for {days_idle}+ Days)",
+                        title=f"Idle CLB (No Traffic for {idle_days}+ Days)",
                         summary=(
                             f"CLB '{lb_name}' has had zero traffic for "
-                            f"{days_idle}+ days and is incurring base charges."
+                            f"{idle_days}+ days and is incurring base charges."
                         ),
-                        reason=f"CLB has zero traffic for {days_idle}+ days",
+                        reason=f"CLB has zero traffic for {idle_days}+ days",
                         risk=RiskLevel.MEDIUM,
                         confidence=confidence,
                         detected_at=now,
@@ -264,7 +264,7 @@ def _scan_clb(
                             "age_days": age_days,
                             "has_instances": has_instances,
                             "instance_count": len(instances),
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             "estimated_monthly_cost": "~$16-22/month (region dependent)",
                         },
                     )

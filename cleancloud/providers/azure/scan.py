@@ -58,25 +58,29 @@ class SubscriptionScanResult:
         )
 
 
-AZURE_RULES: List[Callable] = [
-    find_unattached_managed_disks,
-    find_old_snapshots,
-    find_azure_untagged_resources,
-    find_unused_public_ips,
-    find_empty_app_service_plans,
-    find_lb_no_backends,
-    find_app_gateway_no_backends,
-    find_idle_vnet_gateways,
-    find_stopped_not_deallocated_vms,
-    find_idle_sql_databases,
-    find_idle_app_services,
-    find_unused_container_registries,
-]
+AZURE_RULE_MAP: Dict[str, Callable] = {
+    "azure.compute.disk.unattached": find_unattached_managed_disks,
+    "azure.compute.snapshot.old": find_old_snapshots,
+    "azure.resource.untagged": find_azure_untagged_resources,
+    "azure.network.public_ip.unused": find_unused_public_ips,
+    "azure.app_service_plan.empty": find_empty_app_service_plans,
+    "azure.load_balancer.no_backends": find_lb_no_backends,
+    "azure.application_gateway.no_backends": find_app_gateway_no_backends,
+    "azure.virtual_network_gateway.idle": find_idle_vnet_gateways,
+    "azure.vm.stopped_not_deallocated": find_stopped_not_deallocated_vms,
+    "azure.sql.database.idle": find_idle_sql_databases,
+    "azure.app_service.idle": find_idle_app_services,
+    "azure.container_registry.unused": find_unused_container_registries,
+}
+
+AZURE_RULE_MAP_AI: Dict[str, Callable] = {
+    "azure.aml.compute.idle": find_idle_aml_compute,
+}
+
+AZURE_RULES: List[Callable] = list(AZURE_RULE_MAP.values())
 
 # AI/ML waste rules — not run by default; use --category ai or --category all
-AZURE_AI_RULES: List[Callable] = [
-    find_idle_aml_compute,
-]
+AZURE_AI_RULES: List[Callable] = list(AZURE_RULE_MAP_AI.values())
 
 _TRANSIENT_STATUS_CODES = {429, 500, 503}
 _MAX_RETRIES = 3

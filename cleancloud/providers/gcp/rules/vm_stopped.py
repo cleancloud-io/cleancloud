@@ -33,7 +33,7 @@ def find_stopped_vms(
     project_id: str,
     credentials,
     region_filter: Optional[str] = None,
-    days_stopped: int = 30,
+    max_age_days: int = 30,
 ) -> List[Finding]:
     """
     Find Compute Engine VMs in TERMINATED state for 30+ days.
@@ -45,7 +45,7 @@ def find_stopped_vms(
 
     Detection logic:
     - Instance status == TERMINATED
-    - lastStopTimestamp is older than `days_stopped` days
+    - lastStopTimestamp is older than `max_age_days` days
     - Cost estimated from sum of attached disk sizes (pd-standard rate)
 
     IAM permissions required:
@@ -53,7 +53,7 @@ def find_stopped_vms(
     """
     findings: List[Finding] = []
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days_stopped)
+    cutoff = now - timedelta(days=max_age_days)
 
     instances_client = compute_v1.InstancesClient(credentials=credentials)
 
@@ -144,7 +144,7 @@ def find_stopped_vms(
                     "zone": zone_name,
                     "total_disk_gb": total_disk_gb,
                     "boot_disk_count": boot_disk_count,
-                    "days_stopped_threshold": days_stopped,
+                    "days_stopped_threshold": max_age_days,
                     "stop_time": stop_time_str,
                     "automatic_restart": automatic_restart,
                     "labels": labels,
@@ -191,7 +191,7 @@ def find_stopped_vms(
                                 "Regional disks (replicated across zones) incur higher storage "
                                 "cost than the pd-standard estimate",
                             ],
-                            time_window=f"{days_stopped} days",
+                            time_window=f"{max_age_days} days",
                         ),
                         details=details,
                         estimated_monthly_cost_usd=monthly_cost if monthly_cost > 0 else None,

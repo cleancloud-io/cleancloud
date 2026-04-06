@@ -39,7 +39,7 @@ def determine_exit_code(
         threshold = CONFIDENCE_ORDER.get(fail_on_confidence.upper())
 
         for f in findings:
-            confidence = getattr(f, "confidence", None) or f.confidence
+            confidence = getattr(f, "confidence", None)
             if not confidence:
                 continue
 

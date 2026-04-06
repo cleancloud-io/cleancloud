@@ -68,8 +68,8 @@ class TestFindOldRdsSnapshots:
         rds = mock_boto3_session._rds
         _setup_paginator(rds, [_make_snapshot("snap-60d", age_days=60)])
 
-        assert find_old_rds_snapshots(mock_boto3_session, "us-east-1", days_old=90) == []
-        findings = find_old_rds_snapshots(mock_boto3_session, "us-east-1", days_old=30)
+        assert find_old_rds_snapshots(mock_boto3_session, "us-east-1", max_age_days=90) == []
+        findings = find_old_rds_snapshots(mock_boto3_session, "us-east-1", max_age_days=30)
         assert len(findings) == 1
 
     def test_cost_estimate(self, mock_boto3_session):

@@ -18,9 +18,9 @@ def test_tag_filtering_config_loaded():
     assert cfg.tag_filtering.enabled is True
     assert len(cfg.tag_filtering.ignore) == 2
     assert cfg.tag_filtering.ignore[0].key == "env"
-    assert cfg.tag_filtering.ignore[0].value == "production"
+    assert cfg.tag_filtering.ignore[0].values == ["production"]
     assert cfg.tag_filtering.ignore[1].key == "team"
-    assert cfg.tag_filtering.ignore[1].value is None
+    assert cfg.tag_filtering.ignore[1].values == []
 
 
 def test_tag_filtering_optional():

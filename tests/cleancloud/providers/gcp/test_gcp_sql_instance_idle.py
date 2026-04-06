@@ -56,7 +56,7 @@ def _patch_sql_and_monitoring(monkeypatch, instances, has_connections=False):
     )
     monkeypatch.setattr(
         "cleancloud.providers.gcp.rules.sql_instance_idle._has_connections",
-        lambda client, project_id, instance_name: has_connections,
+        lambda client, project_id, instance_name, **kwargs: has_connections,
     )
     monkeypatch.setattr(
         "cleancloud.providers.gcp.rules.sql_instance_idle.monitoring_v3.MetricServiceClient",

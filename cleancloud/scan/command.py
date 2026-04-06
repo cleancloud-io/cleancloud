@@ -22,7 +22,8 @@ from cleancloud.config.schema import (
     load_config,
 )
 from cleancloud.core.confidence import ConfidenceLevel
-from cleancloud.core.finding import Finding
+from cleancloud.core.finding import Finding, SuppressedFinding
+from cleancloud.filtering.rules import apply_exceptions, apply_policy_filters, apply_rule_config
 from cleancloud.filtering.tags import (
     compile_rules,
     filter_findings_by_tags,
@@ -44,14 +45,24 @@ from cleancloud.providers.aws.multi_account import (
     discover_org_accounts,
     scan_multiple_accounts,
 )
-from cleancloud.providers.aws.scan import AWS_AI_RULES, AWS_RULES, scan_aws_with_region_selection
+from cleancloud.providers.aws.scan import (
+    AWS_AI_RULES,
+    AWS_RULE_MAP,
+    AWS_RULE_MAP_AI,
+    AWS_RULES,
+    scan_aws_with_region_selection,
+)
 from cleancloud.providers.azure.scan import (
     AZURE_AI_RULES,
+    AZURE_RULE_MAP,
+    AZURE_RULE_MAP_AI,
     AZURE_RULES,
     scan_azure_with_region_selection,
 )
 from cleancloud.providers.gcp.scan import (
     GCP_AI_RULES,
+    GCP_RULE_MAP,
+    GCP_RULE_MAP_AI,
     GCP_RULES,
     ProjectScanResult,
     scan_gcp_with_project_selection,
@@ -123,7 +134,7 @@ from cleancloud.providers.gcp.scan import (
 @click.option(
     "--config",
     type=click.Path(exists=True),
-    help="Path to cleancloud.yaml",
+    help="Path to cleancloud.yaml (auto-detected in CWD and .cleancloud/config.yaml if not set)",
 )
 @click.option(
     "--ignore-tag",
@@ -186,6 +197,12 @@ from cleancloud.providers.gcp.scan import (
     help="Detect active regions per account instead of once on the hub (slower but accurate if accounts use different regions)",
 )
 @click.option(
+    "--explain",
+    is_flag=True,
+    default=False,
+    help="Print suppression reasons for each filtered finding (useful for debugging policy config)",
+)
+@click.option(
     "--no-feedback",
     is_flag=True,
     default=False,
@@ -197,6 +214,12 @@ from cleancloud.providers.gcp.scan import (
     default="hygiene",
     show_default=True,
     help="Rule category to run: hygiene (default), ai (AI/ML waste), or all",
+)
+@click.option(
+    "--skip",
+    multiple=True,
+    metavar="RULE_ID",
+    help="Skip a rule by ID (repeatable). e.g. --skip aws.ec2.ami.old --skip aws.resource.untagged",
 )
 def scan(
     provider: str,
@@ -215,8 +238,10 @@ def scan(
     fail_on_cost: Optional[float],
     config: Optional[str],
     ignore_tag: List[str],
+    explain: bool,
     no_feedback: bool,
     category: str,
+    skip: tuple,
     multi_account_file: Optional[str],
     accounts_inline: Optional[str],
     scan_org: bool,
@@ -264,38 +289,97 @@ def scan(
             if used:
                 raise click.UsageError(f"{flag} is only supported with --provider gcp")
 
+    # Load policy config early (needed for rule filtering before scan starts)
+    cfg = CleanCloudConfig.empty()
+    resolved_config = config
+    if not resolved_config:
+        for candidate in ["cleancloud.yaml", ".cleancloud/config.yaml"]:
+            if Path(candidate).exists():
+                resolved_config = candidate
+                break
+    if resolved_config:
+        try:
+            with open(resolved_config) as _f:
+                _raw = yaml.safe_load(_f) or {}
+            cfg = load_config(_raw)
+        except yaml.YAMLError as e:
+            click.echo(f"Error parsing {resolved_config}: {e}", err=True)
+            sys.exit(EXIT_ERROR)
+        except ValueError as e:
+            click.echo(f"Error in {resolved_config}: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
+
+    skip_ids = list(skip)
+
+    # Apply YAML categories if --category was not explicitly set (still at default)
+    if category == "hygiene" and cfg.categories is not None:
+        category = cfg.categories.resolved()
+
     # Build the AWS rule list based on --category
     if provider == "aws":
         if category == "hygiene":
-            aws_rules_to_run = AWS_RULES
+            aws_rules_to_run = list(AWS_RULES)
         elif category == "ai":
-            aws_rules_to_run = AWS_AI_RULES
+            aws_rules_to_run = list(AWS_AI_RULES)
         else:  # all
-            aws_rules_to_run = AWS_RULES + AWS_AI_RULES
+            aws_rules_to_run = list(AWS_RULES) + list(AWS_AI_RULES)
+        aws_rule_map = {**AWS_RULE_MAP, **AWS_RULE_MAP_AI}
+        try:
+            aws_rules_to_run, aws_policy_skipped = apply_rule_config(
+                aws_rules_to_run, aws_rule_map, cfg, skip_ids
+            )
+        except ValueError as e:
+            click.echo(f"Error in policy config: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
     else:
-        aws_rules_to_run = AWS_RULES  # unused for non-AWS but keeps type consistent
+        aws_rules_to_run = list(AWS_RULES)  # unused for non-AWS but keeps type consistent
+        aws_policy_skipped: list = []
 
     # Build the Azure rule list based on --category
     if provider == "azure":
         if category == "hygiene":
-            azure_rules_to_run = AZURE_RULES
+            azure_rules_to_run = list(AZURE_RULES)
         elif category == "ai":
-            azure_rules_to_run = AZURE_AI_RULES
+            azure_rules_to_run = list(AZURE_AI_RULES)
         else:  # all
-            azure_rules_to_run = AZURE_RULES + AZURE_AI_RULES
+            azure_rules_to_run = list(AZURE_RULES) + list(AZURE_AI_RULES)
+        azure_rule_map = {**AZURE_RULE_MAP, **AZURE_RULE_MAP_AI}
+        try:
+            azure_rules_to_run, azure_policy_skipped = apply_rule_config(
+                azure_rules_to_run, azure_rule_map, cfg, skip_ids
+            )
+        except ValueError as e:
+            click.echo(f"Error in policy config: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
     else:
-        azure_rules_to_run = AZURE_RULES  # unused for non-Azure but keeps type consistent
+        azure_rules_to_run = list(AZURE_RULES)  # unused for non-Azure but keeps type consistent
+        azure_policy_skipped: list = []
 
     # Build the GCP rule list based on --category
     if provider == "gcp":
         if category == "hygiene":
-            gcp_rules_to_run = GCP_RULES
+            gcp_rules_to_run = list(GCP_RULES)
         elif category == "ai":
-            gcp_rules_to_run = GCP_AI_RULES
+            gcp_rules_to_run = list(GCP_AI_RULES)
         else:  # all
-            gcp_rules_to_run = GCP_RULES + GCP_AI_RULES
+            gcp_rules_to_run = list(GCP_RULES) + list(GCP_AI_RULES)
+        gcp_rule_map = {**GCP_RULE_MAP, **GCP_RULE_MAP_AI}
+        try:
+            gcp_rules_to_run, gcp_policy_skipped = apply_rule_config(
+                gcp_rules_to_run, gcp_rule_map, cfg, skip_ids
+            )
+        except ValueError as e:
+            click.echo(f"Error in policy config: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
     else:
-        gcp_rules_to_run = GCP_RULES  # unused for non-GCP but keeps type consistent
+        gcp_rules_to_run = list(GCP_RULES)  # unused for non-GCP but keeps type consistent
+        gcp_policy_skipped: list = []
+
+    policy_skipped = aws_policy_skipped + azure_policy_skipped + gcp_policy_skipped
 
     click.echo()
     click.echo("Starting CleanCloud scan...")
@@ -427,39 +511,67 @@ def scan(
             # Extract unique regions/zones from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
 
-        ignored_count = 0
-        rules = []
+        all_suppressed: List[SuppressedFinding] = []
+        all_expired_exception_events: List[dict] = []
 
-        cfg = CleanCloudConfig.empty()
-        if config:
-            with open(config) as f:
-                raw = yaml.safe_load(f) or {}
-                cfg = load_config(raw)
+        # ── Post-scan filtering pipeline ──────────────────────────────────────────
+        # 1. Exceptions       — explicit approvals, bypass all other filters
+        # 2. Policy filters   — min_cost / confidence / override_risk_level
+        # 3. Tag filtering    — resource-scope exclusion
+        # 4. Thresholds       — CI/CD exit-code policy (applied below)
 
-        # CLI overrides config
+        # 1. Exceptions: suppress by rule_id + resource_id (glob supported).
+        findings, exc_suppressed, expired_events = apply_exceptions(findings, cfg)
+        all_suppressed.extend(exc_suppressed)
+        all_expired_exception_events.extend(expired_events)
+
+        # 2. Policy filters: min_cost, confidence, override_risk_level.
+        findings, policy_suppressed = apply_policy_filters(findings, cfg)
+        all_suppressed.extend(policy_suppressed)
+
+        # 3. Tag filtering — CLI --ignore-tag overrides config file
+        tag_rules = []
         if ignore_tag:
-            rules = compile_rules(
+            tag_rules = compile_rules(
                 [
                     IgnoreTagRuleConfig(
                         key=item.split(":", 1)[0],
-                        value=item.split(":", 1)[1] if ":" in item else None,
+                        values=[item.split(":", 1)[1]] if ":" in item else [],
                     )
                     for item in ignore_tag
                 ]
             )
-
         elif cfg.tag_filtering and cfg.tag_filtering.enabled:
-            rules = compile_rules(cfg.tag_filtering.ignore)
+            tag_rules = compile_rules(cfg.tag_filtering.ignore)
 
-        if rules:
-            result = filter_findings_by_tags(findings, rules)
-            ignored_count = len(result.ignored)
+        if tag_rules:
+            result = filter_findings_by_tags(findings, tag_rules)
+            all_suppressed.extend(result.suppressed)
             findings = result.kept
 
-        summary = build_summary(findings, skipped_rules=skipped_rules)
+        # Threshold merging — CLI flags take precedence over config
+        effective_fail_on_findings = fail_on_findings
+        effective_fail_on_confidence = fail_on_confidence
+        effective_fail_on_cost = fail_on_cost
+        if cfg.thresholds:
+            if not effective_fail_on_findings and cfg.thresholds.fail_on_findings:
+                effective_fail_on_findings = True
+            if effective_fail_on_confidence is None and cfg.thresholds.fail_on_confidence:
+                effective_fail_on_confidence = cfg.thresholds.fail_on_confidence
+            if effective_fail_on_cost is None and cfg.thresholds.fail_on_cost is not None:
+                effective_fail_on_cost = cfg.thresholds.fail_on_cost
+
+        summary = build_summary(
+            findings,
+            suppressed_findings=all_suppressed,
+            skipped_rules=skipped_rules,
+            expired_exception_events=all_expired_exception_events or None,
+        )
         summary["scanned_at"] = datetime.now(timezone.utc).isoformat()
         summary["regions_scanned"] = regions_scanned
         summary["provider"] = provider
+        if policy_skipped:
+            summary["rules_skipped_by_policy"] = policy_skipped
 
         # Multi-account summary fields
         if is_multi_account and multi_account_results:
@@ -488,7 +600,7 @@ def scan(
                     "findings": len(r.findings),
                     "status": r.status,
                     "regions_failed": r.regions_failed,
-                    "estimated_monthly_waste_usd": (
+                    "estimated_monthly_cost_usd": (
                         round(
                             sum(
                                 f.estimated_monthly_cost_usd
@@ -530,7 +642,7 @@ def scan(
                     for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
                 ]
         elif provider == "gcp":
-            summary["total_rules"] = len(GCP_RULES)
+            summary["total_rules"] = len(gcp_rules_to_run)
             summary["project_selection_mode"] = project_selection_mode
             summary["projects_scanned"] = projects_scanned
             failed_projects = [r for r in gcp_project_results if r.status == "failed"]
@@ -556,26 +668,24 @@ def scan(
         summary["highest_confidence"] = max(
             (f.confidence for f in findings),
             default=None,
-            key=lambda c: CONFIDENCE_ORDER.get(c, 0),
+            key=lambda c: CONFIDENCE_ORDER.get(c.name, 0),
         )
         summary["high_conf_findings"] = len(
             [f for f in findings if f.confidence == ConfidenceLevel.HIGH]
         )
 
-        if ignored_count > 0:
-            summary["ignored_by_tag_policy"] = ignored_count
-
         output_path = Path(output_file) if output_file else None
 
         if output == "json":
-            write_json(
-                {
-                    "schema_version": "1.2.0",
-                    "summary": summary,
-                    "findings": findings,
-                },
-                output_path,
-            )
+            json_payload: dict = {
+                "schema_version": "1.3.0",
+                "summary": summary,
+                "findings": findings,
+                "suppressed": [s.to_dict() for s in all_suppressed],
+            }
+            if all_expired_exception_events:
+                json_payload["expired_exception_events"] = all_expired_exception_events
+            write_json(json_payload, output_path)
             click.echo(f"JSON output written to {output_path}")
             click.echo()
 
@@ -595,23 +705,57 @@ def scan(
         else:
             print_human(findings)
             _print_summary(summary, region_selection_mode, multi_account_results or None)
+            if explain and all_suppressed:
+                click.echo("\n--- Suppressed Findings (--explain) ---")
+                for s in all_suppressed:
+                    click.echo(
+                        f"\n  {s.finding.rule_id} / {s.finding.resource_id}"
+                        f"  [{s.suppression_reason}]"
+                    )
+                    click.echo(f"  Detail: {s.suppression_detail}")
+                    click.echo(f"  Path:   {' → '.join(s.decision_path)}")
+                click.echo()
+            if explain and all_expired_exception_events:
+                click.echo("\n--- Expired Exceptions (--explain) ---")
+                for ev in all_expired_exception_events:
+                    click.echo(
+                        f"\n  {ev['exception_rule_id']} / {ev['exception_resource_id']}"
+                        f"  [expired {ev['expired_at']}]"
+                    )
+                    click.echo(f"  Finding:  {ev['finding_rule_id']} / {ev['finding_resource_id']}")
+                    if ev.get("reason"):
+                        click.echo(f"  Reason:   {ev['reason']}")
+                click.echo()
+            if not resolved_config:
+                click.echo(
+                    "Tip: Add a cleancloud.yaml to suppress findings, set cost thresholds,"
+                    " or disable specific rules. See docs/configuration.md"
+                )
+                click.echo()
+
             if category == "hygiene":
                 if provider == "aws":
+                    ai_count = len(AWS_AI_RULES)
                     click.echo(
-                        "Tip: Run AI/ML cost checks with: "
-                        "cleancloud scan --provider aws --category ai"
+                        f"Tip: {ai_count} AI/ML rule{'s' if ai_count != 1 else ''} available"
+                        f" — cleancloud scan --provider aws --category ai"
+                        f" (idle SageMaker endpoints)"
                     )
                     click.echo()
                 elif provider == "azure":
+                    ai_count = len(AZURE_AI_RULES)
                     click.echo(
-                        "Tip: Run AI/ML cost checks with: "
-                        "cleancloud scan --provider azure --category ai"
+                        f"Tip: {ai_count} AI/ML rule{'s' if ai_count != 1 else ''} available"
+                        f" — cleancloud scan --provider azure --category ai"
+                        f" (idle AML compute clusters)"
                     )
                     click.echo()
                 elif provider == "gcp":
+                    ai_count = len(GCP_AI_RULES)
                     click.echo(
-                        "Tip: Run AI/ML cost checks with: "
-                        "cleancloud scan --provider gcp --category ai"
+                        f"Tip: {ai_count} AI/ML rule{'s' if ai_count != 1 else ''} available"
+                        f" — cleancloud scan --provider gcp --category ai"
+                        f" (idle Vertex AI endpoints)"
                     )
                     click.echo()
 
@@ -633,9 +777,9 @@ def scan(
 
         exit_code = determine_exit_code(
             findings,
-            fail_on_findings=fail_on_findings,
-            fail_on_confidence=fail_on_confidence,
-            fail_on_cost=fail_on_cost,
+            fail_on_findings=effective_fail_on_findings,
+            fail_on_confidence=effective_fail_on_confidence,
+            fail_on_cost=effective_fail_on_cost,
         )
 
         if exit_code == EXIT_POLICY_VIOLATION:

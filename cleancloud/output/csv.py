@@ -28,6 +28,10 @@ def write_csv(findings: List[Finding], output_file: Path):
         writer.writeheader()
 
         for finding in findings:
+            if not isinstance(finding, Finding):
+                raise TypeError(
+                    f"write_csv only accepts Finding objects, got {type(finding).__name__}"
+                )
             row = finding.to_dict()
 
             # flatten only top-level fields

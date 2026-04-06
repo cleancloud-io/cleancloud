@@ -74,8 +74,8 @@ def test_idle_db_detected(mock_sql_client, mock_monitor_client):
     assert len(findings) == 1
     finding = findings[0]
     assert finding.provider == "azure"
-    assert finding.rule_id == "azure.sql_database.idle"
-    assert finding.resource_type == "azure.sql_database"
+    assert finding.rule_id == "azure.sql.database.idle"
+    assert finding.resource_type == "azure.sql.database"
     assert finding.confidence.value == "high"
     assert finding.risk.value == "high"
     assert finding.details["db_name"] == "app-db"

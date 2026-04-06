@@ -12,10 +12,10 @@ from cleancloud.core.risk import RiskLevel
 def find_old_amis(
     session: boto3.Session,
     region: str,
-    days_old: int = 180,
+    max_age_days: int = 180,
 ) -> List[Finding]:
     """
-    Find AMIs (Amazon Machine Images) older than `days_old`.
+    Find AMIs (Amazon Machine Images) older than `max_age_days`.
 
     Conservative rule (review-only):
     - Only checks owned AMIs (not public/shared)
@@ -48,7 +48,7 @@ def find_old_amis(
 
             age_days = (now - creation_date).days
 
-            if age_days < days_old:
+            if age_days < max_age_days:
                 continue
 
             ami_id = ami.get("ImageId")
@@ -65,7 +65,7 @@ def find_old_amis(
             root_device_type = ami.get("RootDeviceType", "ebs")
 
             signals = [
-                f"AMI age is {age_days} days (exceeds {days_old}-day threshold)",
+                f"AMI age is {age_days} days (exceeds {max_age_days}-day threshold)",
                 f"AMI state is '{ami_state}'",
             ]
 
@@ -96,7 +96,7 @@ def find_old_amis(
                     "Disaster recovery intent",
                     "Compliance retention requirements",
                 ],
-                time_window=f"{days_old} days",
+                time_window=f"{max_age_days} days",
             )
 
             # Estimate monthly storage cost (~$0.05/GB-month for EBS snapshots)
@@ -114,12 +114,12 @@ def find_old_amis(
                     resource_id=ami_id,
                     region=region,
                     estimated_monthly_cost_usd=cost_usd,
-                    title=f"AMI Older Than {days_old} Days",
+                    title=f"AMI Older Than {max_age_days} Days",
                     summary=(
                         f"AMI '{ami_name}' is {age_days} days old and may be "
                         f"incurring snapshot storage costs."
                     ),
-                    reason=f"AMI exceeds {days_old}-day age threshold",
+                    reason=f"AMI exceeds {max_age_days}-day age threshold",
                     risk=RiskLevel.LOW,
                     confidence=ConfidenceLevel.MEDIUM,
                     detected_at=now,

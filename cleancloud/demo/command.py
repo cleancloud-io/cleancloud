@@ -90,5 +90,8 @@ def demo(provider: Optional[str], category: str):
     click.echo("  AWS:   cleancloud scan --provider aws --all-regions")
     click.echo("  Azure: cleancloud scan --provider azure")
     click.echo("  GCP:   cleancloud scan --provider gcp --project YOUR_PROJECT_ID")
+    click.echo()
+    click.echo("  Add a cleancloud.yaml to suppress findings, set cost thresholds,")
+    click.echo("  or enforce CI/CD gates. See docs/configuration.md for details.")
     click.echo("=" * 60)
     click.echo()

@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
@@ -52,4 +52,39 @@ class Finding:
             d["account_id"] = self.account_id
         if self.account_name is not None:
             d["account_name"] = self.account_name
+        return d
+
+
+@dataclass
+class SuppressedFinding:
+    """A finding that was suppressed by the filtering pipeline.
+
+    Carries the original finding alongside structured suppression metadata so that
+    suppression decisions are auditable, exportable, and queryable — not ephemeral.
+    """
+
+    finding: Finding
+    suppression_reason: str  # "exception" | "min_cost" | "confidence" | "tag"
+    suppression_detail: (
+        str  # human-readable explanation of why this specific finding was suppressed
+    )
+    decision_path: List[str]  # ordered trace: ["evaluated", "<what happened>", "suppressed"]
+
+    def to_dict(self) -> Dict[str, Any]:
+        d: Dict[str, Any] = {
+            "rule_id": self.finding.rule_id,
+            "resource_id": self.finding.resource_id,
+            "region": self.finding.region,
+            "title": self.finding.title,
+            "confidence": self.finding.confidence.value,
+            "suppression_reason": self.suppression_reason,
+            "suppression_detail": self.suppression_detail,
+            "decision_path": self.decision_path,
+        }
+        if self.finding.estimated_monthly_cost_usd is not None:
+            d["estimated_monthly_cost_usd"] = self.finding.estimated_monthly_cost_usd
+        if self.finding.account_id is not None:
+            d["account_id"] = self.finding.account_id
+        if self.finding.account_name is not None:
+            d["account_name"] = self.finding.account_name
         return d

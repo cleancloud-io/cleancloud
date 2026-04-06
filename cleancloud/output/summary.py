@@ -3,11 +3,14 @@ from typing import Dict, List, Optional
 
 import click
 
-from cleancloud.core.finding import Finding
+from cleancloud.core.finding import Finding, SuppressedFinding
 
 
 def build_summary(
-    findings: List[Finding], skipped_rules: Optional[List[dict]] = None
+    findings: List[Finding],
+    suppressed_findings: Optional[List[SuppressedFinding]] = None,
+    skipped_rules: Optional[List[dict]] = None,
+    expired_exception_events: Optional[List[dict]] = None,
 ) -> Dict[str, object]:
     by_provider = Counter(f.provider for f in findings)
     by_risk = Counter(f.risk for f in findings)
@@ -29,6 +32,33 @@ def build_summary(
 
     if skipped_rules:
         summary["skipped_rules"] = skipped_rules
+
+    if suppressed_findings:
+        by_reason = Counter(s.suppression_reason for s in suppressed_findings)
+        summary["suppression_summary"] = {
+            "total": len(suppressed_findings),
+            **{reason: count for reason, count in sorted(by_reason.items())},
+        }
+
+    costed = sorted(
+        [f for f in findings if f.estimated_monthly_cost_usd],
+        key=lambda f: f.estimated_monthly_cost_usd,
+        reverse=True,
+    )
+    if costed:
+        summary["top_savings"] = [
+            {
+                "rule_id": f.rule_id,
+                "resource_id": f.resource_id,
+                "estimated_monthly_cost_usd": f.estimated_monthly_cost_usd,
+            }
+            for f in costed[:3]
+        ]
+
+    if expired_exception_events:
+        summary["exceptions_expired"] = len(expired_exception_events)
+        # Include a sample (up to 10) for quick visibility without bloating the summary.
+        summary["expired_exceptions_sample"] = expired_exception_events[:10]
 
     return summary
 
@@ -126,11 +156,30 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
         click.echo(f"\nMinimum estimated waste: ~${waste:,.0f}/month")
         click.echo(f"({costed} of {total} findings costed)")
 
-    click.echo(f"Scanned at: {summary['scanned_at']}")
+    # Top savings
+    top_savings = summary.get("top_savings", [])
+    if top_savings:
+        click.echo("\nTop savings opportunities:")
+        for i, item in enumerate(top_savings, 1):
+            cost = item["estimated_monthly_cost_usd"]
+            click.echo(f"  {i}. ~${cost:,.0f}/mo  {item['rule_id']}  ({item['resource_id']})")
 
-    # Tag filtering visibility
-    if summary.get("ignored_by_tag_policy", 0) > 0:
-        click.echo(f"Ignored by tag policy: {summary['ignored_by_tag_policy']}")
+    # Suppression breakdown
+    sup_summary = summary.get("suppression_summary", {})
+    if sup_summary.get("total", 0) > 0:
+        click.echo(f"\nSuppressed by policy: {sup_summary['total']}")
+        for reason, count in sup_summary.items():
+            if reason == "total":
+                continue
+            click.echo(f"  {reason}: {count}")
+
+    # Expired exceptions warning
+    expired_count = summary.get("exceptions_expired", 0)
+    if expired_count:
+        click.echo(f"\nWARNING: {expired_count} exception(s) expired and were not applied.")
+        click.echo("  Run with --explain to see which findings are now unprotected.")
+
+    click.echo(f"Scanned at: {summary['scanned_at']}")
 
     # Skipped rules detail
     if skipped_rules:

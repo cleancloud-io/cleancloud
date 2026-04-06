@@ -704,7 +704,7 @@ Found 7 hygiene issues:
    Confidence : High
    Resource   : azure.network.public_ip → pip-old-gateway
    Region     : westeurope
-   Rule       : azure.public_ip_unused
+   Rule       : azure.network.public_ip.unused
    Reason     : Public IP not associated with any resource
    Detected   : 2026-02-08T14:45:13+00:00
    Details:
@@ -1150,7 +1150,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
     },
     {
       "provider": "azure",
-      "rule_id": "azure.public_ip_unused",
+      "rule_id": "azure.network.public_ip.unused",
       "resource_type": "azure.network.public_ip",
       "resource_id": "/subscriptions/f9e8d7c6-b5a4-3210-fedc-ba0987654321/resourceGroups/rg-staging/providers/Microsoft.Network/publicIPAddresses/pip-old-gateway",
       "region": "westeurope",

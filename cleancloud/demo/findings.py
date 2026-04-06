@@ -265,7 +265,7 @@ AZURE_FINDINGS: List[Finding] = [
     ),
     Finding(
         provider="azure",
-        rule_id="azure.public_ip_unused",
+        rule_id="azure.network.public_ip.unused",
         resource_type="azure.network.public_ip",
         resource_id="pip-old-gateway",
         region="westeurope",

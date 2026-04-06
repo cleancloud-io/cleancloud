@@ -331,7 +331,7 @@ def test_very_small_effective_window_skipped():
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
 
     session = _make_session(sagemaker, cloudwatch)
-    findings = find_idle_sagemaker_endpoints(session, "us-east-1", days_idle=2)
+    findings = find_idle_sagemaker_endpoints(session, "us-east-1", idle_days=2)
 
     assert len(findings) == 0
 
