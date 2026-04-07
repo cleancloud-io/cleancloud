@@ -415,6 +415,12 @@ def scan(
     click.echo(f"Provider: {provider}")
     if category != "hygiene":
         click.echo(f"Category: {category}")
+    if config:
+        click.echo(f"Config  : {resolved_config} (--config)")
+    elif resolved_config:
+        click.echo(f"Config  : {resolved_config} (auto-detected)")
+    else:
+        click.echo("Config  : none (all rules enabled with defaults)")
     click.echo()
 
     try:
