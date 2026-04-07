@@ -321,20 +321,20 @@ def test_high_cost_tier_has_high_confidence(monkeypatch):
     assert findings[0].confidence == ConfidenceLevel.HIGH
 
 
-def test_low_cost_tier_has_medium_confidence(monkeypatch):
-    """Cheap tiers (likely dev DBs) should produce MEDIUM confidence findings."""
+def test_low_cost_tier_has_high_confidence(monkeypatch):
+    """Zero connections for idle_days is HIGH confidence regardless of cost tier."""
     _patch_sql_and_monitoring(
         monkeypatch,
-        instances=[_make_instance("dev-db", tier="db-f1-micro")],  # $7.67 — below $50
+        instances=[_make_instance("dev-db", tier="db-f1-micro")],  # $7.67
         has_connections=False,
     )
     findings = find_idle_sql_instances(project_id="proj-1", credentials=MagicMock())
 
-    assert findings[0].confidence == ConfidenceLevel.MEDIUM
+    assert findings[0].confidence == ConfidenceLevel.HIGH
 
 
-def test_unknown_tier_has_medium_confidence(monkeypatch):
-    """Unknown tier (no cost estimate) should produce MEDIUM confidence."""
+def test_unknown_tier_has_high_confidence(monkeypatch):
+    """Unknown tier (no cost estimate) should still produce HIGH confidence."""
     _patch_sql_and_monitoring(
         monkeypatch,
         instances=[_make_instance("unknown-db", tier="db-custom-16-65536")],
@@ -342,7 +342,7 @@ def test_unknown_tier_has_medium_confidence(monkeypatch):
     )
     findings = find_idle_sql_instances(project_id="proj-1", credentials=MagicMock())
 
-    assert findings[0].confidence == ConfidenceLevel.MEDIUM
+    assert findings[0].confidence == ConfidenceLevel.HIGH
 
 
 # ---------------------------------------------------------------------------
