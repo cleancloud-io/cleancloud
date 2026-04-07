@@ -9,6 +9,21 @@ Complete guide for integrating CleanCloud into continuous integration and deploy
 
 ---
 
+## Choose Your CI Platform
+
+| I'm using… | Jump to |
+|---|---|
+| **GitHub Actions** | [GitHub Actions →](#github-actions) |
+| **Azure DevOps** | [Azure DevOps Pipelines →](#azure-devops-pipelines) |
+| **GitLab CI / Other** | [Docker image (works anywhere) →](#using-the-docker-image) |
+| **Just want a working example now** | [Quick CI Setup →](#quick-ci-setup) |
+| **Policy enforcement (exit codes, thresholds)** | [Policy Enforcement →](#policy-enforcement) |
+| **Multi-account / multi-subscription** | [Multi-Account Scanning →](#multi-account-scanning) |
+| **Output formats (JSON, CSV, markdown)** | [Output Formats →](#output-formats) |
+| **Something broken** | [Troubleshooting →](#troubleshooting) |
+
+---
+
 ## Quick CI Setup
 
 The fastest path to a working pipeline:

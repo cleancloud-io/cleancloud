@@ -72,9 +72,10 @@ from cleancloud.providers.gcp.scan import (
 @click.command("scan")
 @click.option(
     "--provider",
-    required=True,
+    required=False,
+    default=None,
     type=click.Choice(["aws", "azure", "gcp"]),
-    help="Cloud provider to scan",
+    help="Cloud provider to scan (or set scan.provider in cleancloud.yaml)",
 )
 @click.option(
     "--region", default=None, help="Specific region to scan (AWS region or Azure location)"
@@ -254,6 +255,54 @@ def scan(
     if output in ("json", "csv") and not output_file:
         raise click.UsageError(f"--output-file is required when using --output {output}")
 
+    # Load policy config early — provider/regions may be resolved from it
+    cfg = CleanCloudConfig.empty()
+    resolved_config = config
+    if not resolved_config:
+        candidates = [
+            "cleancloud.yaml",  # project-level (highest priority)
+            str(Path.home() / ".cleancloud.yaml"),  # user-level defaults
+            ".cleancloud/config.yaml",  # alternate project location
+        ]
+        for candidate in candidates:
+            if Path(candidate).exists():
+                resolved_config = candidate
+                break
+    if resolved_config:
+        try:
+            with open(resolved_config) as _f:
+                _raw = yaml.safe_load(_f) or {}
+            cfg = load_config(_raw)
+        except yaml.YAMLError as e:
+            click.echo(f"Error parsing {resolved_config}: {e}", err=True)
+            sys.exit(EXIT_ERROR)
+        except ValueError as e:
+            click.echo(f"Error in {resolved_config}: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
+
+    # Resolve provider: CLI flag > scan.provider in config > error
+    if provider is None and cfg.scan and cfg.scan.provider:
+        provider = cfg.scan.provider
+    if provider is None:
+        raise click.UsageError("--provider is required (or set scan.provider in cleancloud.yaml)")
+
+    # Resolve regions for AWS: CLI flags > scan.regions in config > error (handled in validate)
+    if provider == "aws" and not region and not all_regions and cfg.scan and cfg.scan.regions:
+        raw_regions = cfg.scan.regions
+        if raw_regions == "auto":
+            all_regions = True
+        elif isinstance(raw_regions, list):
+            if len(raw_regions) == 1:
+                region = str(raw_regions[0])
+            else:
+                click.echo(
+                    "Error: scan.regions list with multiple entries is not yet supported. "
+                    "Use 'regions: auto' to scan all active regions.",
+                    err=True,
+                )
+                sys.exit(EXIT_ERROR)
+
     # Cross-provider flag validation — fail fast before any API calls
     _aws_only_flags = {
         "--all-regions": all_regions,
@@ -288,27 +337,6 @@ def scan(
         for flag, used in _gcp_only_flags.items():
             if used:
                 raise click.UsageError(f"{flag} is only supported with --provider gcp")
-
-    # Load policy config early (needed for rule filtering before scan starts)
-    cfg = CleanCloudConfig.empty()
-    resolved_config = config
-    if not resolved_config:
-        for candidate in ["cleancloud.yaml", ".cleancloud/config.yaml"]:
-            if Path(candidate).exists():
-                resolved_config = candidate
-                break
-    if resolved_config:
-        try:
-            with open(resolved_config) as _f:
-                _raw = yaml.safe_load(_f) or {}
-            cfg = load_config(_raw)
-        except yaml.YAMLError as e:
-            click.echo(f"Error parsing {resolved_config}: {e}", err=True)
-            sys.exit(EXIT_ERROR)
-        except ValueError as e:
-            click.echo(f"Error in {resolved_config}: {e}", err=True)
-            click.echo("See docs/configuration.md for valid options.", err=True)
-            sys.exit(EXIT_ERROR)
 
     skip_ids = list(skip)
 

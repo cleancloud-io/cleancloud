@@ -2,7 +2,7 @@
 
 CleanCloud is policy-as-code. Drop a `cleancloud.yaml` in your repository root and it is auto-detected on every scan. Version-control it alongside your infrastructure — every exception is a git-reviewable approval.
 
-> **Quick links:** [Exit codes](#exit-codes) · [Filtering precedence](#filtering-precedence) · [Rule IDs](rules.md) · [CI/CD integration](ci.md)
+> **Quick links:** [Exit codes](#exit-codes) · [Filtering precedence](#filtering-precedence) · [Rule IDs](rules.md) · [CI/CD integration](ci.md) · [Real-world examples](#real-world-examples) · [Troubleshooting](troubleshooting.md)
 
 ---
 
@@ -96,6 +96,26 @@ thresholds:
 ---
 
 ## Sections
+
+### `scan`
+
+Execution context defaults. CLI flags always take precedence — these are fallbacks when flags are omitted, letting you run `cleancloud scan --config cleancloud.yaml` with no other flags.
+
+```yaml
+scan:
+  provider: aws          # default provider (overridden by --provider)
+  regions: auto          # auto-detect active regions (equivalent to --all-regions)
+  # regions: us-east-1  # or pin to a single region (equivalent to --region)
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `provider` | `aws` \| `azure` \| `gcp` | Default provider. CLI `--provider` overrides this. |
+| `regions` | `"auto"` or region string | `auto` = all active regions. A string = single region. CLI `--region` / `--all-regions` override this. |
+
+> **Note:** `scan` is execution context, not policy. It controls *where* to scan. Policy sections (`rules`, `exceptions`, `thresholds`) control *what* to evaluate.
+
+---
 
 ### `defaults`
 
@@ -314,6 +334,129 @@ cleancloud scan --provider aws --category all       # all rules
 ```
 
 YAML-based category configuration is planned.
+
+---
+
+## Real-world examples
+
+### Exclude production and staging from findings
+
+Tag your prod/staging resources with `env: production` / `env: staging` and suppress them globally:
+
+```yaml
+tag_filtering:
+  enabled: true
+  mode: exclude
+  ignore:
+    - key: env
+      values: [production, staging]
+    - key: cleancloud-ignore   # opt-out any resource with this tag (any value)
+```
+
+Findings on tagged resources are suppressed before thresholds are evaluated.
+
+---
+
+### Fail CI if monthly waste exceeds $500
+
+```yaml
+thresholds:
+  fail_on_cost: 500        # exit 2 if total estimated waste >= $500/month
+  fail_on_confidence: HIGH # exit 2 if any HIGH confidence finding remains
+```
+
+Run weekly in CI:
+```bash
+cleancloud scan --provider aws --org --all-regions --output json --output-file findings.json
+```
+
+---
+
+### Exclude specific resources by ID (with expiry)
+
+```yaml
+exceptions:
+  # Known keep-alive — reviewed quarterly
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — started on demand"
+    expires_at: "2026-12-31"
+
+  # Suppress all test databases (glob)
+  - rule_id: aws.rds.instance.idle
+    resource_id: "db-test-*"
+    reason: "Test databases are intentionally ephemeral"
+
+  # Scope to one account + region (avoid suppressing across all accounts)
+  - rule_id: aws.ebs.unattached
+    resource_id: "vol-*"
+    account_id: "111111111111"
+    region: us-west-2
+    reason: "Archive volumes — migration planned Q3"
+```
+
+---
+
+### Multi-account org scan with per-rule tuning
+
+```yaml
+scan:
+  provider: aws
+  regions: auto
+
+defaults:
+  min_cost: 10           # suppress noise below $10/month
+  confidence: MEDIUM     # skip LOW confidence findings
+
+rules:
+  aws.rds.instance.idle:
+    min_cost: 100         # only flag RDS instances with > $100/month estimated cost
+    params:
+      idle_days: 21       # require 21 days idle (default: 14)
+
+  aws.sagemaker.endpoint.idle:
+    override_risk_level: HIGH   # escalate risk label for visibility in reports
+
+  aws.resource.untagged:
+    enabled: false              # team manages tags separately
+
+thresholds:
+  fail_on_confidence: HIGH
+  fail_on_cost: 500
+```
+
+Commit this to your repo root and run:
+```bash
+cleancloud scan --org --all-regions
+```
+
+---
+
+### Separate configs per environment
+
+Create one config per environment — pass with `--config`:
+
+**`configs/prod.yaml`** — strict:
+```yaml
+defaults:
+  confidence: MEDIUM
+thresholds:
+  fail_on_confidence: HIGH
+  fail_on_cost: 200
+```
+
+**`configs/staging.yaml`** — lenient:
+```yaml
+defaults:
+  min_cost: 50
+thresholds:
+  fail_on_cost: 1000
+```
+
+```bash
+cleancloud scan --provider aws --config configs/prod.yaml --all-regions
+cleancloud scan --provider aws --config configs/staging.yaml --region us-east-1
+```
 
 ---
 

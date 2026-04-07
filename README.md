@@ -189,12 +189,24 @@ Fully read-only. Safe for production and regulated environments.
 ```bash
 pipx install cleancloud
 cleancloud demo                           # no credentials needed
-cleancloud scan --provider aws --all-regions
 ```
+
+**Choose your path:**
+
+| I want to… | Start here |
+|---|---|
+| Scan AWS | [AWS setup (IAM policy, regions, multi-account) →](docs/aws.md) |
+| Scan Azure | [Azure setup (RBAC, subscriptions, Workload Identity) →](docs/azure.md) |
+| Scan GCP | [GCP setup (IAM, projects, ADC) →](docs/gcp.md) |
+| Run in CI/CD | [CI/CD guide (GitHub Actions, GitLab, exit codes) →](docs/ci.md) |
+| Suppress findings / set thresholds | [Policy config reference →](docs/configuration.md) |
+| Tag filtering, exception patterns, rollout advice | [Best practices →](docs/best-practices.md) |
+| Scan multiple AWS accounts | [Multi-account setup →](docs/aws.md#multi-account-scanning) |
+| Getting an error | [Troubleshooting →](docs/troubleshooting.md) |
 
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` first.
 
-Need Docker, CloudShell, or install troubleshooting? → **[Installation guide →](docs/aws.md)**
+Need Docker, CloudShell, or install troubleshooting? → **[AWS setup guide →](docs/aws.md)**
 
 ---
 
@@ -360,6 +372,31 @@ Full setup guide: [GCP setup →](docs/gcp.md)
 
 ---
 
+## FAQ
+
+**Is it safe to run in production?**
+Yes. CleanCloud is read-only — it calls only `List`, `Describe`, and `Get` APIs. No writes, no deletes, no changes to your cloud account.
+
+**Does CleanCloud send my data anywhere?**
+No. It runs entirely in your environment. No telemetry, no SaaS, no outbound connections except to your cloud provider's own APIs.
+
+**Will it flag resources my team manages with Terraform / CDK?**
+CleanCloud detects actual idle state (zero connections, zero traffic, zero invocations) — not resource existence. A Terraform-managed RDS instance with zero connections for 30 days is still flagged. Use tag filtering or exceptions to suppress intentional infrastructure.
+
+**How do I suppress a specific resource?**
+Two options: tag it with `cleancloud-ignore: true` (tag filtering), or add an explicit exception in `cleancloud.yaml` (policy-as-code). Exceptions support glob patterns and expiry dates. See [Policy config →](docs/configuration.md#exceptions).
+
+**My CI is failing on findings I don't care about. How do I fix it?**
+Don't disable enforcement — suppress the specific noise. Use `min_cost` to hide cheap findings, `confidence: MEDIUM` to skip low-signal ones, or add exceptions for known-good resources. See [Troubleshooting →](docs/troubleshooting.md#ci-exits-2-even-though-findings-look-suppressed).
+
+**Can I run it without a `cleancloud.yaml`?**
+Yes. Without a config file all rules are enabled with their defaults. The config is optional — you can start with just a CLI flag and add a config later.
+
+**Does it work in air-gapped / private environments?**
+Yes. CleanCloud only needs network access to your cloud provider's API endpoints. No external dependencies, no package downloads at scan time.
+
+---
+
 ## What CleanCloud Detects
 
 33 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
@@ -416,6 +453,8 @@ Rules without a confidence marker are MEDIUM — they use time-based heuristics 
 - [`docs/gcp.md`](docs/gcp.md) — GCP IAM permissions and Application Default Credentials setup
 - [`docs/ci.md`](docs/ci.md) — Automation, scheduled scans, and CI/CD integration
 - [`docs/configuration.md`](docs/configuration.md) — Policy-as-code: exceptions, thresholds, tag filtering
+- [`docs/best-practices.md`](docs/best-practices.md) — Rollout strategy, tag filtering patterns, exception patterns
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Common errors and fixes
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Full output examples
 - [`SECURITY.md`](SECURITY.md) — Security policy and threat model
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, threat model

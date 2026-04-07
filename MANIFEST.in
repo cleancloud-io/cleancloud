@@ -9,9 +9,6 @@ recursive-include security *.md *.json *.sh
 # Include documentation
 recursive-include docs *.md
 
-# Include example configuration
-include cleancloud/cleancloud.yaml
-
 # Exclude test files and caches
 global-exclude __pycache__
 global-exclude *.py[co]

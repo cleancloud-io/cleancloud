@@ -189,12 +189,24 @@ Entièrement en lecture seule. Sûr pour la production et les environnements ré
 ```bash
 pipx install cleancloud
 cleancloud demo                                    # aucun credential requis
-cleancloud scan --provider aws --all-regions
 ```
+
+**Choisissez votre chemin :**
+
+| Je veux… | Par ici |
+|---|---|
+| Scanner AWS | [Configuration AWS (politique IAM, régions, multi-comptes) →](docs/aws.md) |
+| Scanner Azure | [Configuration Azure (RBAC, abonnements, Workload Identity) →](docs/azure.md) |
+| Scanner GCP | [Configuration GCP (IAM, projets, ADC) →](docs/gcp.md) |
+| Utiliser en CI/CD | [Guide CI/CD (GitHub Actions, GitLab, codes de sortie) →](docs/ci.md) |
+| Supprimer des findings / définir des seuils | [Référence de configuration policy-as-code →](docs/configuration.md) |
+| Filtrage par tag, patterns d'exceptions, déploiement progressif | [Bonnes pratiques →](docs/best-practices.md) |
+| Scanner plusieurs comptes AWS | [Configuration multi-comptes →](docs/aws.md#multi-account-scanning) |
+| Résoudre une erreur | [Dépannage →](docs/troubleshooting.md) |
 
 Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`.
 
-Docker, CloudShell, ou problèmes d'installation ? → **[Guide d'installation →](docs/aws.md)**
+Docker, CloudShell, ou problèmes d'installation ? → **[Guide de configuration AWS →](docs/aws.md)**
 
 ---
 
@@ -360,6 +372,31 @@ Guide complet : [Configuration GCP →](docs/gcp.md)
 
 ---
 
+## FAQ
+
+**Est-il sûr de l'exécuter en production ?**
+Oui. CleanCloud est en lecture seule — il n'appelle que les APIs `List`, `Describe` et `Get`. Aucune écriture, aucune suppression, aucune modification de votre compte cloud.
+
+**CleanCloud envoie-t-il mes données quelque part ?**
+Non. Il s'exécute entièrement dans votre environnement. Aucune télémétrie, pas de SaaS, aucune connexion sortante sauf vers les APIs de votre cloud provider.
+
+**Signalera-t-il des ressources gérées par Terraform / CDK ?**
+CleanCloud détecte un état réellement inactif (zéro connexion, zéro trafic, zéro invocation) — pas l'existence d'une ressource. Une instance RDS gérée par Terraform avec zéro connexion depuis 30 jours sera quand même signalée. Utilisez le filtrage par tag ou les exceptions pour supprimer les ressources intentionnelles.
+
+**Comment supprimer une ressource spécifique ?**
+Deux options : taguez-la avec `cleancloud-ignore: true` (filtrage par tag), ou ajoutez une exception explicite dans `cleancloud.yaml` (policy-as-code). Les exceptions supportent les patterns glob et les dates d'expiration. Voir [Configuration policy-as-code →](docs/configuration.md#exceptions).
+
+**Mon CI échoue sur des findings qui ne m'intéressent pas. Comment corriger ?**
+Ne désactivez pas l'application — supprimez le bruit spécifique. Utilisez `min_cost` pour ignorer les findings bon marché, `confidence: MEDIUM` pour ignorer ceux à faible signal, ou ajoutez des exceptions pour les ressources intentionnelles. Voir [Dépannage →](docs/troubleshooting.md).
+
+**Puis-je l'utiliser sans `cleancloud.yaml` ?**
+Oui. Sans fichier de config, toutes les règles sont activées avec leurs valeurs par défaut. La config est optionnelle — vous pouvez démarrer avec un simple flag CLI et ajouter une config plus tard.
+
+**Fonctionne-t-il dans des environnements air-gapped / privés ?**
+Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud provider. Aucune dépendance externe, aucun téléchargement de paquets lors du scan.
+
+---
+
 ## Ce que CleanCloud détecte
 
 33 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
@@ -416,6 +453,8 @@ Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuri
 - [`docs/gcp.md`](docs/gcp.md) — Permissions IAM GCP et configuration Application Default Credentials
 - [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
 - [`docs/configuration.md`](docs/configuration.md) — Policy-as-code : exceptions, seuils, filtrage par tag
+- [`docs/best-practices.md`](docs/best-practices.md) — Stratégie de déploiement, filtrage par tag, patterns d'exceptions
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Erreurs courantes et solutions
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, modèle de menace

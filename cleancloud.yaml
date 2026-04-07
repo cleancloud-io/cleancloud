@@ -1,6 +1,23 @@
-# cleancloud.yaml — Policy-as-code configuration
-# Auto-detected in the current directory. Override with: cleancloud scan --config path/to/cleancloud.yaml
+# CleanCloud default config (auto-detected)
+# Safe baseline for local scans.
+# Override via --config or CLI flags in CI.
+# Tip: Run `cleancloud doctor` to validate credentials and permissions before scanning.
+#
+# Resolution order (highest priority first):
+#   1. --config <path>              explicit path
+#   2. ./cleancloud.yaml            this file (project-level)
+#   3. ~/.cleancloud.yaml           user-level defaults (future)
+#   4. .cleancloud/config.yaml      alternate project location
 version: 1
+
+# ── Scan defaults (execution context) ────────────────────────────────────────
+# CLI flags always take precedence. These kick in when flags are omitted.
+# Lets you run: cleancloud scan  (no other flags needed)
+scan:
+  provider: aws                   # optional if only one provider is configured via credentials
+  regions: auto                   # auto-detect active regions (equivalent to --all-regions)
+  # regions:                      # or pin to specific regions (equivalent to --region)
+  #   - us-east-1
 
 # ── Filtering precedence (strongest first) ────────────────────────────────────
 # 1. Exceptions       — explicit human approvals, bypass all other filters
@@ -13,7 +30,7 @@ version: 1
 # Global fallbacks applied to all rules unless overridden at the rule level.
 # min_cost: per-finding, using estimated_monthly_cost_usd (not total across findings).
 defaults:
-  min_cost: 10                  # suppress findings below $10/month estimated cost
+  min_cost: 5                   # suppress findings below $5/month (low-noise baseline)
   confidence: MEDIUM            # suppress LOW confidence findings globally
 
 # ── Tag filtering ────────────────────────────────────────────────────────────
@@ -77,7 +94,6 @@ rules:
 # Fields: rule_id (exact), resource_id (glob: *, ?, [seq]), account_id, region, reason.
 # account_id and region narrow the match — omit to match any account/region.
 # Document the reason for every exception — these are git-reviewable approvals.
-# Note: require_reason / require_ticket enforcement planned for a future release.
 exceptions:
   - rule_id: aws.ec2.instance.stopped
     resource_id: i-0abc1234567890def
@@ -103,9 +119,8 @@ exceptions:
     reason: "Idle between quarterly runs"
 
 # ── Thresholds ───────────────────────────────────────────────────────────────
-# Config-file equivalents of --fail-on-* CLI flags.
-# CLI flags take precedence if both are set.
-# fail_on_confidence uses signal strength (LOW/MEDIUM/HIGH), not the override_risk_level above.
+# CI/CD exit-code policy. CLI --fail-on-* flags take precedence if both are set.
+# fail_on_confidence uses signal strength (LOW/MEDIUM/HIGH), not override_risk_level.
 #
 # Exit codes:
 #   0 — No findings (or all filtered/suppressed)
@@ -113,11 +128,11 @@ exceptions:
 #   2 — Policy violation — a threshold was breached (CI/CD should fail here)
 #   3 — Permission error — insufficient IAM/RBAC permissions to complete scan
 #
-# Threshold evaluation order (OR logic — first breach triggers exit 2):
+# Evaluated in order (OR logic — first matching condition triggers exit 2):
 #   1. fail_on_findings: true  → any remaining finding
 #   2. fail_on_confidence: X   → any finding with confidence >= X
 #   3. fail_on_cost: X         → total estimated_monthly_cost_usd across findings >= X
 thresholds:
   fail_on_confidence: HIGH      # exit 2 if any HIGH confidence finding remains after filtering
   fail_on_cost: 500             # exit 2 if total estimated waste >= $500/month
-  fail_on_findings: false       # exit 2 on any finding (most strict — usually too noisy for CI)
+  fail_on_findings: false       # don't fail on every finding — too noisy for most teams
