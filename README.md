@@ -11,7 +11,7 @@
 
 ---
 
-CleanCloud tells you exactly what to delete in your cloud — with cost per resource.
+CleanCloud tells you exactly what to delete in your cloud — with cost per resource. Catches idle AI/ML resources burning $500–$23K/month unnoticed. Policy-as-code enforcement means exceptions, thresholds, and rules live in git alongside your infrastructure.
 
 **No agents. No SaaS. Read-only.**
 
@@ -138,10 +138,10 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
+- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints, AML compute clusters, and Vertex AI endpoints silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
+- **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
+- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
 - **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
-- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints (AWS), idle AML compute clusters (Azure), and idle Vertex AI Online Prediction endpoints (GCP). GPU-backed resources flagged HIGH risk. Opt-in via `--category ai` or `--category all`
-- **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure
-- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
@@ -165,6 +165,8 @@ Fully read-only. Safe for production and regulated environments.
 | Names exactly which resources to clean up | ❌ | partial | ✅ |
 | Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
 | Detects idle AI/ML waste (SageMaker, AML, Vertex AI — including GPU-backed endpoints) | ❌ | ❌ | ✅ |
+| **Policy-as-code (exceptions + thresholds in git)** | ❌ | ❌ | ✅ |
+| **Git-reviewable exception approvals** | ❌ | ❌ | ✅ |
 | Read-only, no agents | ✅ | ❌ | ✅ |
 | Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
 | No SaaS account or vendor access required | ❌ | ❌ | ✅ |
@@ -189,12 +191,88 @@ Fully read-only. Safe for production and regulated environments.
 ```bash
 pipx install cleancloud
 cleancloud demo                           # no credentials needed
-cleancloud scan --provider aws --all-regions
 ```
+
+**Choose your path:**
+
+| I want to… | Start here |
+|---|---|
+| Scan AWS | [AWS setup (IAM policy, regions, multi-account) →](docs/aws.md) |
+| Scan Azure | [Azure setup (RBAC, subscriptions, Workload Identity) →](docs/azure.md) |
+| Scan GCP | [GCP setup (IAM, projects, ADC) →](docs/gcp.md) |
+| Run in CI/CD | [CI/CD guide (GitHub Actions, GitLab, exit codes) →](docs/ci.md) |
+| Suppress findings / set thresholds | [Policy config reference →](docs/configuration.md) |
+| Tag filtering, exception patterns, rollout advice | [Best practices →](docs/best-practices.md) |
+| Scan multiple AWS accounts | [Multi-account setup →](docs/aws.md#multi-account-scanning) |
+| Getting an error | [Troubleshooting →](docs/troubleshooting.md) |
 
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` first.
 
-Need Docker, CloudShell, or install troubleshooting? → **[Installation guide →](docs/aws.md)**
+Need Docker, CloudShell, or install troubleshooting? → **[AWS setup guide →](docs/aws.md)**
+
+---
+
+## AI/ML Waste Detection
+
+Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend. Unlike compute or storage, these resources bill at full rate even with zero activity — GPU-backed endpoints don't scale to zero.
+
+| Resource | Idle cost range |
+|---|---|
+| SageMaker endpoint (GPU) | $500 – $23,000 / month |
+| Azure AML compute cluster (GPU) | $600 – $15,000 / month |
+| Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
+
+CleanCloud detects zero-invocation / zero-prediction endpoints across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
+
+```bash
+cleancloud scan --provider aws --category ai          # SageMaker endpoints
+cleancloud scan --provider azure --category ai        # AML compute clusters
+cleancloud scan --provider gcp --category ai          # Vertex AI endpoints
+cleancloud scan --provider aws --category all         # hygiene + AI/ML together
+```
+
+No setup required — opt-in with `--category ai`. Works with multi-account and multi-project scans:
+
+```bash
+cleancloud scan --provider aws --org --all-regions --category all
+```
+
+**[AI/ML rules →](docs/rules.md)** · [Full detection details →](docs/rules.md#aiml-rules)
+
+---
+
+## Governance as Code
+
+Drop a `cleancloud.yaml` in your repo root. Every exception is a git-reviewable approval — version-controlled alongside your infrastructure.
+
+```yaml
+# cleancloud.yaml
+defaults:
+  confidence: MEDIUM    # skip low-signal findings globally
+  min_cost: 10          # skip findings below $10/month
+
+exceptions:
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — started on demand"
+    expires_at: "2026-12-31"          # auto-expires — forces periodic review
+
+  - rule_id: aws.rds.instance.idle
+    resource_id: "db-test-*"          # glob — suppress all test databases
+    reason: "Test databases are intentionally ephemeral"
+
+thresholds:
+  fail_on_confidence: HIGH            # exit 2 in CI if any HIGH confidence finding remains
+  fail_on_cost: 500                   # exit 2 if total estimated waste exceeds $500/month
+```
+
+Enforce in CI/CD:
+
+```bash
+cleancloud scan --provider aws --org --all-regions   # picks up cleancloud.yaml automatically
+```
+
+**[Full policy config reference →](docs/configuration.md)** · [Best practices →](docs/best-practices.md)
 
 ---
 
@@ -360,6 +438,31 @@ Full setup guide: [GCP setup →](docs/gcp.md)
 
 ---
 
+## FAQ
+
+**Is it safe to run in production?**
+Yes. CleanCloud is read-only — it calls only `List`, `Describe`, and `Get` APIs. No writes, no deletes, no changes to your cloud account.
+
+**Does CleanCloud send my data anywhere?**
+No. It runs entirely in your environment. No telemetry, no SaaS, no outbound connections except to your cloud provider's own APIs.
+
+**Will it flag resources my team manages with Terraform / CDK?**
+CleanCloud detects actual idle state (zero connections, zero traffic, zero invocations) — not resource existence. A Terraform-managed RDS instance with zero connections for 30 days is still flagged. Use tag filtering or exceptions to suppress intentional infrastructure.
+
+**How do I suppress a specific resource?**
+Two options: tag it with `cleancloud-ignore: true` (tag filtering), or add an explicit exception in `cleancloud.yaml` (policy-as-code). Exceptions support glob patterns and expiry dates. See [Policy config →](docs/configuration.md#exceptions).
+
+**My CI is failing on findings I don't care about. How do I fix it?**
+Don't disable enforcement — suppress the specific noise. Use `min_cost` to hide cheap findings, `confidence: MEDIUM` to skip low-signal ones, or add exceptions for known-good resources. See [Troubleshooting →](docs/troubleshooting.md#ci-exits-2-even-though-findings-look-suppressed).
+
+**Can I run it without a `cleancloud.yaml`?**
+Yes. Without a config file all rules are enabled with their defaults. The config is optional — you can start with just a CLI flag and add a config later.
+
+**Does it work in air-gapped / private environments?**
+Yes. CleanCloud only needs network access to your cloud provider's API endpoints. No external dependencies, no package downloads at scan time.
+
+---
+
 ## What CleanCloud Detects
 
 33 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
@@ -416,6 +519,8 @@ Rules without a confidence marker are MEDIUM — they use time-based heuristics 
 - [`docs/gcp.md`](docs/gcp.md) — GCP IAM permissions and Application Default Credentials setup
 - [`docs/ci.md`](docs/ci.md) — Automation, scheduled scans, and CI/CD integration
 - [`docs/configuration.md`](docs/configuration.md) — Policy-as-code: exceptions, thresholds, tag filtering
+- [`docs/best-practices.md`](docs/best-practices.md) — Rollout strategy, tag filtering patterns, exception patterns
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Common errors and fixes
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Full output examples
 - [`SECURITY.md`](SECURITY.md) — Security policy and threat model
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, threat model

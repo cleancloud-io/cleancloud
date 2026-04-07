@@ -9,6 +9,22 @@ Complete guide for integrating CleanCloud into continuous integration and deploy
 
 ---
 
+## Choose Your CI Platform
+
+| I'm using… | Jump to |
+|---|---|
+| **GitHub Actions** | [GitHub Actions →](#github-actions) |
+| **Azure DevOps** | [Azure DevOps Pipelines →](#azure-devops-pipelines) |
+| **GitLab CI / Other** | [Docker image (works anywhere) →](#using-the-docker-image) |
+| **Docker + policy config** | [Mounting cleancloud.yaml in Docker →](#using-policy-config-cleanclouodyaml-with-docker) |
+| **Just want a working example now** | [Quick CI Setup →](#quick-ci-setup) |
+| **Policy enforcement (exit codes, thresholds)** | [Policy Enforcement →](#policy-enforcement) |
+| **Multi-account / multi-subscription** | [Multi-Account Scanning →](#multi-account-scanning) |
+| **Output formats (JSON, CSV, markdown)** | [Output Formats →](#output-formats) |
+| **Something broken** | [Troubleshooting →](#troubleshooting) |
+
+---
+
 ## Quick CI Setup
 
 The fastest path to a working pipeline:
@@ -253,7 +269,7 @@ jobs:
             -e AZURE_TENANT_ID \
             -e AZURE_SUBSCRIPTION_ID \
             -e AZURE_FEDERATED_TOKEN_FILE \
-            -v "${AZURE_FEDERATED_TOKEN_FILE}:${AZURE_FEDERATED_TOKEN_FILE}:ro" \
+            -v "$AZURE_FEDERATED_TOKEN_FILE:$AZURE_FEDERATED_TOKEN_FILE:ro" \
             getcleancloud/cleancloud scan \
               --provider azure \
               --fail-on-confidence HIGH \
@@ -303,9 +319,63 @@ jobs:
 ```bash
 docker run --rm \
   -e GOOGLE_APPLICATION_CREDENTIALS=/tmp/adc.json \
-  -v ~/.config/gcloud/application_default_credentials.json:/tmp/adc.json:ro \
+  -v "$HOME/.config/gcloud/application_default_credentials.json:/tmp/adc.json:ro" \
   getcleancloud/cleancloud scan --provider gcp --project YOUR_PROJECT_ID
 ```
+
+### Using policy config (cleancloud.yaml) with Docker
+
+The Docker container has no access to the host filesystem by default. Mount your `cleancloud.yaml` explicitly with `-v`:
+
+```bash
+# Mount the config file from the current directory
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
+  -e AWS_REGION \
+  -v "$(pwd)/cleancloud.yaml:/app/cleancloud.yaml:ro" \
+  -w /app \
+  getcleancloud/cleancloud scan \
+    --provider aws \
+    --all-regions
+```
+
+The `-w /app` flag sets the working directory inside the container, so `cleancloud.yaml` is auto-detected there. Alternatively, skip auto-detection and pass the path explicitly with `--config`:
+
+```bash
+docker run --rm \
+  -e AWS_ACCESS_KEY_ID \
+  -e AWS_SECRET_ACCESS_KEY \
+  -e AWS_SESSION_TOKEN \
+  -e AWS_REGION \
+  -v "$(pwd)/cleancloud.yaml:/cleancloud.yaml:ro" \
+  getcleancloud/cleancloud scan \
+    --provider aws \
+    --all-regions \
+    --config /cleancloud.yaml
+```
+
+**In GitHub Actions with Docker:**
+
+```yaml
+- uses: actions/checkout@v4   # required — makes cleancloud.yaml available on the runner
+
+- name: Run CleanCloud
+  run: |
+    docker run --rm \
+      -e AWS_ACCESS_KEY_ID \
+      -e AWS_SECRET_ACCESS_KEY \
+      -e AWS_SESSION_TOKEN \
+      -e AWS_REGION \
+      -v "${{ github.workspace }}/cleancloud.yaml:/cleancloud.yaml:ro" \
+      getcleancloud/cleancloud scan \
+        --provider aws \
+        --all-regions \
+        --config /cleancloud.yaml
+```
+
+> If you use the [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan) instead of Docker directly, `cleancloud.yaml` is auto-detected — no mount needed since the action runs on the runner natively.
 
 ### Pinning to a specific version
 

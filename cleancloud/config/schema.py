@@ -6,6 +6,7 @@ _VALID_CONFIDENCE = {"LOW", "MEDIUM", "HIGH"}
 _VALID_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH"}
 _VALID_TAG_MODES = {"exclude"}  # "include" (allowlist) planned for a future release
 _VALID_CATEGORIES = {"hygiene", "ai", "all"}
+_VALID_PROVIDERS = {"aws", "azure", "gcp"}
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,22 @@ class CategoriesConfig:
 
 
 @dataclass
+class ScanConfig:
+    """Execution context defaults — overridden by CLI flags (CLI always wins).
+
+    scan:
+      provider: aws               # default provider (overridden by --provider)
+      regions: auto               # auto-detect active regions (--all-regions)
+      regions: us-east-1          # single region (--region)
+      regions:                    # explicit list — not yet supported; use 'auto' for multi-region
+        - us-east-1
+    """
+
+    provider: Optional[str] = None
+    regions: Optional[Any] = None  # "auto" | single region string | list (validated at scan time)
+
+
+@dataclass
 class ThresholdsConfig:
     fail_on_confidence: Optional[str] = None
     fail_on_cost: Optional[float] = None
@@ -93,6 +110,7 @@ class CleanCloudConfig:
     thresholds: Optional[ThresholdsConfig] = None
     defaults: Optional[DefaultsConfig] = None
     categories: Optional[CategoriesConfig] = None
+    scan: Optional[ScanConfig] = None
 
     @classmethod
     def empty(cls) -> "CleanCloudConfig":
@@ -108,6 +126,7 @@ def load_config(data: Dict[str, Any]) -> CleanCloudConfig:
         "thresholds",
         "defaults",
         "categories",
+        "scan",
     }
     unknown = set(data.keys()) - allowed_top_level
     if unknown:
@@ -279,6 +298,35 @@ def load_config(data: Dict[str, Any]) -> CleanCloudConfig:
                 )
         categories = CategoriesConfig(include=[str(c).lower() for c in raw_include])
 
+    # --- scan ---
+    scan_cfg = None
+    raw_scan = data.get("scan")
+    if raw_scan:
+        if not isinstance(raw_scan, dict):
+            raise ValueError("scan must be a mapping")
+        scan_provider = raw_scan.get("provider")
+        if scan_provider is not None and str(scan_provider).lower() not in _VALID_PROVIDERS:
+            raise ValueError(
+                f"scan.provider '{scan_provider}' is not valid. "
+                f"Valid values: {sorted(_VALID_PROVIDERS)}"
+            )
+        scan_regions = raw_scan.get("regions")
+        if scan_regions is not None:
+            if isinstance(scan_regions, str):
+                if scan_regions != "auto":
+                    raise ValueError(
+                        "scan.regions string value must be 'auto'. "
+                        "For a specific region use a list: regions: [us-east-1]"
+                    )
+            elif not isinstance(scan_regions, list):
+                raise ValueError(
+                    "scan.regions must be 'auto' or a list of regions: [us-east-1, us-west-2]"
+                )
+        scan_cfg = ScanConfig(
+            provider=str(scan_provider).lower() if scan_provider else None,
+            regions=scan_regions,
+        )
+
     return CleanCloudConfig(
         tag_filtering=tag_filtering,
         rules=rules,
@@ -286,4 +334,5 @@ def load_config(data: Dict[str, Any]) -> CleanCloudConfig:
         thresholds=thresholds,
         defaults=defaults,
         categories=categories,
+        scan=scan_cfg,
     )

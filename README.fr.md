@@ -11,7 +11,7 @@
 
 ---
 
-CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — avec le coût par ressource.
+CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — avec le coût par ressource. Détecte les ressources IA/ML inactives qui brûlent 500–23 000 $/mois en silence. L'application policy-as-code signifie que les exceptions, les seuils et les règles vivent dans git aux côtés de votre infrastructure.
 
 **Aucun agent. Pas de SaaS. Lecture seule.**
 
@@ -138,10 +138,10 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 
 ## Fonctionnalités clés
 
+- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker, clusters AML Compute et endpoints Vertex AI inactifs, facturés 500–23 000 $/mois par ressource en silence. Ressources GPU flaggées risque HIGH. Les outils natifs montrent la facture — CleanCloud indique quel endpoint supprimer. Opt-in via `--category ai`
+- **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
+- **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
 - **33 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
-- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker inactifs (AWS), clusters AML Compute inactifs (Azure), et endpoints Vertex AI Online Prediction inactifs (GCP). Ressources GPU flaggées risque HIGH. Opt-in via `--category ai` ou `--category all`
-- **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure
-- **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 100` — appliquer des seuils de gaspillage sur un planning, géré par les équipes platform ou FinOps
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
@@ -165,6 +165,8 @@ Entièrement en lecture seule. Sûr pour la production et les environnements ré
 | Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
 | Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
 | Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
+| **Policy-as-code (exceptions + seuils dans git)** | ❌ | ❌ | ✅ |
+| **Approbations d'exceptions auditées dans git** | ❌ | ❌ | ✅ |
 | Lecture seule, aucun agent | ✅ | ❌ | ✅ |
 | Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
 | Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
@@ -189,12 +191,88 @@ Entièrement en lecture seule. Sûr pour la production et les environnements ré
 ```bash
 pipx install cleancloud
 cleancloud demo                                    # aucun credential requis
-cleancloud scan --provider aws --all-regions
 ```
+
+**Choisissez votre chemin :**
+
+| Je veux… | Par ici |
+|---|---|
+| Scanner AWS | [Configuration AWS (politique IAM, régions, multi-comptes) →](docs/aws.md) |
+| Scanner Azure | [Configuration Azure (RBAC, abonnements, Workload Identity) →](docs/azure.md) |
+| Scanner GCP | [Configuration GCP (IAM, projets, ADC) →](docs/gcp.md) |
+| Utiliser en CI/CD | [Guide CI/CD (GitHub Actions, GitLab, codes de sortie) →](docs/ci.md) |
+| Supprimer des findings / définir des seuils | [Référence de configuration policy-as-code →](docs/configuration.md) |
+| Filtrage par tag, patterns d'exceptions, déploiement progressif | [Bonnes pratiques →](docs/best-practices.md) |
+| Scanner plusieurs comptes AWS | [Configuration multi-comptes →](docs/aws.md#multi-account-scanning) |
+| Résoudre une erreur | [Dépannage →](docs/troubleshooting.md) |
 
 Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`.
 
-Docker, CloudShell, ou problèmes d'installation ? → **[Guide d'installation →](docs/aws.md)**
+Docker, CloudShell, ou problèmes d'installation ? → **[Guide de configuration AWS →](docs/aws.md)**
+
+---
+
+## Détection du gaspillage IA/ML
+
+L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à la croissance la plus rapide. Contrairement au compute ou au stockage, ces ressources facturent à plein tarif même sans aucune activité — les endpoints GPU ne passent pas à zéro.
+
+| Ressource | Coût inactif |
+|---|---|
+| Endpoint SageMaker (GPU) | 500 – 23 000 $ / mois |
+| Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
+| Endpoint Vertex AI Online Prediction (GPU) | 449 – 23 000+ $ / mois |
+
+CleanCloud détecte les endpoints à zéro invocation / zéro prédiction sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
+
+```bash
+cleancloud scan --provider aws --category ai          # endpoints SageMaker
+cleancloud scan --provider azure --category ai        # clusters AML Compute
+cleancloud scan --provider gcp --category ai          # endpoints Vertex AI
+cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
+```
+
+Aucune configuration requise — opt-in avec `--category ai`. Compatible avec les scans multi-comptes et multi-projets :
+
+```bash
+cleancloud scan --provider aws --org --all-regions --category all
+```
+
+**[Règles IA/ML →](docs/rules.md)**
+
+---
+
+## Gouvernance as Code
+
+Déposez un `cleancloud.yaml` à la racine de votre repo. Chaque exception est une approbation auditée dans git — versionnée aux côtés de votre infrastructure.
+
+```yaml
+# cleancloud.yaml
+defaults:
+  confidence: MEDIUM    # ignorer les findings à faible signal
+  min_cost: 10          # ignorer les findings en dessous de 10$/mois
+
+exceptions:
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — démarré à la demande"
+    expires_at: "2026-12-31"          # expiration automatique — forçage de révision
+
+  - rule_id: aws.rds.instance.idle
+    resource_id: "db-test-*"          # glob — supprime toutes les bases de test
+    reason: "Les bases de test sont intentionnellement éphémères"
+
+thresholds:
+  fail_on_confidence: HIGH            # exit 2 en CI si un finding HIGH confidence reste
+  fail_on_cost: 500                   # exit 2 si le gaspillage total dépasse 500$/mois
+```
+
+Appliquer en CI/CD :
+
+```bash
+cleancloud scan --provider aws --org --all-regions   # détecte cleancloud.yaml automatiquement
+```
+
+**[Référence complète de configuration →](docs/configuration.md)** · [Bonnes pratiques →](docs/best-practices.md)
 
 ---
 
@@ -360,6 +438,31 @@ Guide complet : [Configuration GCP →](docs/gcp.md)
 
 ---
 
+## FAQ
+
+**Est-il sûr de l'exécuter en production ?**
+Oui. CleanCloud est en lecture seule — il n'appelle que les APIs `List`, `Describe` et `Get`. Aucune écriture, aucune suppression, aucune modification de votre compte cloud.
+
+**CleanCloud envoie-t-il mes données quelque part ?**
+Non. Il s'exécute entièrement dans votre environnement. Aucune télémétrie, pas de SaaS, aucune connexion sortante sauf vers les APIs de votre cloud provider.
+
+**Signalera-t-il des ressources gérées par Terraform / CDK ?**
+CleanCloud détecte un état réellement inactif (zéro connexion, zéro trafic, zéro invocation) — pas l'existence d'une ressource. Une instance RDS gérée par Terraform avec zéro connexion depuis 30 jours sera quand même signalée. Utilisez le filtrage par tag ou les exceptions pour supprimer les ressources intentionnelles.
+
+**Comment supprimer une ressource spécifique ?**
+Deux options : taguez-la avec `cleancloud-ignore: true` (filtrage par tag), ou ajoutez une exception explicite dans `cleancloud.yaml` (policy-as-code). Les exceptions supportent les patterns glob et les dates d'expiration. Voir [Configuration policy-as-code →](docs/configuration.md#exceptions).
+
+**Mon CI échoue sur des findings qui ne m'intéressent pas. Comment corriger ?**
+Ne désactivez pas l'application — supprimez le bruit spécifique. Utilisez `min_cost` pour ignorer les findings bon marché, `confidence: MEDIUM` pour ignorer ceux à faible signal, ou ajoutez des exceptions pour les ressources intentionnelles. Voir [Dépannage →](docs/troubleshooting.md).
+
+**Puis-je l'utiliser sans `cleancloud.yaml` ?**
+Oui. Sans fichier de config, toutes les règles sont activées avec leurs valeurs par défaut. La config est optionnelle — vous pouvez démarrer avec un simple flag CLI et ajouter une config plus tard.
+
+**Fonctionne-t-il dans des environnements air-gapped / privés ?**
+Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud provider. Aucune dépendance externe, aucun téléchargement de paquets lors du scan.
+
+---
+
 ## Ce que CleanCloud détecte
 
 33 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
@@ -416,6 +519,8 @@ Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuri
 - [`docs/gcp.md`](docs/gcp.md) — Permissions IAM GCP et configuration Application Default Credentials
 - [`docs/ci.md`](docs/ci.md) — Automatisation, scans planifiés et intégration CI/CD
 - [`docs/configuration.md`](docs/configuration.md) — Policy-as-code : exceptions, seuils, filtrage par tag
+- [`docs/best-practices.md`](docs/best-practices.md) — Stratégie de déploiement, filtrage par tag, patterns d'exceptions
+- [`docs/troubleshooting.md`](docs/troubleshooting.md) — Erreurs courantes et solutions
 - [`docs/example-outputs.md`](docs/example-outputs.md) — Exemples de sortie complets
 - [`SECURITY.md`](SECURITY.md) — Politique de sécurité et modèle de menace
 - [`docs/infosec-readiness.md`](docs/infosec-readiness.md) — IAM Proof Pack, modèle de menace
