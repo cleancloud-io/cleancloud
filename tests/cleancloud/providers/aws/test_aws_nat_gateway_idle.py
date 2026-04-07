@@ -165,11 +165,11 @@ def test_find_idle_nat_gateways_custom_threshold(mock_boto3_session):
     cloudwatch_mock.get_metric_statistics.return_value = {"Datapoints": []}
 
     # With 30-day threshold, should NOT be flagged (only 20 days old)
-    findings_30 = find_idle_nat_gateways(mock_boto3_session, region, days_idle=30)
+    findings_30 = find_idle_nat_gateways(mock_boto3_session, region, idle_days=30)
     assert len(findings_30) == 0
 
     # With 14-day threshold, should be flagged (20 > 14)
-    findings_14 = find_idle_nat_gateways(mock_boto3_session, region, days_idle=14)
+    findings_14 = find_idle_nat_gateways(mock_boto3_session, region, idle_days=14)
     assert len(findings_14) == 1
     assert findings_14[0].resource_id == "nat-test"
 
@@ -247,6 +247,6 @@ def test_find_idle_nat_gateways_title_includes_threshold(mock_boto3_session):
     cloudwatch_mock.get_metric_statistics.return_value = {"Datapoints": []}
 
     # Test with custom threshold
-    findings = find_idle_nat_gateways(mock_boto3_session, region, days_idle=7)
+    findings = find_idle_nat_gateways(mock_boto3_session, region, idle_days=7)
     assert len(findings) == 1
     assert "7+ Days" in findings[0].title

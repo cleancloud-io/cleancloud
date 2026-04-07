@@ -57,7 +57,7 @@ _DEFAULT_MONTHLY_COST = 150.0
 def find_idle_sagemaker_endpoints(
     session: boto3.Session,
     region: str,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
     Find SageMaker inference endpoints with zero invocations.
@@ -72,8 +72,8 @@ def find_idle_sagemaker_endpoints(
     - Zero Invocations over the effective idle window (CloudWatch AWS/SageMaker)
 
     Confidence:
-    - HIGH: Zero invocations over the full idle window (age >= days_idle)
-    - MEDIUM: Zero invocations, age >= 75% of days_idle threshold
+    - HIGH: Zero invocations over the full idle window (age >= idle_days)
+    - MEDIUM: Zero invocations, age >= 75% of idle_days threshold
 
     IAM permissions:
     - sagemaker:ListEndpoints
@@ -103,7 +103,7 @@ def find_idle_sagemaker_endpoints(
 
                 # Skip endpoints younger than half the idle threshold —
                 # too new to reliably classify as abandoned
-                if age_days < max(days_idle // 2, 7):
+                if age_days < max(idle_days // 2, 7):
                     continue
 
                 # Describe endpoint — get cost, GPU flag, variant info
@@ -116,7 +116,7 @@ def find_idle_sagemaker_endpoints(
                     continue
 
                 # Use effective window: can't look back further than the endpoint's age
-                effective_window = min(days_idle, age_days)
+                effective_window = min(idle_days, age_days)
 
                 # Skip if effective window is too small to draw a reliable conclusion
                 if effective_window < 3:
@@ -128,9 +128,9 @@ def find_idle_sagemaker_endpoints(
                     continue
 
                 # Confidence based on age relative to idle threshold
-                if age_days >= days_idle:
+                if age_days >= idle_days:
                     confidence = ConfidenceLevel.HIGH
-                elif age_days >= int(days_idle * 0.75):
+                elif age_days >= int(idle_days * 0.75):
                     confidence = ConfidenceLevel.MEDIUM
                 else:
                     continue  # too borderline for a confident finding
@@ -187,7 +187,7 @@ def find_idle_sagemaker_endpoints(
                             "total_instances": total_instances,
                             "age_days": age_days,
                             "idle_window_days": effective_window,
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
                         },
                     )

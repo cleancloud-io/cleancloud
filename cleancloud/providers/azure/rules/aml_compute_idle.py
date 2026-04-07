@@ -56,7 +56,7 @@ def find_idle_aml_compute(
     region_filter: str = None,
     client: Optional[AzureMachineLearningWorkspaces] = None,
     monitor_client: Optional[MonitorManagementClient] = None,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
     Find Azure ML compute clusters with min_node_count > 0 and no active nodes.
@@ -77,8 +77,8 @@ def find_idle_aml_compute(
       then falls back to unfiltered workspace-level query if no timeseries returned
 
     Confidence:
-    - HIGH: Zero active nodes over the full idle window (age >= days_idle)
-    - MEDIUM: Zero active nodes, age >= 75% of days_idle threshold, or age unknown
+    - HIGH: Zero active nodes over the full idle window (age >= idle_days)
+    - MEDIUM: Zero active nodes, age >= 75% of idle_days threshold, or age unknown
 
     IAM permissions:
     - Microsoft.MachineLearningServices/workspaces/read
@@ -136,11 +136,11 @@ def find_idle_aml_compute(
                     age_days = (now - created_at).days
                     # Skip clusters younger than half the idle threshold —
                     # too new to reliably classify as abandoned
-                    if age_days < max(days_idle // 2, 7):
+                    if age_days < max(idle_days // 2, 7):
                         continue
 
-                # Effective window: cap to age if known; otherwise use full days_idle
-                effective_window = min(days_idle, age_days) if age_days is not None else days_idle
+                # Effective window: cap to age if known; otherwise use full idle_days
+                effective_window = min(idle_days, age_days) if age_days is not None else idle_days
 
                 if effective_window < 3:
                     continue
@@ -158,9 +158,9 @@ def find_idle_aml_compute(
 
                 # Confidence based on age relative to idle threshold.
                 # Unknown age → MEDIUM: we can't rule out a recently-created cluster.
-                if age_days is not None and age_days >= days_idle:
+                if age_days is not None and age_days >= idle_days:
                     confidence = ConfidenceLevel.HIGH
-                elif age_days is not None and age_days >= int(days_idle * 0.75):
+                elif age_days is not None and age_days >= int(idle_days * 0.75):
                     confidence = ConfidenceLevel.MEDIUM
                 elif age_days is None:
                     confidence = ConfidenceLevel.MEDIUM
@@ -249,7 +249,7 @@ def find_idle_aml_compute(
                             "is_gpu": is_gpu,
                             "age_days": age_for_details,
                             "idle_window_days": effective_window,
-                            "idle_days_threshold": days_idle,
+                            "idle_days_threshold": idle_days,
                             "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
                             "cost_estimate_type": "mapped" if vm_size_key else "approximate",
                         },

@@ -55,8 +55,8 @@ def find_unused_public_ips(
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.public_ip_unused",
-                resource_type="azure.public_ip",
+                rule_id="azure.network.public_ip.unused",
+                resource_type="azure.network.public_ip",
                 resource_id=pip.id,
                 region=pip.location,
                 estimated_monthly_cost_usd=3.60,

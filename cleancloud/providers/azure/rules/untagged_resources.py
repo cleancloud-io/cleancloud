@@ -68,8 +68,8 @@ def find_untagged_resources(
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.untagged_resource",
-                resource_type="azure.managed_disk",
+                rule_id="azure.resource.untagged",
+                resource_type="azure.compute.disk",
                 resource_id=disk.id,
                 region=disk.location,
                 title="Untagged Azure managed disk",
@@ -119,8 +119,8 @@ def find_untagged_resources(
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.untagged_resource",
-                resource_type="azure.snapshot",
+                rule_id="azure.resource.untagged",
+                resource_type="azure.compute.snapshot",
                 resource_id=snap.id,
                 region=snap.location,
                 title="Untagged Azure snapshot",

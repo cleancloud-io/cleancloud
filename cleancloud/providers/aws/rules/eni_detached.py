@@ -13,7 +13,7 @@ from cleancloud.core.risk import RiskLevel
 def find_detached_enis(
     session: boto3.Session,
     region: str,
-    days_old: int = 60,
+    max_age_days: int = 60,
 ) -> List[Finding]:
     """
     Find Elastic Network Interfaces (ENIs) currently detached and 60+ days old.
@@ -27,7 +27,7 @@ def find_detached_enis(
 
     SAFE RULE (review-only):
     - ENI Status == 'available' (not attached)
-    - ENI creation age >= days_old threshold (NOT detached duration)
+    - ENI creation age >= max_age_days threshold (NOT detached duration)
     - Excludes AWS infrastructure ENIs (NAT Gateway, Load Balancers, VPC Endpoints)
     - INCLUDES requester-managed ENIs (Lambda, ECS, RDS) - these are user resources!
 
@@ -75,7 +75,7 @@ def find_detached_enis(
                         age_days = 0
 
                 # Apply age threshold (skip if too young)
-                if age_days < days_old:
+                if age_days < max_age_days:
                     continue
 
                 # Build evidence (be honest about what we're measuring)
@@ -107,7 +107,7 @@ def find_detached_enis(
                         "Application-level usage",
                         "Manual operational workflows",
                     ],
-                    time_window=f"{days_old} days since creation",
+                    time_window=f"{max_age_days} days since creation",
                 )
 
                 # Build details

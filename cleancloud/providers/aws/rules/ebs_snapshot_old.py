@@ -12,10 +12,10 @@ from cleancloud.core.risk import RiskLevel
 def find_old_ebs_snapshots(
     session: boto3.Session,
     region: str,
-    days_old: int = 90,
+    max_age_days: int = 90,
 ) -> List[Finding]:
     """
-    Find EBS snapshots older than `days_old`.
+    Find EBS snapshots older than `max_age_days`.
 
     Conservative rule:
     - No AMI linkage detection yet (future enhancement)
@@ -35,10 +35,10 @@ def find_old_ebs_snapshots(
             start_time = snap["StartTime"]
             age_days = (now - start_time).days
 
-            if age_days >= days_old:
+            if age_days >= max_age_days:
                 evidence = Evidence(
                     signals_used=[
-                        f"Snapshot age is {age_days} days, exceeding threshold of {days_old} days"
+                        f"Snapshot age is {age_days} days, exceeding threshold of {max_age_days} days"
                     ],
                     signals_not_checked=[
                         "AMI linkage / usage",
@@ -46,7 +46,7 @@ def find_old_ebs_snapshots(
                         "Disaster recovery intent",
                         "Manual operational workflows",
                     ],
-                    time_window=f"{days_old} days",
+                    time_window=f"{max_age_days} days",
                 )
 
                 # ~$0.05/GB-month for EBS snapshots
@@ -61,7 +61,7 @@ def find_old_ebs_snapshots(
                         resource_id=snap["SnapshotId"],
                         region=region,
                         title="Old EBS snapshot",
-                        summary=f"EBS snapshot older than {days_old} days",
+                        summary=f"EBS snapshot older than {max_age_days} days",
                         reason="Snapshot exceeds configured age threshold",
                         risk=RiskLevel.LOW,
                         confidence=ConfidenceLevel.MEDIUM,  # conservative

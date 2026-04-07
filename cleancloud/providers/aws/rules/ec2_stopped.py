@@ -28,7 +28,7 @@ _EBS_COST_PER_GB = 0.10
 def find_stopped_ec2_instances(
     session: boto3.Session,
     region: str,
-    days_stopped: int = 30,
+    max_age_days: int = 30,
 ) -> List[Finding]:
     """
     Find EC2 instances in 'stopped' state for 30+ days.
@@ -42,7 +42,7 @@ def find_stopped_ec2_instances(
 
     Detection logic:
     - Instance state is 'stopped'
-    - StateTransitionReason parses to a recognised stop pattern ≥ days_stopped days ago
+    - StateTransitionReason parses to a recognised stop pattern ≥ max_age_days days ago
     - Recognised patterns: User initiated, Instance initiated, Server.ScheduledStop
     - If stop time is unparseable, instance is still flagged at MEDIUM confidence
       (stop duration unknown — may be recent or very old)
@@ -56,7 +56,7 @@ def find_stopped_ec2_instances(
     """
     ec2 = session.client("ec2", region_name=region)
     now = datetime.now(timezone.utc)
-    threshold = now - timedelta(days=days_stopped)
+    threshold = now - timedelta(days=max_age_days)
     findings: List[Finding] = []
 
     try:
@@ -177,7 +177,7 @@ def find_stopped_ec2_instances(
                 "availability_zone": az,
                 "total_ebs_gb": total_ebs_gb,
                 "attached_volume_ids": volume_ids,
-                "days_stopped_threshold": days_stopped,
+                "days_stopped_threshold": max_age_days,
             }
             if stop_time_known:
                 details["stop_time"] = stop_time.isoformat()

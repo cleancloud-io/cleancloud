@@ -106,11 +106,14 @@ def write_markdown(
         lines.append("| Account | Findings | Est. Monthly Cost |")
         lines.append("|---------|--------:|------------------:|")
         for r in per_account:
-            label = r["name"] if r["name"] != r["id"] else r["id"]
-            cost = r.get("estimated_monthly_waste_usd", 0)
+            rid = r.get("id", "?")
+            rname = r.get("name", rid)
+            label = rname if rname != rid else rid
+            cost = r.get("estimated_monthly_cost_usd", 0)
             cost_str = f"~${cost:,.0f}" if cost else "—"
-            status_str = f" _{r['status']}_" if r["status"] != "success" else ""
-            lines.append(f"| {label} ({r['id']}) | {r['findings']}{status_str} | {cost_str} |")
+            status = r.get("status", "success")
+            status_str = f" _{status}_" if status != "success" else ""
+            lines.append(f"| {label} ({rid}) | {r.get('findings', 0)}{status_str} | {cost_str} |")
         lines.append("")
 
     # GCP multi-project breakdown
@@ -121,11 +124,14 @@ def write_markdown(
         lines.append("| Project | Findings | Est. Monthly Cost |")
         lines.append("|---------|--------:|------------------:|")
         for r in per_project:
-            label = r["name"] if r["name"] != r["id"] else r["id"]
+            rid = r.get("id", "?")
+            rname = r.get("name", rid)
+            label = rname if rname != rid else rid
             cost = r.get("estimated_monthly_cost_usd", 0)
             cost_str = f"~${cost:,.0f}" if cost else "—"
-            status_str = f" _{r['status']}_" if r["status"] != "success" else ""
-            lines.append(f"| {label} ({r['id']}) | {r['findings']}{status_str} | {cost_str} |")
+            status = r.get("status", "success")
+            status_str = f" _{status}_" if status != "success" else ""
+            lines.append(f"| {label} ({rid}) | {r.get('findings', 0)}{status_str} | {cost_str} |")
         lines.append("")
 
     # Azure multi-subscription breakdown
@@ -136,10 +142,13 @@ def write_markdown(
         lines.append("| Subscription | Findings | Est. Monthly Cost |")
         lines.append("|--------------|--------:|------------------:|")
         for r in per_sub:
+            rid = r.get("id", "?")
+            rname = r.get("name", rid)
             cost = r.get("estimated_monthly_cost_usd", 0)
             cost_str = f"~${cost:,.0f}" if cost else "—"
-            status_str = f" _{r['status']}_" if r["status"] != "success" else ""
-            lines.append(f"| {r['name']} ({r['id']}) | {r['findings']}{status_str} | {cost_str} |")
+            status = r.get("status", "success")
+            status_str = f" _{status}_" if status != "success" else ""
+            lines.append(f"| {rname} ({rid}) | {r.get('findings', 0)}{status_str} | {cost_str} |")
         lines.append("")
 
     # Footer

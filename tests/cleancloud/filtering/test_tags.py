@@ -61,8 +61,8 @@ def test_ignore_by_key_only():
 
     result = filter_findings_by_tags(findings, rules)
 
-    assert len(result.ignored) == 1
-    assert result.ignored[0].resource_id == "vol-1"
+    assert len(result.suppressed) == 1
+    assert result.suppressed[0].finding.resource_id == "vol-1"
     assert len(result.kept) == 1
 
 
@@ -72,12 +72,12 @@ def test_ignore_by_key_and_value():
         _finding("vol-2", {"env": "staging"}),
     ]
 
-    rules = [IgnoreTagRule(key="env", value="production")]
+    rules = [IgnoreTagRule(key="env", values=["production"])]
 
     result = filter_findings_by_tags(findings, rules)
 
-    assert len(result.ignored) == 1
-    assert result.ignored[0].resource_id == "vol-1"
+    assert len(result.suppressed) == 1
+    assert result.suppressed[0].finding.resource_id == "vol-1"
     assert result.kept[0].resource_id == "vol-2"
 
 
@@ -90,12 +90,12 @@ def test_multiple_rules_any_match_ignores():
 
     rules = [
         IgnoreTagRule(key="env"),
-        IgnoreTagRule(key="team", value="platform"),
+        IgnoreTagRule(key="team", values=["platform"]),
     ]
 
     result = filter_findings_by_tags(findings, rules)
 
-    ignored_ids = {f.resource_id for f in result.ignored}
+    ignored_ids = {s.finding.resource_id for s in result.suppressed}
 
     assert ignored_ids == {"vol-1", "vol-2"}
     assert result.kept[0].resource_id == "vol-3"
@@ -109,7 +109,7 @@ def test_no_ignore_rules_returns_all_kept():
     result = filter_findings_by_tags(findings, [])
 
     assert result.kept == findings
-    assert result.ignored == []
+    assert result.suppressed == []
 
 
 def test_missing_tags_safe():
@@ -123,7 +123,7 @@ def test_missing_tags_safe():
     result = filter_findings_by_tags(findings, rules)
 
     assert len(result.kept) == 2
-    assert len(result.ignored) == 0
+    assert len(result.suppressed) == 0
 
 
 def test_gcp_labels_filtered_by_key():
@@ -136,8 +136,8 @@ def test_gcp_labels_filtered_by_key():
 
     result = filter_findings_by_tags(findings, rules)
 
-    assert len(result.ignored) == 1
-    assert result.ignored[0].resource_id == "disk-1"
+    assert len(result.suppressed) == 1
+    assert result.suppressed[0].finding.resource_id == "disk-1"
     assert result.kept[0].resource_id == "disk-2"
 
 
@@ -147,12 +147,12 @@ def test_gcp_labels_filtered_by_key_and_value():
         _gcp_finding("disk-2", {"env": "staging"}),
     ]
 
-    rules = [IgnoreTagRule(key="env", value="production")]
+    rules = [IgnoreTagRule(key="env", values=["production"])]
 
     result = filter_findings_by_tags(findings, rules)
 
-    assert len(result.ignored) == 1
-    assert result.ignored[0].resource_id == "disk-1"
+    assert len(result.suppressed) == 1
+    assert result.suppressed[0].finding.resource_id == "disk-1"
     assert result.kept[0].resource_id == "disk-2"
 
 
@@ -164,11 +164,27 @@ def test_mixed_aws_gcp_filtering():
         _gcp_finding("disk-2", {"team": "data-eng"}),
     ]
 
-    rules = [IgnoreTagRule(key="env", value="prod")]
+    rules = [IgnoreTagRule(key="env", values=["prod"])]
 
     result = filter_findings_by_tags(findings, rules)
 
-    ignored_ids = {f.resource_id for f in result.ignored}
+    ignored_ids = {s.finding.resource_id for s in result.suppressed}
     assert ignored_ids == {"vol-1", "disk-1"}
     kept_ids = {f.resource_id for f in result.kept}
     assert kept_ids == {"vol-2", "disk-2"}
+
+
+def test_ignore_by_key_with_multiple_values():
+    findings = [
+        _finding("vol-1", {"env": "production"}),
+        _finding("vol-2", {"env": "staging"}),
+        _finding("vol-3", {"env": "dev"}),
+    ]
+
+    rules = [IgnoreTagRule(key="env", values=["production", "staging"])]
+
+    result = filter_findings_by_tags(findings, rules)
+
+    ignored_ids = {s.finding.resource_id for s in result.suppressed}
+    assert ignored_ids == {"vol-1", "vol-2"}
+    assert result.kept[0].resource_id == "vol-3"

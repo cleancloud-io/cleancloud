@@ -164,14 +164,14 @@ def test_find_detached_enis_custom_threshold(mock_boto3_session):
     ]
 
     # Test with custom 60-day threshold
-    findings = find_detached_enis(mock_boto3_session, region, days_old=60)
+    findings = find_detached_enis(mock_boto3_session, region, max_age_days=60)
     eni_ids = {f.resource_id for f in findings}
 
     # Should NOT be detected (45 days < 60 days threshold)
     assert "eni-7" not in eni_ids
 
     # Test with custom 30-day threshold
-    findings = find_detached_enis(mock_boto3_session, region, days_old=30)
+    findings = find_detached_enis(mock_boto3_session, region, max_age_days=30)
     eni_ids = {f.resource_id for f in findings}
 
     # Should be detected (45 days >= 30 days threshold)

@@ -81,8 +81,8 @@ def find_unattached_managed_disks(
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.unattached_managed_disk",
-                resource_type="azure.managed_disk",
+                rule_id="azure.compute.disk.unattached",
+                resource_type="azure.compute.disk",
                 resource_id=disk.id,
                 region=disk.location,
                 estimated_monthly_cost_usd=cost_usd,

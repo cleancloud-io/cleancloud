@@ -34,7 +34,7 @@ def find_old_snapshots(
     project_id: str,
     credentials,
     region_filter: Optional[str] = None,
-    days_old: int = 90,
+    max_age_days: int = 90,
 ) -> List[Finding]:
     """
     Find disk snapshots older than 90 days.
@@ -53,7 +53,7 @@ def find_old_snapshots(
     region; source disk zone is an unreliable proxy for filtering intent).
 
     Detection logic:
-    - Snapshot creation timestamp older than `days_old` days
+    - Snapshot creation timestamp older than `max_age_days` days
     - Snapshot status == READY
 
     IAM permissions required:
@@ -61,7 +61,7 @@ def find_old_snapshots(
     """
     findings: List[Finding] = []
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=days_old)
+    cutoff = now - timedelta(days=max_age_days)
 
     snapshots_client = compute_v1.SnapshotsClient(credentials=credentials)
 
@@ -76,7 +76,7 @@ def find_old_snapshots(
             if created_at is None or created_at > cutoff:
                 continue
 
-            days_old_actual = (now - created_at).days
+            max_age_days_actual = (now - created_at).days
 
             # Empty source_disk means the source disk has been deleted — clear orphan
             source_disk = snapshot.source_disk or ""
@@ -94,7 +94,7 @@ def find_old_snapshots(
             labels = dict(snapshot.labels) if snapshot.labels else {}
 
             signals = [
-                f"Snapshot age: {days_old_actual} days (created {created_at.date().isoformat()})",
+                f"Snapshot age: {max_age_days_actual} days (created {created_at.date().isoformat()})",
                 "Status: READY",
                 f"Disk size: {disk_size_gb} GB",
             ]
@@ -114,8 +114,8 @@ def find_old_snapshots(
                 "snapshot_name": snapshot.name,
                 "disk_size_gb": disk_size_gb,
                 "storage_bytes": storage_bytes,
-                "days_old": days_old_actual,
-                "days_old_threshold": days_old,
+                "max_age_days": max_age_days_actual,
+                "max_age_days_threshold": max_age_days,
                 "created_at": created_at.isoformat(),
                 "source_disk_deleted": source_disk_deleted,
                 # storage_locations: ["us-central1"] = regional, ["us"] = multi-regional.
@@ -140,13 +140,13 @@ def find_old_snapshots(
                     resource_type="gcp.compute.snapshot",
                     resource_id=f"projects/{project_id}/global/snapshots/{snapshot.name}",
                     region="global",
-                    title=f"Old Disk Snapshot ({days_old_actual} Days)",
+                    title=f"Old Disk Snapshot ({max_age_days_actual} Days)",
                     summary=(
-                        f"Snapshot '{snapshot.name}' ({disk_size_gb} GB) is {days_old_actual} days old"
+                        f"Snapshot '{snapshot.name}' ({disk_size_gb} GB) is {max_age_days_actual} days old"
                         + (" and its source disk no longer exists." if source_disk_deleted else ".")
                         + f" Estimated storage cost: ~${monthly_cost}/month."
                     ),
-                    reason=f"Snapshot is {days_old_actual} days old (threshold: {days_old} days)",
+                    reason=f"Snapshot is {max_age_days_actual} days old (threshold: {max_age_days} days)",
                     risk=RiskLevel.LOW,
                     confidence=confidence,
                     detected_at=now,
@@ -161,7 +161,7 @@ def find_old_snapshots(
                             "Snapshot storage location (regional vs multi-regional) may affect "
                             "pricing (rule uses multi-regional rate of $0.026/GB/month)",
                         ],
-                        time_window=f"{days_old} days",
+                        time_window=f"{max_age_days} days",
                     ),
                     details=details,
                     estimated_monthly_cost_usd=monthly_cost if monthly_cost > 0 else None,

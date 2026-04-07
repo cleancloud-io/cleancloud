@@ -278,7 +278,7 @@ def test_very_small_effective_window_skipped():
         credential=None,
         client=ml_client,
         monitor_client=mon_client,
-        days_idle=2,
+        idle_days=2,
     )
 
     assert findings == []

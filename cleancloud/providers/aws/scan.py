@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import botocore.exceptions
 import click
@@ -32,26 +32,30 @@ from cleancloud.providers.aws.rules.untagged_resources import (
 from cleancloud.providers.aws.session import BOTO_CONFIG, create_aws_session
 from cleancloud.providers.aws.validate import validate_region_params
 
-AWS_RULES: List[Callable] = [
-    find_unattached_ebs_volumes,
-    find_old_ebs_snapshots,
-    find_inactive_cloudwatch_logs,
-    find_unattached_elastic_ips,
-    find_detached_enis,
-    find_aws_untagged_resources,
-    find_old_amis,
-    find_idle_nat_gateways,
-    find_idle_rds_instances,
-    find_idle_load_balancers,
-    find_stopped_ec2_instances,
-    find_unused_security_groups,
-    find_old_rds_snapshots,
-]
+AWS_RULE_MAP: Dict[str, Callable] = {
+    "aws.ebs.unattached": find_unattached_ebs_volumes,
+    "aws.ebs.snapshot.old": find_old_ebs_snapshots,
+    "aws.cloudwatch.logs.infinite_retention": find_inactive_cloudwatch_logs,
+    "aws.ec2.elastic_ip.unattached": find_unattached_elastic_ips,
+    "aws.ec2.eni.detached": find_detached_enis,
+    "aws.resource.untagged": find_aws_untagged_resources,
+    "aws.ec2.ami.old": find_old_amis,
+    "aws.ec2.nat_gateway.idle": find_idle_nat_gateways,
+    "aws.rds.instance.idle": find_idle_rds_instances,
+    "aws.elbv2.load_balancer.idle": find_idle_load_balancers,
+    "aws.ec2.instance.stopped": find_stopped_ec2_instances,
+    "aws.ec2.security_group.unused": find_unused_security_groups,
+    "aws.rds.snapshot.old": find_old_rds_snapshots,
+}
+
+AWS_RULE_MAP_AI: Dict[str, Callable] = {
+    "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
+}
+
+AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
 
 # AI/ML waste rules — not run by default; use --category ai or --category all
-AWS_AI_RULES: List[Callable] = [
-    find_idle_sagemaker_endpoints,
-]
+AWS_AI_RULES: List[Callable] = list(AWS_RULE_MAP_AI.values())
 
 
 def scan_aws_with_region_selection(

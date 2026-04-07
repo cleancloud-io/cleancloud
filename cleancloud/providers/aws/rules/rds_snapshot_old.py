@@ -16,10 +16,10 @@ _SNAPSHOT_COST_PER_GB = 0.095
 def find_old_rds_snapshots(
     session: boto3.Session,
     region: str,
-    days_old: int = 90,
+    max_age_days: int = 90,
 ) -> List[Finding]:
     """
-    Find manual RDS snapshots older than `days_old` days.
+    Find manual RDS snapshots older than `max_age_days` days.
 
     Manual RDS snapshots are retained indefinitely until explicitly deleted and
     accrue storage charges at ~$0.095/GB-month. Snapshots older than 90 days
@@ -49,7 +49,7 @@ def find_old_rds_snapshots(
                     continue
 
                 age_days = int((now - create_time).total_seconds() // 86400)
-                if age_days < days_old:
+                if age_days < max_age_days:
                     continue
 
                 snapshot_id = snap["DBSnapshotIdentifier"]
@@ -61,7 +61,7 @@ def find_old_rds_snapshots(
                 cost_usd = round(size_gb * _SNAPSHOT_COST_PER_GB, 2) if size_gb else None
 
                 signals = [
-                    f"Manual RDS snapshot is {age_days} days old (threshold: {days_old} days)",
+                    f"Manual RDS snapshot is {age_days} days old (threshold: {max_age_days} days)",
                     f"Created at: {create_time.strftime('%Y-%m-%d')}",
                     f"Source DB instance: {db_instance_id}",
                     f"Engine: {engine}",
@@ -88,7 +88,7 @@ def find_old_rds_snapshots(
                     "engine": engine,
                     "size_gb": size_gb,
                     "age_days": age_days,
-                    "age_threshold_days": days_old,
+                    "age_threshold_days": max_age_days,
                     "create_time": create_time.isoformat(),
                 }
                 if tags:
@@ -106,7 +106,7 @@ def find_old_rds_snapshots(
                             f"Manual RDS snapshot '{snapshot_id}' of '{db_instance_id}' "
                             f"is {age_days} days old and accruing storage charges."
                         ),
-                        reason=f"Manual RDS snapshot exceeds {days_old}-day retention threshold",
+                        reason=f"Manual RDS snapshot exceeds {max_age_days}-day retention threshold",
                         risk=RiskLevel.LOW,
                         confidence=ConfidenceLevel.HIGH,
                         detected_at=now,

@@ -65,7 +65,7 @@ def test_old_snapshot_is_flagged(monkeypatch):
     assert f.provider == "gcp"
     assert "old-snap" in f.resource_id
     assert f.region == "global"
-    assert f.details["days_old"] >= 100
+    assert f.details["max_age_days"] >= 100
 
 
 def test_recent_snapshot_not_flagged(monkeypatch):
@@ -173,17 +173,17 @@ def test_zero_size_snapshot_no_cost(monkeypatch):
 
 
 def test_custom_days_old_threshold(monkeypatch):
-    """days_old parameter controls the age threshold."""
+    """max_age_days parameter controls the age threshold."""
     _mock_client(
         [_make_snapshot("mid-snap", creation_timestamp=_ts(50))],
         monkeypatch,
     )
     # With threshold=30, a 50-day-old snapshot should be flagged
-    findings = find_old_snapshots(project_id="proj-1", credentials=MagicMock(), days_old=30)
+    findings = find_old_snapshots(project_id="proj-1", credentials=MagicMock(), max_age_days=30)
     assert len(findings) == 1
 
     # With threshold=90 (default), same snapshot should not be flagged
-    findings2 = find_old_snapshots(project_id="proj-1", credentials=MagicMock(), days_old=90)
+    findings2 = find_old_snapshots(project_id="proj-1", credentials=MagicMock(), max_age_days=90)
     assert findings2 == []
 
 

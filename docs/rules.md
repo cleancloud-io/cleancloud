@@ -57,17 +57,17 @@ Every finding includes a confidence level:
 | Rule ID | Cost Surface | What It Detects |
 |---|---|---|
 | `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
-| `azure.unattached_managed_disk` | Storage | Managed disks not attached to any VM |
-| `azure.old_snapshot` | Storage | Snapshots older than 30–90 days |
-| `azure.public_ip_unused` | Network | Public IPs not attached to any interface |
+| `azure.compute.disk.unattached` | Storage | Managed disks not attached to any VM |
+| `azure.compute.snapshot.old` | Storage | Snapshots older than 30–90 days |
+| `azure.network.public_ip.unused` | Network | Public IPs not attached to any interface |
 | `azure.load_balancer.no_backends` | Network | Standard LBs with zero backend members |
 | `azure.application_gateway.no_backends` | Network | App Gateways with zero backend targets |
 | `azure.virtual_network_gateway.idle` | Network | VPN/ExpressRoute Gateways with no connections |
 | `azure.app_service_plan.empty` | Platform | Paid App Service Plans with zero apps |
 | `azure.app_service.idle` | Platform | App Services with zero HTTP requests 14+ days |
-| `azure.sql_database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
+| `azure.sql.database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
 | `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
-| `azure.untagged_resource` | Governance | Disks and snapshots with zero tags |
+| `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
 
 **GCP:**
@@ -837,7 +837,7 @@ for vm in virtual_machines.list_all():
 
 #### Unattached Managed Disks
 
-**Rule ID:** `azure.unattached_managed_disk`
+**Rule ID:** `azure.compute.disk.unattached`
 
 **What it detects:** Managed disks not attached to any VM
 
@@ -871,7 +871,7 @@ for disk in disks.list():
 
 #### Old Managed Disk Snapshots
 
-**Rule ID:** `azure.old_snapshot`
+**Rule ID:** `azure.compute.snapshot.old`
 
 **What it detects:** Snapshots older than configured thresholds
 
@@ -911,7 +911,7 @@ for snapshot in snapshots.list():
 
 #### Unused Public IP Addresses
 
-**Rule ID:** `azure.public_ip_unused`
+**Rule ID:** `azure.network.public_ip.unused`
 
 **What it detects:** Public IPs not attached to any network interface
 
@@ -1144,7 +1144,7 @@ if plan.number_of_sites == 0:
 
 #### Idle Azure SQL Databases
 
-**Rule ID:** `azure.sql_database.idle`
+**Rule ID:** `azure.sql.database.idle`
 
 **What it detects:** Azure SQL databases with zero connections for 14+ days (default, configurable)
 
@@ -1315,7 +1315,7 @@ These are floor estimates. ACR also charges per GB of stored images (~$0.003/GB-
 
 #### Untagged Resources
 
-**Rule ID:** `azure.untagged_resource`
+**Rule ID:** `azure.resource.untagged`
 
 **What it detects:** Resources with zero tags
 

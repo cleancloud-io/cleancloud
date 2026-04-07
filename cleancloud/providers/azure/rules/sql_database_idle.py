@@ -85,10 +85,10 @@ def find_idle_sql_databases(
     region_filter: str = None,
     client: Optional[SqlManagementClient] = None,
     monitor_client: Optional[MonitorManagementClient] = None,
-    days_idle: int = 14,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find Azure SQL databases with zero connections for `days_idle` days.
+    Find Azure SQL databases with zero connections for `idle_days` days.
 
     Azure SQL databases in Standard/Premium tiers cost $15-$7,500+/month.
     Databases with zero connections over 14+ days are a strong idle signal.
@@ -144,7 +144,7 @@ def find_idle_sql_databases(
                 mon_client,
                 resource_uri,
                 "connection_successful",
-                now - timedelta(days=days_idle),
+                now - timedelta(days=idle_days),
                 now,
             )
 
@@ -156,7 +156,7 @@ def find_idle_sql_databases(
             cost_usd = _estimate_monthly_cost_usd(sku_name)
 
             signals = [
-                f"Zero successful connections for {days_idle} days (Azure Monitor metrics)",
+                f"Zero successful connections for {idle_days} days (Azure Monitor metrics)",
                 f"Connections (14d sum): {total_connections}",
                 f"SKU: {sku_name} ({sku_tier})",
                 f"Server: {server.name}",
@@ -172,23 +172,23 @@ def find_idle_sql_databases(
             evidence = Evidence(
                 signals_used=signals,
                 signals_not_checked=signals_not_checked,
-                time_window=f"{days_idle} days",
+                time_window=f"{idle_days} days",
             )
 
             findings.append(
                 Finding(
                     provider="azure",
-                    rule_id="azure.sql_database.idle",
-                    resource_type="azure.sql_database",
+                    rule_id="azure.sql.database.idle",
+                    resource_type="azure.sql.database",
                     resource_id=db.id,
                     region=db.location,
                     estimated_monthly_cost_usd=cost_usd,
-                    title=f"Idle Azure SQL Database (No Connections for {days_idle}+ Days)",
+                    title=f"Idle Azure SQL Database (No Connections for {idle_days}+ Days)",
                     summary=(
                         f"Azure SQL database '{db.name}' on server '{server.name}' "
-                        f"({sku_name}, {sku_tier}) has had zero connections for {days_idle}+ days."
+                        f"({sku_name}, {sku_tier}) has had zero connections for {idle_days}+ days."
                     ),
-                    reason=f"Azure SQL database has zero connections for {days_idle}+ days",
+                    reason=f"Azure SQL database has zero connections for {idle_days}+ days",
                     risk=RiskLevel.HIGH,
                     confidence=ConfidenceLevel.HIGH,
                     detected_at=now,

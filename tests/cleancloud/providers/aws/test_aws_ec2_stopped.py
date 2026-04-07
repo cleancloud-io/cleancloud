@@ -197,11 +197,11 @@ class TestFindStoppedEC2Instances:
         _setup_volumes(ec2, {})
 
         # With default 30-day threshold: not flagged
-        findings = find_stopped_ec2_instances(mock_boto3_session, "us-east-1", days_stopped=30)
+        findings = find_stopped_ec2_instances(mock_boto3_session, "us-east-1", max_age_days=30)
         assert findings == []
 
         # With 14-day threshold: flagged
-        findings = find_stopped_ec2_instances(mock_boto3_session, "us-east-1", days_stopped=14)
+        findings = find_stopped_ec2_instances(mock_boto3_session, "us-east-1", max_age_days=14)
         assert len(findings) == 1
         assert findings[0].resource_id == "i-20d"
 
