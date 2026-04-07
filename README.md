@@ -11,7 +11,7 @@
 
 ---
 
-CleanCloud tells you exactly what to delete in your cloud — with cost per resource.
+CleanCloud tells you exactly what to delete in your cloud — with cost per resource. Catches idle AI/ML resources burning $500–$23K/month unnoticed. Policy-as-code enforcement means exceptions, thresholds, and rules live in git alongside your infrastructure.
 
 **No agents. No SaaS. Read-only.**
 
@@ -138,10 +138,10 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
+- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints, AML compute clusters, and Vertex AI endpoints silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
+- **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
+- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
 - **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
-- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints (AWS), idle AML compute clusters (Azure), and idle Vertex AI Online Prediction endpoints (GCP). GPU-backed resources flagged HIGH risk. Opt-in via `--category ai` or `--category all`
-- **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure
-- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 100` — enforce waste thresholds on a schedule, owned by platform or FinOps teams
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
@@ -165,6 +165,8 @@ Fully read-only. Safe for production and regulated environments.
 | Names exactly which resources to clean up | ❌ | partial | ✅ |
 | Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
 | Detects idle AI/ML waste (SageMaker, AML, Vertex AI — including GPU-backed endpoints) | ❌ | ❌ | ✅ |
+| **Policy-as-code (exceptions + thresholds in git)** | ❌ | ❌ | ✅ |
+| **Git-reviewable exception approvals** | ❌ | ❌ | ✅ |
 | Read-only, no agents | ✅ | ❌ | ✅ |
 | Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
 | No SaaS account or vendor access required | ❌ | ❌ | ✅ |
@@ -207,6 +209,70 @@ cleancloud demo                           # no credentials needed
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` first.
 
 Need Docker, CloudShell, or install troubleshooting? → **[AWS setup guide →](docs/aws.md)**
+
+---
+
+## AI/ML Waste Detection
+
+Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend. Unlike compute or storage, these resources bill at full rate even with zero activity — GPU-backed endpoints don't scale to zero.
+
+| Resource | Idle cost range |
+|---|---|
+| SageMaker endpoint (GPU) | $500 – $23,000 / month |
+| Azure AML compute cluster (GPU) | $600 – $15,000 / month |
+| Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
+
+CleanCloud detects zero-invocation / zero-prediction endpoints across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
+
+```bash
+cleancloud scan --provider aws --category ai          # SageMaker endpoints
+cleancloud scan --provider azure --category ai        # AML compute clusters
+cleancloud scan --provider gcp --category ai          # Vertex AI endpoints
+cleancloud scan --provider aws --category all         # hygiene + AI/ML together
+```
+
+No setup required — opt-in with `--category ai`. Works with multi-account and multi-project scans:
+
+```bash
+cleancloud scan --provider aws --org --all-regions --category all
+```
+
+**[AI/ML rules →](docs/rules.md)** · [Full detection details →](docs/rules.md#aiml-rules)
+
+---
+
+## Governance as Code
+
+Drop a `cleancloud.yaml` in your repo root. Every exception is a git-reviewable approval — version-controlled alongside your infrastructure.
+
+```yaml
+# cleancloud.yaml
+defaults:
+  confidence: MEDIUM    # skip low-signal findings globally
+  min_cost: 10          # skip findings below $10/month
+
+exceptions:
+  - rule_id: aws.ec2.instance.stopped
+    resource_id: i-0abc1234567890def
+    reason: "Bastion host — started on demand"
+    expires_at: "2026-12-31"          # auto-expires — forces periodic review
+
+  - rule_id: aws.rds.instance.idle
+    resource_id: "db-test-*"          # glob — suppress all test databases
+    reason: "Test databases are intentionally ephemeral"
+
+thresholds:
+  fail_on_confidence: HIGH            # exit 2 in CI if any HIGH confidence finding remains
+  fail_on_cost: 500                   # exit 2 if total estimated waste exceeds $500/month
+```
+
+Enforce in CI/CD:
+
+```bash
+cleancloud scan --provider aws --org --all-regions   # picks up cleancloud.yaml automatically
+```
+
+**[Full policy config reference →](docs/configuration.md)** · [Best practices →](docs/best-practices.md)
 
 ---
 
