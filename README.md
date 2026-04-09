@@ -221,6 +221,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | SageMaker endpoint (GPU) | $500 – $23,000 / month |
 | SageMaker Notebook Instance (GPU) | $500 – $23,000+ / month |
 | Azure AML compute cluster (GPU) | $600 – $15,000 / month |
+| Azure ML Compute Instance (GPU) | $600 – $15,000+ / month |
 | Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
 
 CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
