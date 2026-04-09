@@ -3,7 +3,7 @@ from datetime import date as _date
 from typing import Any, Dict, List, Optional
 
 _VALID_CONFIDENCE = {"LOW", "MEDIUM", "HIGH"}
-_VALID_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH"}
+_VALID_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
 _VALID_TAG_MODES = {"exclude"}  # "include" (allowlist) planned for a future release
 _VALID_CATEGORIES = {"hygiene", "ai", "all"}
 _VALID_PROVIDERS = {"aws", "azure", "gcp"}
@@ -191,7 +191,7 @@ def load_config(data: Dict[str, Any]) -> CleanCloudConfig:
         raw_override = rule_data.get("override_risk_level")
         if raw_override and str(raw_override).upper() not in _VALID_RISK_LEVELS:
             raise ValueError(
-                f"rules.{rule_id}.override_risk_level must be low, medium, or high (case-insensitive)"
+                f"rules.{rule_id}.override_risk_level must be low, medium, high, or critical (case-insensitive)"
             )
 
         rules[str(rule_id)] = RuleConfig(
@@ -269,7 +269,7 @@ def load_config(data: Dict[str, Any]) -> CleanCloudConfig:
             raise ValueError("defaults.confidence must be low, medium, or high (case-insensitive)")
         if d_override_risk_level and str(d_override_risk_level).upper() not in _VALID_RISK_LEVELS:
             raise ValueError(
-                "defaults.override_risk_level must be low, medium, or high (case-insensitive)"
+                "defaults.override_risk_level must be low, medium, high, or critical (case-insensitive)"
             )
         if d_min_cost is not None and not isinstance(d_min_cost, (int, float)):
             raise ValueError("defaults.min_cost must be a number")

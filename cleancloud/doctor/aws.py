@@ -667,6 +667,28 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         warn(f"sagemaker:DescribeEndpointConfig - {e}")
 
     try:
+        sagemaker.list_notebook_instances(MaxResults=1)
+        permissions_tested.append("sagemaker:ListNotebookInstances")
+        success("sagemaker:ListNotebookInstances")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListNotebookInstances", str(e)))
+        warn(f"sagemaker:ListNotebookInstances - {e}")
+
+    try:
+        # DescribeNotebookInstance — attempt only if a notebook exists to avoid a spurious miss
+        notebooks = sagemaker.list_notebook_instances(MaxResults=1, StatusEquals="InService")
+        notebook_list = notebooks.get("NotebookInstances", [])
+        if notebook_list:
+            sagemaker.describe_notebook_instance(
+                NotebookInstanceName=notebook_list[0]["NotebookInstanceName"]
+            )
+        permissions_tested.append("sagemaker:DescribeNotebookInstance")
+        success("sagemaker:DescribeNotebookInstance")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeNotebookInstance", str(e)))
+        warn(f"sagemaker:DescribeNotebookInstance - {e}")
+
+    try:
         cloudwatch = session.client("cloudwatch", region_name=region)
         now = datetime.now(timezone.utc)
         cloudwatch.get_metric_statistics(

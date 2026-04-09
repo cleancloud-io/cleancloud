@@ -26,6 +26,9 @@ from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapsho
 from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
+from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
+    find_idle_sagemaker_notebooks,
+)
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -50,6 +53,7 @@ AWS_RULE_MAP: Dict[str, Callable] = {
 
 AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
+    "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())

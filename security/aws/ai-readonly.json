@@ -7,7 +7,9 @@
       "Action": [
         "sagemaker:ListEndpoints",
         "sagemaker:DescribeEndpoint",
-        "sagemaker:DescribeEndpointConfig"
+        "sagemaker:DescribeEndpointConfig",
+        "sagemaker:ListNotebookInstances",
+        "sagemaker:DescribeNotebookInstance"
       ],
       "Resource": "*"
     }

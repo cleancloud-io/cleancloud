@@ -49,6 +49,16 @@ resource "aws_iam_role_policy" "cleancloud_ai" {
           "sagemaker:ListEndpoints",
           "sagemaker:DescribeEndpoint",
           "sagemaker:DescribeEndpointConfig",
+          "sagemaker:ListNotebookInstances",
+          "sagemaker:DescribeNotebookInstance",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchMetrics"
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:GetMetricStatistics",
         ]
         Resource = "*"
       },

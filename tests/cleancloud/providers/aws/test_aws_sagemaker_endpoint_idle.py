@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+import pytest
+
 from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
@@ -104,12 +106,13 @@ def test_idle_cpu_endpoint_detected():
 
 
 def test_idle_gpu_endpoint_detected_high_risk():
-    """Idle GPU endpoint should be flagged as HIGH risk with elevated cost estimate."""
+    """GPU endpoint at exactly idle_days threshold (idle_ratio=1.0) → HIGH risk."""
     sagemaker = MagicMock()
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+    # age_days=14, idle_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=14)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.p3.2xlarge")
     sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
         "ml.p3.2xlarge"
@@ -125,6 +128,45 @@ def test_idle_gpu_endpoint_detected_high_risk():
     assert f.details["is_gpu"] is True
     assert f.details["instance_type"] == "ml.p3.2xlarge"
     assert f.estimated_monthly_cost_usd == 2754.0
+
+
+def test_idle_gpu_endpoint_critical_risk_when_very_stale():
+    """GPU endpoint idle ≥ 2× threshold (idle_ratio ≥ 2.0) → CRITICAL risk."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    # age_days=30, idle_days=14 → idle_ratio=30/14≈2.14 → CRITICAL
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+    sagemaker.describe_endpoint.return_value = _make_describe_response("ml.p3.2xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
+        "ml.p3.2xlarge"
+    )
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    session = _make_session(sagemaker, cloudwatch)
+    findings = find_idle_sagemaker_endpoints(session, "us-east-1")
+
+    assert len(findings) == 1
+    assert findings[0].risk.value == "critical"
+    assert findings[0].details["idle_ratio"] >= 2.0
+
+
+def test_cpu_endpoint_never_reaches_critical():
+    """CPU endpoints are capped at MEDIUM regardless of idle_ratio."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=60)]}]
+    sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response("ml.m5.xlarge")
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    session = _make_session(sagemaker, cloudwatch)
+    findings = find_idle_sagemaker_endpoints(session, "us-east-1")
+
+    assert findings[0].risk.value == "medium"
 
 
 def test_active_endpoint_skipped():
@@ -402,7 +444,8 @@ def test_g4dn_instance_detected_as_gpu():
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+    # age_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=14)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.g4dn.xlarge")
     sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
         "ml.g4dn.xlarge"
@@ -581,3 +624,74 @@ def test_rule_metadata_present():
     assert RULE_METADATA["category"] == "ai"
     assert RULE_METADATA["service"] == "sagemaker"
     assert RULE_METADATA["cost_impact"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# idle_ratio + cost_source in details
+# ---------------------------------------------------------------------------
+
+
+def test_details_include_idle_ratio():
+    """idle_ratio should be present in finding details."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=28)]}]
+    sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response("ml.m5.xlarge")
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    assert findings[0].details["idle_ratio"] == 2.0
+
+
+def test_details_include_cost_source_with_region():
+    """cost_source should reflect the scanned region, not always us-east-1."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+    sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response("ml.m5.xlarge")
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "eu-west-1")
+
+    assert findings[0].details["cost_source"] == "approximate_eu-west-1"
+
+
+# ---------------------------------------------------------------------------
+# New cost entries — p4de, p5, trn1, inf2
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "instance_type,expected_cost",
+    [
+        ("ml.p4de.24xlarge", 29_908.0),
+        ("ml.p5.48xlarge", 71_774.0),
+        ("ml.trn1.2xlarge", 978.0),
+        ("ml.trn1.32xlarge", 15_695.0),
+        ("ml.inf2.xlarge", 554.0),
+        ("ml.inf2.48xlarge", 26_566.0),
+    ],
+)
+def test_new_gpu_instance_cost_lookup(instance_type, expected_cost):
+    """Newly added accelerator instance types should resolve to their correct cost."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=14)]}]
+    sagemaker.describe_endpoint.return_value = _make_describe_response(instance_type)
+    sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(instance_type)
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    assert len(findings) == 1
+    assert findings[0].estimated_monthly_cost_usd == expected_cost
+    assert findings[0].details["is_gpu"] is True

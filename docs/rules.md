@@ -51,6 +51,7 @@ Every finding includes a confidence level:
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
 | `aws.sagemaker.endpoint.idle` | AI/ML | SageMaker endpoints with zero invocations 14+ days *(opt-in: `--category ai`)* |
+| `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances InService with no activity 14+ days *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -728,6 +729,8 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `ml.g5.xlarge` — ~$600/month
 - `ml.p3.2xlarge` — ~$2,754/month
 - `ml.p4d.24xlarge` — ~$23,596/month
+- `ml.p4de.24xlarge` — ~$29,908/month
+- `ml.p5.48xlarge` — ~$71,774/month
 - `ml.m5.xlarge` — ~$188/month
 
 **Required permissions:**
@@ -735,6 +738,51 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `sagemaker:DescribeEndpoint`
 - `sagemaker:DescribeEndpointConfig`
 - `cloudwatch:GetMetricStatistics`
+
+> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+
+---
+
+#### Idle SageMaker Notebook Instances
+
+**Rule ID:** `aws.sagemaker.notebook.idle`
+
+**Category:** `ai`
+
+**What it detects:** SageMaker Notebook Instances in `InService` state with no control-plane activity for 14+ days, detected via `LastModifiedTime` from the SageMaker control plane. GPU-backed notebooks (`ml.g4dn`, `ml.g5`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, Inferentia, Trainium) idle for 2× the threshold are escalated to CRITICAL. Data scientists frequently leave notebook instances running between sprints, after project handovers, or when granted a new instance without stopping the old one.
+
+**Detection signal — why `LastModifiedTime`:**
+SageMaker Notebook Instances do not publish utilisation metrics to CloudWatch by default (unlike endpoints, which emit `Invocations`). `LastModifiedTime` is updated by SageMaker when the notebook configuration changes, when the instance is stopped and restarted, or when a linked Git repository is synced. A notebook with `LastModifiedTime` older than the idle threshold has had no control-plane activity — this is the correct and standard signal used by AWS Cost Optimisation Hub for notebook idle detection.
+
+**Confidence:**
+- **HIGH:** `LastModifiedTime` ≥ 14 days ago AND notebook age ≥ 14 days
+- **MEDIUM:** `LastModifiedTime` ≥ 10 days ago (75% of threshold) AND notebook age ≥ 10 days
+
+**Risk:**
+- **CRITICAL:** GPU/accelerator-backed instance AND `idle_ratio ≥ 2.0` (idle for 2× the threshold, e.g. 28+ days at the default 14-day window)
+- **HIGH:** GPU/accelerator-backed instance (`ml.g4dn.*`, `ml.g5.*`, `ml.p3.*`, `ml.p4d.*`, `ml.p4de.*`, `ml.p5.*`, Inferentia, Trainium)
+- **MEDIUM:** CPU-backed instance
+
+**Why this matters:**
+- Notebook Instances bill continuously while `InService`, regardless of whether any kernels are running
+- GPU-backed notebooks cost $500–$71K+/month depending on instance type (ml.p5.48xlarge: ~$71,774/month)
+- Notebooks are commonly left running after a sprint ends, a project is deprioritised, or a team member leaves
+- Unlike endpoints, notebooks have no auto-scaling — an idle `ml.p3.8xlarge` at $11K/month runs indefinitely unless explicitly stopped
+
+**Estimated monthly cost:**
+- `ml.t3.medium` — ~$42/month
+- `ml.m5.xlarge` — ~$188/month
+- `ml.g4dn.xlarge` — ~$531/month
+- `ml.g5.xlarge` — ~$600/month
+- `ml.p3.2xlarge` — ~$2,754/month
+- `ml.p3.8xlarge` — ~$11,016/month
+- `ml.p4d.24xlarge` — ~$23,596/month
+- `ml.p4de.24xlarge` — ~$29,908/month
+- `ml.p5.48xlarge` — ~$71,774/month
+
+**Required permissions:**
+- `sagemaker:ListNotebookInstances`
+- `sagemaker:DescribeNotebookInstance`
 
 > **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
 
@@ -1619,7 +1667,6 @@ This guarantees trust for long-running CI/CD integrations.
 
 **AI/ML (all providers):**
 - Vertex AI endpoints with zero predictions (GCP)
-- SageMaker notebook instances left running unused (AWS)
 - Orphaned SageMaker training artifacts in S3 (AWS)
 
 **AWS:**

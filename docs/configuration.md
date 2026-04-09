@@ -170,6 +170,7 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 | `idle_days` | `aws.ec2.nat_gateway.idle` | 14 | Days of zero traffic before flagging |
 | `idle_days` | `aws.rds.instance.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `aws.sagemaker.endpoint.idle` | 14 | Days of zero invocations before flagging |
+| `idle_days` | `aws.sagemaker.notebook.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.aml.compute.idle` | 14 | Days of no runs before flagging |
 | `idle_days` | `azure.sql.database.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `azure.app_service.idle` | 14 | Days of zero requests before flagging |
@@ -416,6 +417,10 @@ rules:
 
   aws.sagemaker.endpoint.idle:
     override_risk_level: HIGH   # escalate risk label for visibility in reports
+
+  aws.sagemaker.notebook.idle:
+    params:
+      idle_days: 21             # flag notebooks with no activity for 21+ days (default: 14)
 
   aws.resource.untagged:
     enabled: false              # team manages tags separately
