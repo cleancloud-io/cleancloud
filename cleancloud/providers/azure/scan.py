@@ -9,6 +9,9 @@ from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoun
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
+from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
+    find_idle_aml_compute_instances,
+)
 from cleancloud.providers.azure.rules.app_gateway_no_backends import (
     find_app_gateway_no_backends,
 )
@@ -75,6 +78,7 @@ AZURE_RULE_MAP: Dict[str, Callable] = {
 
 AZURE_RULE_MAP_AI: Dict[str, Callable] = {
     "azure.aml.compute.idle": find_idle_aml_compute,
+    "azure.ml.compute_instance.idle": find_idle_aml_compute_instances,
 }
 
 AZURE_RULES: List[Callable] = list(AZURE_RULE_MAP.values())

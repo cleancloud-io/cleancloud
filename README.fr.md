@@ -141,7 +141,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 - **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker, clusters AML Compute et endpoints Vertex AI inactifs, facturés 500–23 000 $/mois par ressource en silence. Ressources GPU flaggées risque HIGH. Les outils natifs montrent la facture — CleanCloud indique quel endpoint supprimer. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **34 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **35 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
@@ -221,6 +221,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Endpoint SageMaker (GPU) | 500 – 23 000 $ / mois |
 | Instance Notebook SageMaker (GPU) | 500 – 23 000+ $ / mois |
 | Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
+| Instance de calcul Azure ML (GPU) | 600 – 15 000+ $ / mois |
 | Endpoint Vertex AI Online Prediction (GPU) | 449 – 23 000+ $ / mois |
 
 CleanCloud détecte les endpoints à zéro invocation / zéro prédiction et les instances de notebook inactives sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
@@ -466,7 +467,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 
 ## Ce que CleanCloud détecte
 
-34 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+35 règles pour AWS, Azure et GCP — conservatives, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -483,7 +484,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
 - Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
-- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois)
+- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois) ; instances de calcul Azure ML Running sans activité depuis 14+ jours — instances GPU flaggées risque CRITICAL ($600–$15K+/mois)
 
 **GCP :**
 - Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)

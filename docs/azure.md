@@ -259,8 +259,8 @@ az role assignment create \
 
 | Permission | Used by |
 |---|---|
-| `Microsoft.MachineLearningServices/workspaces/read` | Idle AML compute clusters |
-| `Microsoft.MachineLearningServices/workspaces/computes/read` | Idle AML compute clusters |
+| `Microsoft.MachineLearningServices/workspaces/read` | Idle AML compute clusters, idle AML Compute Instances |
+| `Microsoft.MachineLearningServices/workspaces/computes/read` | Idle AML compute clusters, idle AML Compute Instances |
 
 > Reader does not grant `Microsoft.MachineLearningServices` access. Assign `CleanCloudAIReadOnly` (see [Custom Role](#custom-role-optional-least-privilege)) or a built-in role such as **AzureML Data Scientist** in addition to Reader.
 >

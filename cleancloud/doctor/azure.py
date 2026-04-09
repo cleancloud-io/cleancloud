@@ -328,7 +328,7 @@ def run_azure_doctor() -> None:
 
 
 def run_azure_ai_doctor(subscription_id: str = None) -> None:
-    """Validate Azure permissions for --category ai (Azure ML compute rules)."""
+    """Validate Azure permissions for --category ai (Azure ML compute cluster and compute instance rules)."""
     info("")
     info("=" * 70)
     info("AZURE AI/ML PERMISSION VALIDATION")

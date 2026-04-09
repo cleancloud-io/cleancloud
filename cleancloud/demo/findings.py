@@ -737,6 +737,61 @@ AZURE_AI_FINDINGS: List[Finding] = [
         ),
         estimated_monthly_cost_usd=4406.0,
     ),
+    Finding(
+        provider="azure",
+        rule_id="azure.ml.compute_instance.idle",
+        resource_type="azure.ml.compute_instance",
+        resource_id=(
+            "/subscriptions/29d91ee0-922f-483a-a81f-1a5eff4ecfa2"
+            "/resourceGroups/rg-ml-platform"
+            "/providers/Microsoft.MachineLearningServices"
+            "/workspaces/ml-platform-prod"
+            "/computes/nlp-research-vm"
+        ),
+        region="East US",
+        title="Idle Azure ML Compute Instance (>14 Days Idle, 31 Days Since Activity)",
+        summary=(
+            "Azure ML Compute Instance 'nlp-research-vm' in workspace 'ml-platform-prod' "
+            "has had no control-plane activity for 31 days but remains Running, incurring "
+            "continuous charges (~$2,203/month)."
+        ),
+        reason="Azure ML Compute Instance has had no control-plane activity for 31 days",
+        risk=RiskLevel.CRITICAL,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "instance_name": "nlp-research-vm",
+            "workspace_name": "ml-platform-prod",
+            "resource_group": "rg-ml-platform",
+            "vm_size": "Standard_NC6s_v3",
+            "state": "Running",
+            "is_gpu": True,
+            "age_days": 31,
+            "idle_since_days": 31,
+            "idle_days_threshold": 14,
+            "idle_ratio": 2.21,
+            "estimated_monthly_cost": "~$2,203/month",
+            "cost_source": "approximate_East US",
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Instance state: Running",
+                "Age: 31 days",
+                "Last control-plane operation: 31 days ago (last_operation.operation_time) — last op: Start",
+                "VM size: Standard_NC6s_v3",
+                "GPU instance — high hourly cost",
+            ],
+            signals_not_checked=[
+                "Active Jupyter kernel or notebook sessions",
+                "VS Code / RStudio remote connections",
+                "Scheduled jobs running on this instance",
+                "Assigned user's planned future use",
+                "Resource tags (e.g. keep_alive=true)",
+            ],
+            time_window="31 days",
+        ),
+        estimated_monthly_cost_usd=2203.0,
+    ),
 ]
 
 AWS_AI_FINDINGS: List[Finding] = [
