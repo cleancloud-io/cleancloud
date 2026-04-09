@@ -43,6 +43,22 @@ _MONTHLY_COST_BY_FAMILY = {
     "ml.p3.2xlarge": 2_754.0,
     "ml.p3.8xlarge": 11_016.0,
     "ml.p4d.24xlarge": 23_596.0,
+    "ml.p4de.24xlarge": 29_908.0,
+    "ml.p5.48xlarge": 71_774.0,
+    # Trainium
+    "ml.trn1.2xlarge": 978.0,
+    "ml.trn1.32xlarge": 15_695.0,
+    "ml.trn1n.32xlarge": 18_089.0,
+    # Inferentia
+    "ml.inf1.xlarge": 166.0,
+    "ml.inf1.2xlarge": 264.0,
+    "ml.inf1.6xlarge": 793.0,
+    "ml.inf1.24xlarge": 3_170.0,
+    # Inferentia2
+    "ml.inf2.xlarge": 554.0,
+    "ml.inf2.8xlarge": 4_427.0,
+    "ml.inf2.24xlarge": 13_283.0,
+    "ml.inf2.48xlarge": 26_566.0,
     "ml.m5.large": 94.0,
     "ml.m5.xlarge": 188.0,
     "ml.m5.2xlarge": 376.0,
@@ -78,6 +94,7 @@ def find_idle_sagemaker_endpoints(
     IAM permissions:
     - sagemaker:ListEndpoints
     - sagemaker:DescribeEndpoint
+    - sagemaker:DescribeEndpointConfig
     - cloudwatch:GetMetricStatistics
     """
     sagemaker = session.client("sagemaker", region_name=region)
@@ -127,15 +144,25 @@ def find_idle_sagemaker_endpoints(
                 if has_invocations:
                     continue
 
-                # Confidence based on age relative to idle threshold
-                if age_days >= idle_days:
+                # Confidence based on the observed CloudWatch window, not just age.
+                # effective_window is the period we actually checked for zero invocations —
+                # using it directly ties confidence to the strength of the signal.
+                if effective_window >= idle_days:
                     confidence = ConfidenceLevel.HIGH
-                elif age_days >= int(idle_days * 0.75):
+                elif effective_window >= int(idle_days * 0.75):
                     confidence = ConfidenceLevel.MEDIUM
                 else:
                     continue  # too borderline for a confident finding
 
-                risk = RiskLevel.HIGH if is_gpu else RiskLevel.MEDIUM
+                # idle_ratio: how many multiples of the threshold the endpoint has been running.
+                # >= 2.0 means a GPU endpoint has been burning money for 2× the idle window.
+                idle_ratio = round(age_days / idle_days, 2) if idle_days > 0 else 0.0
+                if is_gpu and idle_ratio >= 2.0:
+                    risk = RiskLevel.CRITICAL
+                elif is_gpu:
+                    risk = RiskLevel.HIGH
+                else:
+                    risk = RiskLevel.MEDIUM
 
                 signals = [
                     f"Zero recorded invocations for {effective_window} days (CloudWatch metric)",
@@ -188,7 +215,9 @@ def find_idle_sagemaker_endpoints(
                             "age_days": age_days,
                             "idle_window_days": effective_window,
                             "idle_days_threshold": idle_days,
+                            "idle_ratio": idle_ratio,
                             "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
+                            "cost_source": f"approximate_{region}",
                         },
                     )
                 )
@@ -237,7 +266,9 @@ def _check_invocations(cloudwatch, endpoint_name: str, days: int) -> bool:
         return any(dp.get("Sum", 0) > 0 for dp in datapoints)
 
     except ClientError:
-        # Metrics unavailable — assume active to avoid false positives
+        # CloudWatch API failure (permissions, throttle, regional outage).
+        # Treat as active — better to miss a true idle endpoint than to flag a
+        # healthy one. The endpoint will be re-evaluated on the next scan.
         return True
 
 

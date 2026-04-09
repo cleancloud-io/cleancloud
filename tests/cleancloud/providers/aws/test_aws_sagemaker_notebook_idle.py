@@ -9,7 +9,6 @@ from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -168,9 +167,7 @@ def test_recently_modified_notebook_skipped():
     """Notebook modified recently should NOT be flagged, even if old."""
     sm = MagicMock()
     # age=60 days old but LastModifiedTime only 3 days ago
-    sm.get_paginator.return_value = _paginate(
-        [_make_nb(age_days=60, idle_since_days=3)]
-    )
+    sm.get_paginator.return_value = _paginate([_make_nb(age_days=60, idle_since_days=3)])
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
 
@@ -357,9 +354,7 @@ def test_gpu_family_classification(instance_type, expected_gpu):
 )
 def test_cost_lookup_by_instance_type(instance_type, expected_cost):
     sm = MagicMock()
-    sm.get_paginator.return_value = _paginate(
-        [_make_nb(instance_type=instance_type, age_days=30)]
-    )
+    sm.get_paginator.return_value = _paginate([_make_nb(instance_type=instance_type, age_days=30)])
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
 
