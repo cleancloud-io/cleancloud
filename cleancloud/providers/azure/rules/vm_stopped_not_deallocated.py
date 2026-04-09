@@ -54,11 +54,14 @@ def find_stopped_not_deallocated_vms(
         if region_filter and (vm.location or "").lower() != region_filter.lower():
             continue
 
-        resource_group = _extract_resource_group(vm.id)
-        instance_view = compute_client.virtual_machines.instance_view(
-            resource_group_name=resource_group,
-            vm_name=vm.name,
-        )
+        try:
+            resource_group = _extract_resource_group(vm.id)
+            instance_view = compute_client.virtual_machines.instance_view(
+                resource_group_name=resource_group,
+                vm_name=vm.name,
+            )
+        except Exception:
+            continue
 
         power_state = _get_power_state(instance_view)
 

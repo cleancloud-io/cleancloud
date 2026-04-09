@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import boto3
+from botocore.exceptions import ClientError
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
@@ -75,8 +76,11 @@ def find_untagged_resources(
         bucket_name = bucket["Name"]
         try:
             tag_set = s3.get_bucket_tagging(Bucket=bucket_name).get("TagSet", [])
-        except s3.exceptions.ClientError:
-            tag_set = []
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchTagSet":
+                tag_set = []
+            else:
+                raise
 
         if not tag_set:
             evidence = Evidence(

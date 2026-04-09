@@ -80,7 +80,7 @@ Every finding includes a confidence level:
 | `gcp.compute.disk.unattached` | Storage | Persistent Disks in READY state with no attached VM |
 | `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
 | `gcp.compute.ip.unused` | Network | Reserved static IPs (regional and global) in RESERVED state |
-| `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 7+ days |
+| `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 14+ days |
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
 
 ---
@@ -1588,11 +1588,11 @@ for address in global_addresses_client.list(project=project_id):
 
 **Rule ID:** `gcp.sql.instance.idle`
 
-**What it detects:** Cloud SQL instances in `RUNNABLE` state with zero database connections for 7+ days
+**What it detects:** Cloud SQL instances in `RUNNABLE` state with zero database connections for 14+ days
 
 **Confidence:**
 
-- **HIGH:** Monitoring confirms zero connections for the full 7-day window
+- **HIGH:** Monitoring confirms zero connections for the full 14-day window
 
 **Risk:** HIGH
 
@@ -1606,7 +1606,7 @@ for address in global_addresses_client.list(project=project_id):
 ```python
 for instance in sql_admin_api.list(project_id):
     if instance.state == "RUNNABLE" and not is_read_replica(instance):
-        if not has_connections(monitoring_client, project_id, instance.name, days=7):
+        if not has_connections(monitoring_client, project_id, instance.name, days=14):
             flag(instance)
 ```
 

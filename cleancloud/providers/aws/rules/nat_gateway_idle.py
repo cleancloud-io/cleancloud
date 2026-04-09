@@ -234,7 +234,10 @@ def _get_metric_sum(
         total = sum(dp.get("Sum", 0) for dp in datapoints)
         return int(total)
 
-    except ClientError:
-        # If we can't get metrics, assume there might be traffic
-        # to avoid false positives
-        return 1  # Non-zero to indicate possible traffic
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("AccessDenied", "UnauthorizedOperation"):
+            raise PermissionError(
+                "Missing required IAM permissions: cloudwatch:GetMetricStatistics"
+            ) from e
+        # Other errors (throttle, transient): assume traffic to avoid false positives
+        return 1

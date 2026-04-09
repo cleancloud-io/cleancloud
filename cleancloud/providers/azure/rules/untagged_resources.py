@@ -44,7 +44,7 @@ def find_untagged_resources(
     # Managed Disks
     # ======================
     for disk in compute_client.disks.list():
-        if region_filter and disk.location != region_filter:
+        if region_filter and (disk.location or "").lower() != region_filter.lower():
             continue
 
         if disk.tags:
@@ -92,7 +92,7 @@ def find_untagged_resources(
     # Snapshots
     # ======================
     for snap in compute_client.snapshots.list():
-        if region_filter and snap.location != region_filter:
+        if region_filter and (snap.location or "").lower() != region_filter.lower():
             continue
 
         if snap.tags:

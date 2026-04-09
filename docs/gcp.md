@@ -505,7 +505,7 @@ CleanCloud requires **read-only** IAM permissions only. No write access is neede
 | `compute.globalAddresses.list` | `gcp.compute.ip.unused` | `roles/compute.viewer` |
 | `compute.snapshots.list` | `gcp.compute.snapshot.old` | `roles/compute.viewer` |
 | `cloudsql.instances.list` | `gcp.sql.instance.idle` | `roles/cloudsql.viewer` |
-| `monitoring.timeSeries.list` | `gcp.sql.instance.idle` | `roles/monitoring.viewer` |
+| `monitoring.timeSeries.list` | `gcp.sql.instance.idle`, `gcp.vertex.endpoint.idle` | `roles/monitoring.viewer` |
 | `resourcemanager.projects.get` | project enumeration (`--all-projects`) | `roles/browser` |
 
 ### Graceful Degradation

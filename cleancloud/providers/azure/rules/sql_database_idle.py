@@ -118,9 +118,17 @@ def find_idle_sql_databases(
         if region_filter and server_location != region_filter.lower():
             continue
 
-        resource_group = _extract_resource_group(server.id)
+        try:
+            resource_group = _extract_resource_group(server.id)
+        except ValueError:
+            continue
 
-        for db in sql_client.databases.list_by_server(resource_group, server.name):
+        try:
+            db_list = list(sql_client.databases.list_by_server(resource_group, server.name))
+        except Exception:
+            continue
+
+        for db in db_list:
             # Skip system databases
             if db.name == "master":
                 continue
@@ -157,7 +165,7 @@ def find_idle_sql_databases(
 
             signals = [
                 f"Zero successful connections for {idle_days} days (Azure Monitor metrics)",
-                f"Connections (14d sum): {total_connections}",
+                f"Connections ({idle_days}d sum): {total_connections}",
                 f"SKU: {sku_name} ({sku_tier})",
                 f"Server: {server.name}",
             ]
@@ -200,7 +208,7 @@ def find_idle_sql_databases(
                         "sku_tier": sku_tier,
                         "max_size_bytes": getattr(db, "max_size_bytes", None),
                         "location": db.location,
-                        "connections_14d": total_connections,
+                        f"connections_{idle_days}d": total_connections,
                         "estimated_monthly_cost": estimated_monthly_cost,
                         "tags": db.tags,
                     },

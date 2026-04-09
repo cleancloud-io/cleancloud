@@ -143,7 +143,7 @@ def find_idle_rds_instances(
                         details={
                             "engine": f"{engine} {engine_version}",
                             "instance_class": instance_class,
-                            "connections_14d": total_connections,
+                            f"connections_{idle_days}d": total_connections,
                             "estimated_monthly_cost": estimated_monthly_cost,
                             "multi_az": multi_az,
                             "allocated_storage_gb": storage_gb,
@@ -200,10 +200,13 @@ def _get_metric_sum(
             return 1
         return 0
 
-    except ClientError:
-        # If we can't get metrics, assume there might be connections
-        # to avoid false positives
-        return 1  # Non-zero to indicate possible connections
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("AccessDenied", "UnauthorizedOperation"):
+            raise PermissionError(
+                "Missing required IAM permissions: cloudwatch:GetMetricStatistics"
+            ) from e
+        # Other errors (throttle, transient): assume connections to avoid false positives
+        return 1
 
 
 def _estimate_monthly_cost(instance_class: str, multi_az: bool) -> str:

@@ -44,7 +44,7 @@ def find_old_snapshots(
     )
 
     for snapshot in compute_client.snapshots.list():
-        if region_filter and snapshot.location != region_filter:
+        if region_filter and (snapshot.location or "").lower() != region_filter.lower():
             continue
 
         if not snapshot.time_created:
@@ -53,7 +53,7 @@ def find_old_snapshots(
         age_days = _age_in_days(snapshot.time_created)
 
         if age_days >= max_age_days:
-            confidence_value = ConfidenceLevel.MEDIUM  # conservative
+            confidence_value = ConfidenceLevel.HIGH
         elif age_days >= MIN_AGE_DAYS_MEDIUM:
             confidence_value = ConfidenceLevel.MEDIUM
         else:
@@ -67,7 +67,7 @@ def find_old_snapshots(
                 "Disaster recovery or backup intent",
                 "Future planned usage",
             ],
-            time_window=f"{MIN_AGE_DAYS_MEDIUM}-{MIN_AGE_DAYS_HIGH} days",
+            time_window=f"{MIN_AGE_DAYS_MEDIUM}-{max_age_days} days",
         )
 
         # ~$0.05/GB-month for managed snapshots

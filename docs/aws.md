@@ -301,7 +301,17 @@ For the complete production workflow with enforcement flags, scheduling, and art
 
 ## IAM Policy (Minimum Required Permissions)
 
-Attach this policy to your IAM role or user:
+> **Policy files are split by category.** The canonical policies live in [`security/aws/`](../security/aws/) as three separate files:
+>
+> | File | Contains | Required when |
+> |------|----------|---------------|
+> | `base-readonly.json` | `sts:GetCallerIdentity`, `cloudwatch:GetMetricStatistics` | **Always — every scan, every category** |
+> | `hygiene-readonly.json` | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
+> | `ai-readonly.json` | SageMaker | `--category ai` |
+>
+> `base-readonly.json` must be attached alongside any category file. It provides `cloudwatch:GetMetricStatistics` (used by the NAT gateway, RDS, and ELB idle rules) and `sts:GetCallerIdentity` (used at startup to verify credentials). A role with only `hygiene-readonly.json` attached will have CloudWatch metric calls fail silently on those rules.
+
+Attach this policy to your IAM role or user (combined view — for the split files see above):
 
 ```json
 {
@@ -543,6 +553,8 @@ aws iam put-role-policy \
 ```
 
 > The policy files are in the [CleanCloud repo](https://github.com/cleancloud-io/cleancloud/tree/main/security/aws). Download or clone the repo first, then run the commands above.
+>
+> **`base-readonly.json` is always required** — it provides `cloudwatch:GetMetricStatistics` and `sts:GetCallerIdentity` used across all scan categories. Never attach a category policy without it.
 >
 > To also enable AI/ML rules (`--category ai`), attach the AI policy:
 > ```bash

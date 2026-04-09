@@ -280,7 +280,7 @@ def find_idle_sql_instances(
                 evidence=Evidence(
                     signals_used=signals_used,
                     signals_not_checked=[
-                        "Short-lived or batch connections (cron jobs, ETL) not visible in Cloud Monitoring connection metrics over the 7-day window",
+                        f"Short-lived or batch connections (cron jobs, ETL) not visible in Cloud Monitoring connection metrics over the {idle_days}-day window",
                         "Non-TCP workloads or Unix socket connections via Cloud SQL Proxy",
                         "Scheduled maintenance window",
                         "Planned reactivation for upcoming sprint",

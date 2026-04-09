@@ -61,7 +61,7 @@ def find_empty_app_service_plans(
     for plan in web_client.app_service_plans.list():
         # Azure Web SDK returns display names ("West Europe") not short names ("westeurope")
         # Normalize to short name format for consistent output and filtering
-        location = plan.location.lower().replace(" ", "")
+        location = (plan.location or "").lower().replace(" ", "")
 
         if region_filter and location != region_filter.lower().replace(" ", ""):
             continue
