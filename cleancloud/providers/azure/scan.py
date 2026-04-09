@@ -217,6 +217,9 @@ def scan_azure_subscriptions(
 ) -> List[SubscriptionScanResult]:
     results: List[SubscriptionScanResult] = []
 
+    for sub_id in subscription_ids:
+        click.echo(f"  {sub_name_map.get(sub_id, sub_id)}")
+
     with click.progressbar(
         length=len(subscription_ids),
         label="Scanning Azure subscriptions",
@@ -281,8 +284,6 @@ def _scan_azure_subscription(
     resource_not_found_errors = 0
 
     rules_to_run = rules if rules is not None else AZURE_RULES
-
-    click.echo(f"  Scanning {subscription_name}")
 
     with ThreadPoolExecutor(max_workers=min(2, len(rules_to_run))) as executor:
         futures = {

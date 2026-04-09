@@ -45,14 +45,20 @@ def write_markdown(
     else:
         regions_str = str(regions)
 
-    subscriptions = summary.get("subscriptions_scanned", [])
     accounts_scanned = summary.get("accounts_scanned")
-
     projects_scanned = summary.get("projects_scanned", [])
 
+    # Use names from per_subscription when available (falls back to IDs)
+    per_sub_meta = summary.get("per_subscription", [])
+    sub_names = (
+        [r["name"] for r in per_sub_meta]
+        if per_sub_meta
+        else summary.get("subscriptions_scanned", [])
+    )
+
     lines.append(f"**Provider:** {provider}  ")
-    if subscriptions:
-        lines.append(f"**Subscriptions:** {', '.join(subscriptions)}  ")
+    if sub_names:
+        lines.append(f"**Subscriptions:** {', '.join(sub_names)}  ")
     elif accounts_scanned is not None:
         lines.append(f"**Accounts:** {accounts_scanned}  ")
         lines.append(f"**Regions:** {regions_str}  ")
@@ -84,6 +90,15 @@ def write_markdown(
             lines.append(f"| {group['title']} | {group['count']} | {cost_str} |")
 
     lines.append("")
+
+    # Rules evaluated
+    rules_evaluated = summary.get("rules_evaluated", {})
+    if rules_evaluated:
+        lines.append(
+            f"**Rules evaluated ({len(rules_evaluated)}):** "
+            + ", ".join(f"`{r}`" for r in sorted(rules_evaluated.keys()))
+        )
+        lines.append("")
 
     # Confidence breakdown
     by_conf = summary.get("by_confidence", {})
@@ -134,9 +149,9 @@ def write_markdown(
             lines.append(f"| {label} ({rid}) | {r.get('findings', 0)}{status_str} | {cost_str} |")
         lines.append("")
 
-    # Azure multi-subscription breakdown
+    # Azure multi-subscription breakdown (only shown when more than one subscription)
     per_sub = summary.get("per_subscription")
-    if per_sub:
+    if per_sub and len(per_sub) > 1:
         lines.append("**Per-subscription breakdown:**")
         lines.append("")
         lines.append("| Subscription | Findings | Est. Monthly Cost |")
