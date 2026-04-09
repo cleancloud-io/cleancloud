@@ -785,4 +785,49 @@ AWS_AI_FINDINGS: List[Finding] = [
         ),
         estimated_monthly_cost_usd=1008.0,
     ),
+    Finding(
+        provider="aws",
+        rule_id="aws.sagemaker.notebook.idle",
+        resource_type="aws.sagemaker.notebook",
+        resource_id="fraud-model-research",
+        region="us-east-1",
+        title="Idle SageMaker Notebook (>14 Days Idle, 34 Days Since Activity)",
+        summary=(
+            "SageMaker Notebook Instance 'fraud-model-research' has had no control-plane "
+            "activity for 34 days but remains InService, incurring continuous charges (~$2,754/month)."
+        ),
+        reason="SageMaker notebook instance has had no control-plane activity for 34 days",
+        risk=RiskLevel.CRITICAL,
+        confidence=ConfidenceLevel.HIGH,
+        detected_at=_NOW,
+        details={
+            "notebook_name": "fraud-model-research",
+            "instance_type": "ml.p3.2xlarge",
+            "is_gpu": True,
+            "age_days": 34,
+            "idle_since_days": 34,
+            "idle_days_threshold": 14,
+            "idle_ratio": 2.43,
+            "lifecycle_config": None,
+            "estimated_monthly_cost": "~$2,754/month",
+            "cost_source": "approximate_us-east-1",
+        },
+        evidence=Evidence(
+            signals_used=[
+                "Notebook state: InService",
+                "Age: 34 days",
+                "Last control-plane activity: 34 days ago (LastModifiedTime)",
+                "Instance type: ml.p3.2xlarge",
+                "GPU-backed instance — high hourly cost",
+            ],
+            signals_not_checked=[
+                "Active kernel sessions (requires CloudWatch agent via lifecycle config)",
+                "Scheduled notebook runs (e.g. via EventBridge or Step Functions)",
+                "Planned future use by the assigned user",
+                "Resource tags (e.g. keep_alive=true, environment=dev)",
+            ],
+            time_window="34 days",
+        ),
+        estimated_monthly_cost_usd=2754.0,
+    ),
 ]

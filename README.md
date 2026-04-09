@@ -219,10 +219,11 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | Resource | Idle cost range |
 |---|---|
 | SageMaker endpoint (GPU) | $500 – $23,000 / month |
+| SageMaker Notebook Instance (GPU) | $500 – $23,000+ / month |
 | Azure AML compute cluster (GPU) | $600 – $15,000 / month |
 | Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
 
-CleanCloud detects zero-invocation / zero-prediction endpoints across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
+CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
 
 ```bash
 cleancloud scan --provider aws --category ai          # SageMaker endpoints
@@ -465,7 +466,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 
 ## What CleanCloud Detects
 
-33 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+34 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -474,7 +475,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
-- AI/ML *(opt-in: `--category ai`)*: idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month)
+- AI/ML *(opt-in: `--category ai`)*: idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month); idle Notebook Instances with no activity 14+ days — GPU-backed notebooks flagged HIGH risk ($500–$23K+/month)
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)
@@ -499,7 +500,7 @@ Rules without a confidence marker are MEDIUM — they use time-based heuristics 
 
 ## Roadmap
 
-**More AI/ML waste rules** — SageMaker notebook instances running unused, orphaned training artifacts, Vertex AI notebook instances idle
+**More AI/ML waste rules** — SageMaker Training Jobs (runaway/hung), orphaned training artifacts in S3, Vertex AI notebook instances idle
 
 **More AWS rules** — S3 lifecycle gaps, Redshift idle, NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
 

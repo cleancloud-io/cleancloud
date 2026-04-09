@@ -552,7 +552,7 @@ jobs:
 
 ### AWS AI/ML Scan (SageMaker)
 
-Run SageMaker idle endpoint detection separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
+Run SageMaker idle resource detection (endpoints + notebook instances) separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
 
 ```yaml
 name: CleanCloud AI/ML Scan
