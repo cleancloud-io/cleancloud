@@ -81,7 +81,7 @@ def find_unattached_disks(
 
             if scope_type == "zones":
                 zone_name = location
-                region = zone_name.rsplit("-", 1)[0]  # "us-central1-a" → "us-central1"
+                region = zone_name.rsplit("-", 1)[0]  # "us-central1-a" -> "us-central1"
                 is_regional = False
             elif scope_type == "regions":
                 zone_name = None
@@ -100,7 +100,7 @@ def find_unattached_disks(
                     continue
 
                 # Extract short disk type from full resource URL
-                # e.g. "zones/us-central1-a/diskTypes/pd-ssd" → "pd-ssd"
+                # e.g. "zones/us-central1-a/diskTypes/pd-ssd" -> "pd-ssd"
                 disk_type_url = disk.type_ or ""
                 disk_type = disk_type_url.split("/")[-1] if disk_type_url else "pd-standard"
 
@@ -152,7 +152,7 @@ def find_unattached_disks(
                     "Disk status: READY",
                     "No VM users (users list empty)",
                     f"Disk type: {disk_type} (~${cost_per_gb}/GB/month storage)",
-                    f"Size: {size_gb} GB → ~${monthly_cost}/month (estimated, region-dependent)",
+                    f"Size: {size_gb} GB -> ~${monthly_cost}/month (estimated, region-dependent)",
                 ]
                 if is_regional:
                     signals_used.append(

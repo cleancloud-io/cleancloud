@@ -38,17 +38,17 @@ def _make_lb(
 @pytest.fixture
 def mock_network_client(mocker):
     lbs = [
-        # Standard + all pools empty → should be flagged
+        # Standard + all pools empty -> should be flagged
         _make_lb("lb-empty", pools=[_make_pool()]),
-        # Standard + has NIC-based backend → skip
+        # Standard + has NIC-based backend -> skip
         _make_lb("lb-with-nic-backend", pools=[_make_pool(nic_backends=[{"id": "nic-1"}])]),
-        # Standard + has IP-based backend → skip (Private Link / hybrid)
+        # Standard + has IP-based backend -> skip (Private Link / hybrid)
         _make_lb("lb-with-ip-backend", pools=[_make_pool(ip_backends=[{"ip": "10.0.0.1"}])]),
-        # Standard + no pools at all → should be flagged
+        # Standard + no pools at all -> should be flagged
         _make_lb("lb-no-pools", pools=[]),
-        # Basic SKU + empty → skip (no cost signal)
+        # Basic SKU + empty -> skip (no cost signal)
         _make_lb("lb-basic-empty", sku_name="Basic", pools=[_make_pool()]),
-        # Standard + still provisioning → skip
+        # Standard + still provisioning -> skip
         _make_lb("lb-provisioning", pools=[_make_pool()], provisioning_state="Creating"),
     ]
     client = mocker.MagicMock()

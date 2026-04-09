@@ -114,9 +114,9 @@ def test_idle_cpu_instance_detected():
 
 
 def test_idle_gpu_instance_detected_high_risk():
-    """GPU instance at exactly idle_days threshold (idle_ratio=1.0) → HIGH risk."""
+    """GPU instance at exactly idle_days threshold (idle_ratio=1.0) -> HIGH risk."""
     ws = _make_workspace()
-    # age_days=14, idle_since_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    # age_days=14, idle_since_days=14 -> idle_ratio=1.0 -> HIGH (not CRITICAL)
     instance = _make_instance(vm_size="Standard_NC6s_v3", age_days=14, idle_since_days=14)
     ml_client = _make_client(ws, [instance])
 
@@ -134,9 +134,9 @@ def test_idle_gpu_instance_detected_high_risk():
 
 
 def test_idle_gpu_instance_critical_when_very_stale():
-    """GPU instance idle ≥ 2× threshold → CRITICAL risk."""
+    """GPU instance idle ≥ 2× threshold -> CRITICAL risk."""
     ws = _make_workspace()
-    # age_days=30, idle_since_days=30, idle_days=14 → idle_ratio≈2.14 → CRITICAL
+    # age_days=30, idle_since_days=30, idle_days=14 -> idle_ratio≈2.14 -> CRITICAL
     instance = _make_instance(vm_size="Standard_NC12s_v3", age_days=30, idle_since_days=30)
     ml_client = _make_client(ws, [instance])
 
@@ -152,9 +152,9 @@ def test_idle_gpu_instance_critical_when_very_stale():
 
 
 def test_critical_boundary_exactly_at_2x():
-    """idle_ratio == 2.0 exactly → CRITICAL."""
+    """idle_ratio == 2.0 exactly -> CRITICAL."""
     ws = _make_workspace()
-    # idle_days=14, idle_since_days=28 → idle_ratio=2.0
+    # idle_days=14, idle_since_days=28 -> idle_ratio=2.0
     instance = _make_instance(vm_size="Standard_NC6s_v3", age_days=28, idle_since_days=28)
     ml_client = _make_client(ws, [instance])
 
@@ -169,7 +169,7 @@ def test_critical_boundary_exactly_at_2x():
 
 
 def test_just_below_critical_is_high():
-    """GPU instance with idle_ratio < 2.0 → HIGH, not CRITICAL."""
+    """GPU instance with idle_ratio < 2.0 -> HIGH, not CRITICAL."""
     ws = _make_workspace()
     instance = _make_instance(vm_size="Standard_NC6s_v3", age_days=14, idle_since_days=14)
     ml_client = _make_client(ws, [instance])
@@ -264,7 +264,7 @@ def test_non_compute_instance_type_skipped():
 
 
 def test_young_instance_skipped():
-    """Instance younger than minimum age guard → skipped."""
+    """Instance younger than minimum age guard -> skipped."""
     ws = _make_workspace()
     instance = _make_instance(age_days=3)
     ml_client = _make_client(ws, [instance])
@@ -278,7 +278,7 @@ def test_young_instance_skipped():
 
 
 def test_instance_at_boundary_age_skipped():
-    """Instance at exactly 6 days (below max(idle_days//2=7, 7)) → skipped."""
+    """Instance at exactly 6 days (below max(idle_days//2=7, 7)) -> skipped."""
     ws = _make_workspace()
     instance = _make_instance(age_days=6)
     ml_client = _make_client(ws, [instance])
@@ -297,7 +297,7 @@ def test_instance_at_boundary_age_skipped():
 
 
 def test_high_confidence_at_full_threshold():
-    """idle_since >= idle_days AND age >= idle_days → HIGH confidence."""
+    """idle_since >= idle_days AND age >= idle_days -> HIGH confidence."""
     ws = _make_workspace()
     instance = _make_instance(age_days=14, idle_since_days=14)
     ml_client = _make_client(ws, [instance])
@@ -310,9 +310,9 @@ def test_high_confidence_at_full_threshold():
 
 
 def test_medium_confidence_at_75_percent():
-    """idle_since and age at 75% of threshold → MEDIUM confidence."""
+    """idle_since and age at 75% of threshold -> MEDIUM confidence."""
     ws = _make_workspace()
-    # idle_days=14, threshold_medium=10, age=11, idle=11 → MEDIUM
+    # idle_days=14, threshold_medium=10, age=11, idle=11 -> MEDIUM
     instance = _make_instance(age_days=11, idle_since_days=11)
     ml_client = _make_client(ws, [instance])
 
@@ -324,9 +324,9 @@ def test_medium_confidence_at_75_percent():
 
 
 def test_below_medium_threshold_skipped():
-    """Below 75% threshold → skipped."""
+    """Below 75% threshold -> skipped."""
     ws = _make_workspace()
-    # age=8, idle=8 → 8 < 10 → skip
+    # age=8, idle=8 -> 8 < 10 -> skip
     instance = _make_instance(age_days=8, idle_since_days=8)
     ml_client = _make_client(ws, [instance])
 
@@ -504,7 +504,7 @@ def test_timezone_naive_op_time_handled():
 )
 def test_gpu_family_classification(vm_size, expected_gpu):
     ws = _make_workspace()
-    # age_days=14 → idle_ratio=1.0 → GPU=HIGH, CPU=MEDIUM
+    # age_days=14 -> idle_ratio=1.0 -> GPU=HIGH, CPU=MEDIUM
     instance = _make_instance(vm_size=vm_size, age_days=14, idle_since_days=14)
     ml_client = _make_client(ws, [instance])
 

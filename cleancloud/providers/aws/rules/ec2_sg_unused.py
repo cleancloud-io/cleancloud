@@ -101,7 +101,7 @@ def find_unused_security_groups(
                         if ref_id:
                             referenced_sg_ids.add(ref_id)
 
-        # Build VPC ID → name map for readability (best-effort; skip on missing permission)
+        # Build VPC ID -> name map for readability (best-effort; skip on missing permission)
         vpc_names: dict = {}
         vpc_ids = list({sg.get("VpcId") for sg in all_sgs if sg.get("VpcId")})
         if vpc_ids:

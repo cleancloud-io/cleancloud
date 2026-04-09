@@ -760,7 +760,7 @@ def scan(
                         f"  [{s.suppression_reason}]"
                     )
                     click.echo(f"  Detail: {s.suppression_detail}")
-                    click.echo(f"  Path:   {' → '.join(s.decision_path)}")
+                    click.echo(f"  Path:   {' -> '.join(s.decision_path)}")
                 click.echo()
             if explain and all_expired_exception_events:
                 click.echo("\n--- Expired Exceptions (--explain) ---")

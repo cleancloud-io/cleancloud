@@ -793,7 +793,7 @@ def run_aws_multi_account_doctor(
                 external_id=config.external_id,
             )
             assumed_identity = assumed.client("sts", config=BOTO_CONFIG).get_caller_identity()
-            success(f"{label}  →  {assumed_identity['Arn']}")
+            success(f"{label}  ->  {assumed_identity['Arn']}")
             passed += 1
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]

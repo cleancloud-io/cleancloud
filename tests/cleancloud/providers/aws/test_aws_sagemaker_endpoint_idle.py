@@ -106,12 +106,12 @@ def test_idle_cpu_endpoint_detected():
 
 
 def test_idle_gpu_endpoint_detected_high_risk():
-    """GPU endpoint at exactly idle_days threshold (idle_ratio=1.0) → HIGH risk."""
+    """GPU endpoint at exactly idle_days threshold (idle_ratio=1.0) -> HIGH risk."""
     sagemaker = MagicMock()
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age_days=14, idle_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    # age_days=14, idle_days=14 -> idle_ratio=1.0 -> HIGH (not CRITICAL)
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=14)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.p3.2xlarge")
     sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
@@ -131,12 +131,12 @@ def test_idle_gpu_endpoint_detected_high_risk():
 
 
 def test_idle_gpu_endpoint_critical_risk_when_very_stale():
-    """GPU endpoint idle ≥ 2× threshold (idle_ratio ≥ 2.0) → CRITICAL risk."""
+    """GPU endpoint idle ≥ 2× threshold (idle_ratio ≥ 2.0) -> CRITICAL risk."""
     sagemaker = MagicMock()
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age_days=30, idle_days=14 → idle_ratio=30/14≈2.14 → CRITICAL
+    # age_days=30, idle_days=14 -> idle_ratio=30/14≈2.14 -> CRITICAL
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.p3.2xlarge")
     sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(
@@ -278,7 +278,7 @@ def test_missing_desired_instance_count_treated_as_zero():
     session = _make_session(sagemaker, cloudwatch)
     findings = find_idle_sagemaker_endpoints(session, "us-east-1")
 
-    # total_instances = 0 (missing treated as 0) → scaled-to-zero, no cost → skip
+    # total_instances = 0 (missing treated as 0) -> scaled-to-zero, no cost -> skip
     assert len(findings) == 0
 
 
@@ -344,7 +344,7 @@ def test_effective_window_capped_to_age():
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age=12, days_idle=14 → effective_window=12
+    # age=12, days_idle=14 -> effective_window=12
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=12)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
@@ -361,8 +361,8 @@ def test_very_small_effective_window_skipped():
     """Effective window < 3 days is too narrow for a reliable conclusion — skip.
 
     Setup: days_idle=2, age=8
-    - Early age guard: age=8 >= max(2//2=1, 7) = 7 → passes
-    - effective_window = min(2, 8) = 2 < 3 → skipped by the window guard
+    - Early age guard: age=8 >= max(2//2=1, 7) = 7 -> passes
+    - effective_window = min(2, 8) = 2 < 3 -> skipped by the window guard
     """
     sagemaker = MagicMock()
     cloudwatch = MagicMock()
@@ -405,7 +405,7 @@ def test_medium_confidence_for_borderline_age():
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age_days=11, int(14 * 0.75)=10 → 11 >= 10 → MEDIUM
+    # age_days=11, int(14 * 0.75)=10 -> 11 >= 10 -> MEDIUM
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=11)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
@@ -423,7 +423,7 @@ def test_borderline_age_below_threshold_skipped():
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age_days=8, int(14 * 0.75)=10 → 8 < 10 → skip
+    # age_days=8, int(14 * 0.75)=10 -> 8 < 10 -> skip
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=8)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.m5.xlarge")
     cloudwatch.get_metric_statistics.return_value = _no_invocations()
@@ -444,7 +444,7 @@ def test_g4dn_instance_detected_as_gpu():
     cloudwatch = MagicMock()
 
     paginator = sagemaker.get_paginator.return_value
-    # age_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    # age_days=14 -> idle_ratio=1.0 -> HIGH (not CRITICAL)
     paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=14)]}]
     sagemaker.describe_endpoint.return_value = _make_describe_response("ml.g4dn.xlarge")
     sagemaker.describe_endpoint_config.return_value = _make_describe_config_response(

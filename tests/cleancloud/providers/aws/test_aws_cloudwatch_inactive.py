@@ -15,7 +15,7 @@ def test_find_inactive_cloudwatch_logs(mock_boto3_session):
             "logGroups": [
                 {
                     "logGroupName": "/aws/lambda/never-expire",
-                    # retentionInDays missing → infinite retention
+                    # retentionInDays missing -> infinite retention
                     "storedBytes": 12345,
                 },
                 {

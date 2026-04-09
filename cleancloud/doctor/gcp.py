@@ -368,7 +368,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn("compute.disks.list — MISSING (rule: disk_unattached will be skipped)")
         except NotFound:
             info("compute.disks.list — Compute Engine API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable compute.googleapis.com")
+            info("  -> enable via: gcloud services enable compute.googleapis.com")
         except ResourceExhausted:
             warn("compute.disks.list — API quota exceeded (retry later)")
         except Exception as e:
@@ -387,7 +387,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn("compute.instances.list — MISSING (rule: vm_stopped will be skipped)")
         except NotFound:
             info("compute.instances.list — Compute Engine API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable compute.googleapis.com")
+            info("  -> enable via: gcloud services enable compute.googleapis.com")
         except ResourceExhausted:
             warn("compute.instances.list — API quota exceeded (retry later)")
         except Exception as e:
@@ -406,7 +406,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn("compute.addresses.list — MISSING (rule: ip_unused regional IPs will be skipped)")
         except NotFound:
             info("compute.addresses.list — Compute Engine API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable compute.googleapis.com")
+            info("  -> enable via: gcloud services enable compute.googleapis.com")
         except ResourceExhausted:
             warn("compute.addresses.list — API quota exceeded (retry later)")
         except Exception as e:
@@ -427,7 +427,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             )
         except NotFound:
             info("compute.globalAddresses.list — Compute Engine API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable compute.googleapis.com")
+            info("  -> enable via: gcloud services enable compute.googleapis.com")
         except ResourceExhausted:
             warn("compute.globalAddresses.list — API quota exceeded (retry later)")
         except Exception as e:
@@ -446,7 +446,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             warn("compute.snapshots.list — MISSING (rule: snapshot_old will be skipped)")
         except NotFound:
             info("compute.snapshots.list — Compute Engine API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable compute.googleapis.com")
+            info("  -> enable via: gcloud services enable compute.googleapis.com")
         except ResourceExhausted:
             warn("compute.snapshots.list — API quota exceeded (retry later)")
         except Exception as e:
@@ -466,7 +466,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
                 warn("cloudsql.instances.list — MISSING (rule: sql_instance_idle will be skipped)")
             elif resp.status_code == 404:
                 info("cloudsql.instances.list — Cloud SQL API not enabled (rule unavailable)")
-                info("  → enable via: gcloud services enable sqladmin.googleapis.com")
+                info("  -> enable via: gcloud services enable sqladmin.googleapis.com")
             else:
                 permissions_tested.append("cloudsql.instances.list")
                 success("cloudsql.instances.list")
@@ -509,7 +509,7 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
             )
         except NotFound:
             info("monitoring.timeSeries.list — Cloud Monitoring API not enabled (rule unavailable)")
-            info("  → enable via: gcloud services enable monitoring.googleapis.com")
+            info("  -> enable via: gcloud services enable monitoring.googleapis.com")
         except ResourceExhausted:
             warn("monitoring.timeSeries.list — API quota exceeded (retry later)")
         except Exception as e:

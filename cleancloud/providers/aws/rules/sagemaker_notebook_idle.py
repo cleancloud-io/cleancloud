@@ -169,7 +169,7 @@ def find_idle_sagemaker_notebooks(
 
                 # Lifecycle config presence: an attached config often indicates the notebook
                 # is actively managed (auto-stop, environment setup, etc.), which reduces
-                # certainty that it is truly abandoned. Cap HIGH → MEDIUM in this case.
+                # certainty that it is truly abandoned. Cap HIGH -> MEDIUM in this case.
                 lifecycle_config = nb.get("NotebookInstanceLifecycleConfigName") or ""
                 if lifecycle_config and confidence == ConfidenceLevel.HIGH:
                     confidence = ConfidenceLevel.MEDIUM

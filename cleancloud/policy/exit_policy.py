@@ -20,11 +20,11 @@ def determine_exit_code(
 
     Rules (in order of precedence):
 
-    1. No findings → EXIT_OK
-    2. --fail-on-findings → any finding fails
-    3. --fail-on-confidence X → any finding with confidence >= X fails
-    4. --fail-on-cost X → total estimated waste >= X fails
-    5. Default behavior (no flags) → EXIT_OK (report-only, safe by default)
+    1. No findings -> EXIT_OK
+    2. --fail-on-findings -> any finding fails
+    3. --fail-on-confidence X -> any finding with confidence >= X fails
+    4. --fail-on-cost X -> total estimated waste >= X fails
+    5. Default behavior (no flags) -> EXIT_OK (report-only, safe by default)
     """
 
     if not findings:

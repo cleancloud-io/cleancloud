@@ -165,7 +165,7 @@ def find_idle_aml_compute(
                         continue
 
                     # Confidence based on age relative to idle threshold.
-                    # Unknown age → MEDIUM: we can't rule out a recently-created cluster.
+                    # Unknown age -> MEDIUM: we can't rule out a recently-created cluster.
                     if age_days is not None and age_days >= idle_days:
                         confidence = ConfidenceLevel.HIGH
                     elif age_days is not None and age_days >= int(idle_days * 0.75):
@@ -305,13 +305,13 @@ def _check_active_nodes(
 
     Strategy — for each candidate metric name:
       1. Query with ComputeName dimension filter (only reliable signal)
-         - active  → return None (skip this cluster)
-         - idle    → return metric name (confirmed idle — dimension-filtered zero is trustworthy)
-         - no data → filter unsupported; fall back to workspace-level query
+         - active  -> return None (skip this cluster)
+         - idle    -> return metric name (confirmed idle — dimension-filtered zero is trustworthy)
+         - no data -> filter unsupported; fall back to workspace-level query
       2. Workspace-level fallback (unfiltered):
-         - active  → return None (something active somewhere; skip conservatively)
-         - idle/no data → UNKNOWN, not idle (one active cluster can hide many idle ones)
-      3. If no metric yields a reliable per-cluster signal → return None (assume active)
+         - active  -> return None (something active somewhere; skip conservatively)
+         - idle/no data -> UNKNOWN, not idle (one active cluster can hide many idle ones)
+      3. If no metric yields a reliable per-cluster signal -> return None (assume active)
 
     Returns None (assume active) on any API exception to avoid false positives.
     """
@@ -323,10 +323,10 @@ def _check_active_nodes(
     def _query(metric_name: str, dimension_filter: Optional[str]) -> Optional[bool]:
         """Query one metric.
 
-        Returns True  → activity found (cluster was active)
-        Returns False → timeseries returned, all values zero (cluster confirmed idle)
-        Returns None  → no timeseries returned (metric/dimension unavailable)
-        Raises        → API error (caller handles)
+        Returns True  -> activity found (cluster was active)
+        Returns False -> timeseries returned, all values zero (cluster confirmed idle)
+        Returns None  -> no timeseries returned (metric/dimension unavailable)
+        Raises        -> API error (caller handles)
         """
         kwargs = dict(
             metricnames=metric_name,

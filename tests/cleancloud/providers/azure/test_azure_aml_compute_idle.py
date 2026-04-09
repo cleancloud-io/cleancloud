@@ -267,9 +267,9 @@ def test_effective_window_capped_to_age():
 def test_very_small_idle_days_clamped_to_3():
     """idle_days below 3 is clamped to 3 (matching the effective_window < 3 guard).
 
-    Setup: idle_days=2 → clamped to 3, age=8
-    - Age guard: 8 >= max(3//2=1, 7) = 7 → passes
-    - effective_window = min(3, 8) = 3 → proceeds (not skipped)
+    Setup: idle_days=2 -> clamped to 3, age=8
+    - Age guard: 8 >= max(3//2=1, 7) = 7 -> passes
+    - effective_window = min(3, 8) = 3 -> proceeds (not skipped)
     """
     ws = _make_workspace()
     compute = _make_compute(age_days=8)
@@ -310,7 +310,7 @@ def test_high_confidence_for_old_cluster():
 def test_medium_confidence_for_borderline_age():
     """Cluster at 75% of idle threshold should be MEDIUM confidence."""
     ws = _make_workspace()
-    # age=11, int(14 * 0.75)=10 → 11 >= 10 → MEDIUM
+    # age=11, int(14 * 0.75)=10 -> 11 >= 10 -> MEDIUM
     compute = _make_compute(age_days=11)
     ml_client, mon_client = _make_clients(ws, [compute], _make_metric_response(0.0))
 
@@ -328,7 +328,7 @@ def test_medium_confidence_for_borderline_age():
 def test_borderline_age_below_threshold_skipped():
     """Cluster below the 75% confidence threshold should be skipped."""
     ws = _make_workspace()
-    # age=8, int(14 * 0.75)=10 → 8 < 10 → skip
+    # age=8, int(14 * 0.75)=10 -> 8 < 10 -> skip
     compute = _make_compute(age_days=8)
     ml_client, mon_client = _make_clients(ws, [compute], _make_metric_response(0.0))
 
@@ -402,7 +402,7 @@ def test_nd_series_detected_as_gpu():
 def test_cost_scales_with_min_node_count():
     """Cost estimate should be min_node_count × monthly cost per node."""
     ws = _make_workspace()
-    # Standard_D4_v2 = $259/month, min_node_count=3 → $777/month
+    # Standard_D4_v2 = $259/month, min_node_count=3 -> $777/month
     compute = _make_compute(vm_size="Standard_D4_v2", min_node_count=3, age_days=30)
     ml_client, mon_client = _make_clients(ws, [compute], _make_metric_response(0.0))
 
@@ -566,7 +566,7 @@ def test_fallback_to_nodecount_when_active_nodes_unavailable():
         if metric_name == "Active Nodes":
             return _make_empty_metric_response()  # not available (filtered or unfiltered)
         if metric_name == "NodeCount" and has_filter:
-            return _make_metric_response(0.0)  # dimension-filtered zero → confirmed idle
+            return _make_metric_response(0.0)  # dimension-filtered zero -> confirmed idle
         return _make_empty_metric_response()
 
     ml_client = SimpleNamespace(
@@ -617,7 +617,7 @@ def test_dimension_filter_fallback_to_unfiltered():
         monitor_client=mon_client,
     )
 
-    # Workspace-level zero is not enough — no reliable per-cluster signal → skipped
+    # Workspace-level zero is not enough — no reliable per-cluster signal -> skipped
     assert findings == []
     # Verify both filtered and unfiltered calls were made
     assert any("filter" in kw for kw in call_kwargs)
@@ -658,7 +658,7 @@ def test_unfiltered_active_workspace_causes_skip():
 def test_all_metrics_unavailable_assumes_active():
     """If no metric returns any timeseries at all, cluster is assumed active (conservative).
 
-    No reliable per-cluster signal → cannot confirm idle → skip to avoid false positives.
+    No reliable per-cluster signal -> cannot confirm idle -> skip to avoid false positives.
     """
     ws = _make_workspace()
     compute = _make_compute(age_days=30)
@@ -712,7 +712,7 @@ def test_idle_days_zero_does_not_silently_skip_all():
     compute = _make_compute(age_days=30)
     ml_client, mon_client = _make_clients(ws, [compute], _make_metric_response(0.0))
 
-    # Without clamping, idle_days=0 → effective_window=0 → effective_window < 3 → no findings.
+    # Without clamping, idle_days=0 -> effective_window=0 -> effective_window < 3 -> no findings.
     # With clamping to 1, the normal detection path runs and the cluster is flagged.
     findings = find_idle_aml_compute(
         subscription_id="sub-123",

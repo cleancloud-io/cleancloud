@@ -280,7 +280,7 @@ class TestFindUnusedSecurityGroups:
     def test_high_confidence_when_no_rules_not_referenced_not_service_managed(
         self, mock_boto3_session
     ):
-        """A ruleless, unreferenced, non-service-managed SG is a strong orphan signal → HIGH."""
+        """A ruleless, unreferenced, non-service-managed SG is a strong orphan signal -> HIGH."""
         ec2 = mock_boto3_session._ec2
         # Build a SG with no inbound and no outbound rules at all
         sg = _make_sg("sg-empty", "orphan-sg", outbound=[])

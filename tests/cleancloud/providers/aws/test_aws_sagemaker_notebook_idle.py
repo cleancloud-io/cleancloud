@@ -57,7 +57,7 @@ def _paginate(items):
 
 
 def test_idle_cpu_notebook_detected():
-    """Idle CPU notebook → MEDIUM risk, HIGH confidence."""
+    """Idle CPU notebook -> MEDIUM risk, HIGH confidence."""
     sm = MagicMock()
     sm.get_paginator.return_value = _paginate([_make_nb(instance_type="ml.t3.medium", age_days=30)])
 
@@ -77,9 +77,9 @@ def test_idle_cpu_notebook_detected():
 
 
 def test_idle_gpu_notebook_detected_high_risk():
-    """GPU notebook idle exactly at threshold (idle_ratio=1.0) → HIGH risk."""
+    """GPU notebook idle exactly at threshold (idle_ratio=1.0) -> HIGH risk."""
     sm = MagicMock()
-    # age_days=14, idle_since_days=14 → idle_ratio=1.0 → HIGH (not CRITICAL)
+    # age_days=14, idle_since_days=14 -> idle_ratio=1.0 -> HIGH (not CRITICAL)
     sm.get_paginator.return_value = _paginate(
         [_make_nb(instance_type="ml.p3.2xlarge", age_days=14, idle_since_days=14)]
     )
@@ -95,9 +95,9 @@ def test_idle_gpu_notebook_detected_high_risk():
 
 
 def test_idle_gpu_notebook_critical_risk_when_very_stale():
-    """GPU notebook idle ≥ 2× threshold (idle_ratio ≥ 2.0) → CRITICAL risk."""
+    """GPU notebook idle ≥ 2× threshold (idle_ratio ≥ 2.0) -> CRITICAL risk."""
     sm = MagicMock()
-    # age_days=30, idle_since_days=30, idle_days=14 → idle_ratio=30/14≈2.14 → CRITICAL
+    # age_days=30, idle_since_days=30, idle_days=14 -> idle_ratio=30/14≈2.14 -> CRITICAL
     sm.get_paginator.return_value = _paginate(
         [_make_nb(instance_type="ml.p3.2xlarge", age_days=30, idle_since_days=30)]
     )
@@ -126,7 +126,7 @@ def test_cpu_notebook_never_reaches_critical():
 def test_critical_boundary_exactly_at_2x():
     """idle_ratio == 2.0 exactly should trigger CRITICAL."""
     sm = MagicMock()
-    # idle_days=14, idle_since_days=28 → idle_ratio=2.0
+    # idle_days=14, idle_since_days=28 -> idle_ratio=2.0
     sm.get_paginator.return_value = _paginate(
         [_make_nb(instance_type="ml.g4dn.xlarge", age_days=28, idle_since_days=28)]
     )
@@ -140,7 +140,7 @@ def test_critical_boundary_exactly_at_2x():
 def test_just_below_critical_boundary_is_high():
     """GPU notebook with idle_ratio < 2.0 should be HIGH, not CRITICAL."""
     sm = MagicMock()
-    # idle_days=14, idle_since_days=14 → idle_ratio=1.0 → HIGH
+    # idle_days=14, idle_since_days=14 -> idle_ratio=1.0 -> HIGH
     sm.get_paginator.return_value = _paginate(
         [_make_nb(instance_type="ml.g5.xlarge", age_days=14, idle_since_days=14)]
     )
@@ -196,7 +196,7 @@ def test_missing_last_modified_falls_back_to_age():
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
 
-    # age >= idle_days → still flagged
+    # age >= idle_days -> still flagged
     assert len(findings) == 1
     assert findings[0].details["idle_since_days"] == 30
 
@@ -211,7 +211,7 @@ def test_missing_creation_time_uses_neutral_default():
     sm = MagicMock()
     nb = _make_nb(age_days=30)
     del nb["CreationTime"]
-    # LastModifiedTime is 30 days ago → idle_since_days=30 >= idle_days=14 → HIGH
+    # LastModifiedTime is 30 days ago -> idle_since_days=30 >= idle_days=14 -> HIGH
     sm.get_paginator.return_value = _paginate([nb])
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
@@ -247,7 +247,7 @@ def test_notebook_at_minimum_age_skipped():
 
 
 def test_high_confidence_when_age_and_idle_exceed_threshold():
-    """age >= idle_days AND idle_since >= idle_days → HIGH confidence."""
+    """age >= idle_days AND idle_since >= idle_days -> HIGH confidence."""
     sm = MagicMock()
     sm.get_paginator.return_value = _paginate([_make_nb(age_days=14, idle_since_days=14)])
 
@@ -258,10 +258,10 @@ def test_high_confidence_when_age_and_idle_exceed_threshold():
 
 
 def test_medium_confidence_at_75_percent_threshold():
-    """age and idle_since at 75% of idle_days → MEDIUM confidence."""
+    """age and idle_since at 75% of idle_days -> MEDIUM confidence."""
     sm = MagicMock()
     # idle_days=14, threshold_medium=int(14*0.75)=10
-    # age=11, idle_since=11 → 11 >= 10 but 11 < 14 → MEDIUM
+    # age=11, idle_since=11 -> 11 >= 10 but 11 < 14 -> MEDIUM
     sm.get_paginator.return_value = _paginate([_make_nb(age_days=11, idle_since_days=11)])
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
@@ -271,18 +271,18 @@ def test_medium_confidence_at_75_percent_threshold():
 
 
 def test_below_medium_threshold_skipped():
-    """age and idle_since below 75% threshold → skipped (not enough signal)."""
+    """age and idle_since below 75% threshold -> skipped (not enough signal)."""
     sm = MagicMock()
-    # age=8, idle_since=8 → 8 < 10 → skip
+    # age=8, idle_since=8 -> 8 < 10 -> skip
     sm.get_paginator.return_value = _paginate([_make_nb(age_days=8, idle_since_days=8)])
 
     assert find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1") == []
 
 
 def test_old_age_but_low_idle_since_gives_medium_then_skipped():
-    """HIGH age but low idle_since (recent activity) → not flagged at all."""
+    """HIGH age but low idle_since (recent activity) -> not flagged at all."""
     sm = MagicMock()
-    # age=60, idle_since=5 — notebook was touched 5 days ago → skip
+    # age=60, idle_since=5 — notebook was touched 5 days ago -> skip
     sm.get_paginator.return_value = _paginate([_make_nb(age_days=60, idle_since_days=5)])
 
     assert find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1") == []
@@ -321,7 +321,7 @@ def test_custom_idle_days_threshold_respected():
 )
 def test_gpu_family_classification(instance_type, expected_gpu):
     sm = MagicMock()
-    # age_days=14, idle_since_days=14 → idle_ratio=1.0 → GPU=HIGH (not CRITICAL), CPU=MEDIUM
+    # age_days=14, idle_since_days=14 -> idle_ratio=1.0 -> GPU=HIGH (not CRITICAL), CPU=MEDIUM
     sm.get_paginator.return_value = _paginate(
         [_make_nb(instance_type=instance_type, age_days=14, idle_since_days=14)]
     )
@@ -557,7 +557,7 @@ def test_lifecycle_config_caps_high_confidence_to_medium():
     """Notebook with a lifecycle config attached should be capped at MEDIUM confidence.
 
     A lifecycle config signals the notebook is actively managed (auto-stop, env setup).
-    This reduces certainty that it is truly abandoned, so HIGH → MEDIUM.
+    This reduces certainty that it is truly abandoned, so HIGH -> MEDIUM.
     """
     sm = MagicMock()
     nb = _make_nb(age_days=30, idle_since_days=30)
@@ -575,7 +575,7 @@ def test_no_lifecycle_config_preserves_high_confidence():
     """Notebook without a lifecycle config should remain HIGH confidence when threshold met."""
     sm = MagicMock()
     nb = _make_nb(age_days=30, idle_since_days=30)
-    nb["NotebookInstanceLifecycleConfigName"] = ""  # empty string → no config
+    nb["NotebookInstanceLifecycleConfigName"] = ""  # empty string -> no config
     sm.get_paginator.return_value = _paginate([nb])
 
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1")
@@ -585,9 +585,9 @@ def test_no_lifecycle_config_preserves_high_confidence():
 
 
 def test_lifecycle_config_does_not_promote_medium_to_high():
-    """Lifecycle config caps HIGH→MEDIUM but doesn't affect already-MEDIUM findings."""
+    """Lifecycle config caps HIGH->MEDIUM but doesn't affect already-MEDIUM findings."""
     sm = MagicMock()
-    # age=11, idle=11 → MEDIUM (below threshold_high=14, above threshold_medium=10)
+    # age=11, idle=11 -> MEDIUM (below threshold_high=14, above threshold_medium=10)
     nb = _make_nb(age_days=11, idle_since_days=11)
     nb["NotebookInstanceLifecycleConfigName"] = "some-config"
     sm.get_paginator.return_value = _paginate([nb])
@@ -690,8 +690,8 @@ def test_idle_days_zero_is_clamped_to_one():
     # Should not raise, and should not flag every notebook regardless of age
     findings = find_idle_sagemaker_notebooks(_make_session(sm), "us-east-1", idle_days=0)
 
-    # idle_days clamped to 1 → age_guard: age < max(0, 7)=7 → 30 >= 7 → passes
-    # threshold_high=1 → 30 >= 1 → HIGH confidence, finding returned
+    # idle_days clamped to 1 -> age_guard: age < max(0, 7)=7 -> 30 >= 7 -> passes
+    # threshold_high=1 -> 30 >= 1 -> HIGH confidence, finding returned
     assert isinstance(findings, list)
     assert len(findings) == 1
     assert findings[0].details["idle_days_threshold"] == 1  # clamped value stored

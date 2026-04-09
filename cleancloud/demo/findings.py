@@ -422,7 +422,7 @@ GCP_FINDINGS: List[Finding] = [
                 "Disk status: READY",
                 "No VM users (users list empty)",
                 "Disk type: pd-ssd (~$0.17/GB/month storage)",
-                "Size: 500 GB → ~$85.0/month (estimated, region-dependent)",
+                "Size: 500 GB -> ~$85.0/month (estimated, region-dependent)",
                 "Last detached: 1656h ago",
             ],
             signals_not_checked=[
