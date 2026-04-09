@@ -427,6 +427,16 @@ def _list_instances(session: AuthorizedSession, project_id: str) -> list:
             except Exception:
                 break  # network error — skip location, don't abort project scan
             if resp.status_code == 403:
+                # v1 returns 403 for locations it doesn't support with a body
+                # containing "is not found or access is unauthorized" — this is
+                # not a real permission failure, just an unsupported region.
+                # Only raise for genuine auth denials.
+                try:
+                    err_msg = resp.json().get("error", {}).get("message", "")
+                except Exception:
+                    err_msg = ""
+                if "not found or access is unauthorized" in err_msg.lower():
+                    break  # unsupported location — skip silently
                 raise PermissionError(
                     "notebooks.instances.list permission required (roles/notebooks.viewer)"
                 )
