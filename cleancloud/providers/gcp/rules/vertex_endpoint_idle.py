@@ -192,8 +192,6 @@ def find_idle_vertex_endpoints(
 
         # Effective window: cap to age so we don't look back before the endpoint existed
         effective_window = min(_DAYS_IDLE, age_days) if age_days is not None else _DAYS_IDLE
-        if effective_window < 3:
-            continue
 
         # Accurate cost: sum per deployed model (handles mixed machine types correctly)
         deployed_models = endpoint.get("deployedModels", [])
