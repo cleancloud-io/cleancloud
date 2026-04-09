@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
 
 
@@ -262,12 +264,12 @@ def test_effective_window_capped_to_age():
     assert findings[0].details["idle_days_threshold"] == 14
 
 
-def test_very_small_effective_window_skipped():
-    """Effective window < 3 days is too narrow for a reliable conclusion.
+def test_very_small_idle_days_clamped_to_3():
+    """idle_days below 3 is clamped to 3 (matching the effective_window < 3 guard).
 
-    Setup: days_idle=2, age=8
-    - Age guard: 8 >= max(2//2=1, 7) = 7 → passes
-    - effective_window = min(2, 8) = 2 < 3 → skipped
+    Setup: idle_days=2 → clamped to 3, age=8
+    - Age guard: 8 >= max(3//2=1, 7) = 7 → passes
+    - effective_window = min(3, 8) = 3 → proceeds (not skipped)
     """
     ws = _make_workspace()
     compute = _make_compute(age_days=8)
@@ -281,7 +283,7 @@ def test_very_small_effective_window_skipped():
         idle_days=2,
     )
 
-    assert findings == []
+    assert len(findings) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -670,6 +672,121 @@ def test_all_metrics_unavailable_assumes_active():
     )
 
     assert findings == []
+
+
+def test_all_none_maximums_treated_as_unknown_not_idle():
+    """Timeseries where every datapoint has maximum=None must not produce a finding.
+
+    All-None maximums indicate a metric publishing gap or throttled ingestion —
+    the value was unavailable, not zero. Treating them as idle would be a false positive.
+    """
+    ws = _make_workspace()
+    compute = _make_compute(age_days=30)
+
+    # Build a timeseries with data points but all maximum=None
+    none_data = [SimpleNamespace(maximum=None), SimpleNamespace(maximum=None)]
+    none_timeseries = SimpleNamespace(data=none_data)
+    none_metric = SimpleNamespace(timeseries=[none_timeseries])
+    all_none_response = SimpleNamespace(value=[none_metric])
+
+    ml_client, mon_client = _make_clients(ws, [compute], all_none_response)
+
+    findings = find_idle_aml_compute(
+        subscription_id="sub-123",
+        credential=None,
+        client=ml_client,
+        monitor_client=mon_client,
+    )
+
+    assert findings == []  # unknown signal — must not be reported as idle
+
+
+# ---------------------------------------------------------------------------
+# idle_days clamping
+# ---------------------------------------------------------------------------
+
+
+def test_idle_days_zero_does_not_silently_skip_all():
+    """idle_days=0 must be clamped to 1 — not silently suppress all findings."""
+    ws = _make_workspace()
+    compute = _make_compute(age_days=30)
+    ml_client, mon_client = _make_clients(ws, [compute], _make_metric_response(0.0))
+
+    # Without clamping, idle_days=0 → effective_window=0 → effective_window < 3 → no findings.
+    # With clamping to 1, the normal detection path runs and the cluster is flagged.
+    findings = find_idle_aml_compute(
+        subscription_id="sub-123",
+        credential=None,
+        client=ml_client,
+        monitor_client=mon_client,
+        idle_days=0,
+    )
+
+    assert len(findings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Per-workspace error handling
+# ---------------------------------------------------------------------------
+
+
+def test_compute_list_auth_error_raises_permission_error():
+    """AuthorizationFailed on compute.list() must surface as PermissionError, not be swallowed."""
+    ws = _make_workspace()
+
+    def _compute_list(rg, ws_name):
+        raise Exception("AuthorizationFailed: missing computes/read permission")
+
+    ml_client = SimpleNamespace(
+        workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
+        compute=SimpleNamespace(list=_compute_list),
+    )
+    mon_client = SimpleNamespace()
+
+    with pytest.raises(PermissionError) as exc_info:
+        find_idle_aml_compute(
+            subscription_id="sub-123",
+            credential=None,
+            client=ml_client,
+            monitor_client=mon_client,
+        )
+
+    assert "Microsoft.MachineLearningServices/workspaces/computes/read" in str(exc_info.value)
+
+
+def test_compute_list_transient_error_skips_workspace_preserves_findings():
+    """Transient error in compute.list() for one workspace must not abort findings from others."""
+    ws_good = _make_workspace(name="good-ws", rg="rg-good")
+    ws_bad = _make_workspace(name="bad-ws", rg="rg-bad")
+    good_compute = _make_compute(age_days=30, workspace="good-ws", rg="rg-good")
+
+    call_count = 0
+
+    def _compute_list(rg, ws_name):
+        nonlocal call_count
+        call_count += 1
+        if ws_name == "bad-ws":
+            raise RuntimeError("transient SDK timeout")
+        return [good_compute]
+
+    ml_client = SimpleNamespace(
+        workspaces=SimpleNamespace(list_by_subscription=lambda: [ws_good, ws_bad]),
+        compute=SimpleNamespace(list=_compute_list),
+    )
+    mon_client = SimpleNamespace(
+        metrics=SimpleNamespace(list=lambda *a, **kw: _make_metric_response(0.0))
+    )
+
+    findings = find_idle_aml_compute(
+        subscription_id="sub-123",
+        credential=None,
+        client=ml_client,
+        monitor_client=mon_client,
+    )
+
+    assert len(findings) == 1
+    assert findings[0].details["workspace_name"] == "good-ws"
+    assert call_count == 2  # both workspaces were attempted
 
 
 # ---------------------------------------------------------------------------

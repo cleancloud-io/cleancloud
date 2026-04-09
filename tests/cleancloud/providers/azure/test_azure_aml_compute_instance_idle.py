@@ -8,7 +8,6 @@ from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
     find_idle_aml_compute_instances,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -156,9 +155,7 @@ def test_critical_boundary_exactly_at_2x():
     """idle_ratio == 2.0 exactly → CRITICAL."""
     ws = _make_workspace()
     # idle_days=14, idle_since_days=28 → idle_ratio=2.0
-    instance = _make_instance(
-        vm_size="Standard_NC6s_v3", age_days=28, idle_since_days=28
-    )
+    instance = _make_instance(vm_size="Standard_NC6s_v3", age_days=28, idle_since_days=28)
     ml_client = _make_client(ws, [instance])
 
     findings = find_idle_aml_compute_instances(
@@ -206,9 +203,12 @@ def test_no_instances_returns_empty():
     ws = _make_workspace()
     ml_client = _make_client(ws, [])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +250,12 @@ def test_non_compute_instance_type_skipped():
     instance.properties.compute_type = "AmlCompute"
     ml_client = _make_client(ws, [instance])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -266,9 +269,12 @@ def test_young_instance_skipped():
     instance = _make_instance(age_days=3)
     ml_client = _make_client(ws, [instance])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 def test_instance_at_boundary_age_skipped():
@@ -277,9 +283,12 @@ def test_instance_at_boundary_age_skipped():
     instance = _make_instance(age_days=6)
     ml_client = _make_client(ws, [instance])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -321,9 +330,12 @@ def test_below_medium_threshold_skipped():
     instance = _make_instance(age_days=8, idle_since_days=8)
     ml_client = _make_client(ws, [instance])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 def test_recently_active_instance_skipped():
@@ -332,9 +344,12 @@ def test_recently_active_instance_skipped():
     instance = _make_instance(age_days=60, idle_since_days=3)
     ml_client = _make_client(ws, [instance])
 
-    assert find_idle_aml_compute_instances(
-        subscription_id="sub-123", credential=None, client=ml_client
-    ) == []
+    assert (
+        find_idle_aml_compute_instances(
+            subscription_id="sub-123", credential=None, client=ml_client
+        )
+        == []
+    )
 
 
 def test_custom_idle_days_respected():
@@ -456,9 +471,9 @@ def test_timezone_naive_op_time_handled():
     """Timezone-naive last_operation.operation_time should be normalised."""
     ws = _make_workspace()
     instance = _make_instance(age_days=30)
-    instance.properties.properties.last_operation.operation_time = (
-        datetime.now() - timedelta(days=20)  # naive
-    )
+    instance.properties.properties.last_operation.operation_time = datetime.now() - timedelta(
+        days=20
+    )  # naive
     ml_client = _make_client(ws, [instance])
 
     findings = find_idle_aml_compute_instances(
@@ -714,7 +729,7 @@ def test_permission_error_on_authorization_failure():
     """AuthorizationFailed in workspaces.list should raise PermissionError."""
 
     class _ForbiddenClient:
-        class workspaces:
+        class workspaces:  # noqa: N801
             @staticmethod
             def list_by_subscription():
                 raise Exception("AuthorizationFailed: insufficient permissions")
@@ -731,7 +746,7 @@ def test_permission_error_on_authorization_failure():
 
 def test_403_error_raises_permission_error():
     class _ForbiddenClient:
-        class workspaces:
+        class workspaces:  # noqa: N801
             @staticmethod
             def list_by_subscription():
                 raise Exception("Forbidden (403) — access denied")
@@ -748,7 +763,7 @@ def test_unexpected_error_propagates():
     """Non-permission errors should propagate, not be swallowed."""
 
     class _BrokenClient:
-        class workspaces:
+        class workspaces:  # noqa: N801
             @staticmethod
             def list_by_subscription():
                 raise RuntimeError("Unexpected SDK error")

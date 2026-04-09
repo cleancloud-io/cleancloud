@@ -219,7 +219,10 @@ def find_idle_aml_compute_instances(
                         op_name = getattr(last_op, "operation_name", None)
                         if op_name:
                             idle_signal_desc += f" — last op: {op_name}"
-                    elif system_data is not None and getattr(system_data, "last_modified_at", None) is not None:
+                    elif (
+                        system_data is not None
+                        and getattr(system_data, "last_modified_at", None) is not None
+                    ):
                         idle_signal_source = "last_modified_at"
                         idle_signal_desc = f"Last control-plane activity: {idle_since_days} days ago (last_modified_at fallback)"
                     else:
