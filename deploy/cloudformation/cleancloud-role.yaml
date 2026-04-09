@@ -28,7 +28,7 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: >
-      Set to true to attach the AI/ML policy (SageMaker idle endpoint detection).
+      Set to true to attach the AI/ML policy (SageMaker idle endpoint and notebook detection).
       Required for: cleancloud scan --category ai
       See: security/aws/ai-readonly.json
 
@@ -123,6 +123,13 @@ Resources:
               - sagemaker:ListEndpoints
               - sagemaker:DescribeEndpoint
               - sagemaker:DescribeEndpointConfig
+              - sagemaker:ListNotebookInstances
+              - sagemaker:DescribeNotebookInstance
+            Resource: "*"
+          - Sid: CloudWatchMetrics
+            Effect: Allow
+            Action:
+              - cloudwatch:GetMetricStatistics
             Resource: "*"
 
 Outputs:
