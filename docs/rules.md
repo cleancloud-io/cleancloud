@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 32 rules implemented by CleanCloud (30 hygiene + 2 AI/ML).
+Complete reference for all 36 rules implemented by CleanCloud (30 hygiene + 6 AI/ML).
 
 ---
 
@@ -82,6 +82,7 @@ Every finding includes a confidence level:
 | `gcp.compute.ip.unused` | Network | Reserved static IPs (regional and global) in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 14+ days |
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
+| `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances (v1 + v2) ACTIVE with no control-plane activity for 14+ days (`--category ai`) |
 
 ---
 
@@ -1645,7 +1646,7 @@ Costs are approximate for us-central1 with HA disabled.
 **Confidence:**
 
 - **HIGH:** Zero predictions for the full 14-day window (endpoint age ≥ 14 days)
-- **MEDIUM:** Zero predictions, endpoint age ≥ 75% of threshold (≥ 10.5 days), or age unknown
+- **MEDIUM:** Zero predictions, endpoint age ≥ 75% of threshold (≥ 10 days), or age unknown
 
 **Risk:** HIGH (GPU-backed endpoints: T4, V100, A100, L4, H100, TPU), MEDIUM (CPU-only)
 
@@ -1691,6 +1692,54 @@ Costs are approximate for us-central1, on-demand. Multiply by `minReplicaCount` 
 
 ---
 
+#### Idle Vertex AI Workbench Instances
+
+**Rule ID:** `gcp.vertex.workbench.idle`
+
+**What it detects:** Vertex AI Workbench instances (v1 User-Managed Notebooks and v2 Workbench) in ACTIVE state with no control-plane activity for 14+ days
+
+**Confidence:**
+
+- **HIGH:** `updateTime` ≥ 14 days ago AND instance age ≥ 14 days
+- **MEDIUM:** `updateTime` ≥ 75% of threshold (≥ 10 days) **and** instance age ≥ 10 days, or `updateTime` unavailable (age-fallback, capped at MEDIUM)
+
+**Risk:** CRITICAL (GPU-backed, idle ≥ 2× threshold), HIGH (GPU-backed), MEDIUM (CPU-only)
+
+**Why this matters:**
+- Workbench instances incur continuous compute charges while ACTIVE, even with no open notebooks or active kernels
+- GPU instances (T4: $311/month, A100: $2,933/month, H100: $8,000/month) are extremely costly when left idle
+- Data scientists commonly leave instances running after a sprint ends, a project is deprioritised, or when switching to a newer instance
+
+**Detection logic:**
+```python
+for instance in notebooks_api.list(project_id, location="-"):  # all locations
+    if instance.state == "ACTIVE":
+        idle_days = (now - instance.updateTime).days
+        if idle_days >= 14:
+            flag(instance)
+```
+
+**updateTime** is updated by the Notebooks API when the instance is started, stopped, restarted, or reconfigured. Instances with stale `updateTime` have had no control-plane activity. This mirrors `LastModifiedTime` (SageMaker) and `last_modified_at` (Azure ML).
+
+**Covers both API generations:**
+- v2: Vertex AI Workbench (current) — queried via `locations/-` wildcard
+- v1: User-Managed Notebooks (deprecated Sept 2024) — queried per-location; flagged instances include a deprecation notice
+
+**Cost estimates (per instance, us-central1, on-demand):**
+
+| Machine Type | ~Monthly cost |
+|---|---|
+| `n1-standard-4` | $138 |
+| `n1-standard-4` + T4 GPU | $449 |
+| `n1-standard-4` + V100 GPU | $1,523 |
+| `a2-highgpu-1g` (A100 40GB) | $2,933 |
+| `g2-standard-8` (L4 GPU) | $1,060 |
+
+**Required permissions:**
+- `notebooks.instances.list` (included in `roles/notebooks.viewer`)
+
+---
+
 ## Rule Stability Guarantee
 
 Once a rule reaches production status:
@@ -1706,7 +1755,6 @@ This guarantees trust for long-running CI/CD integrations.
 ## Coming Soon
 
 **AI/ML (all providers):**
-- Vertex AI endpoints with zero predictions (GCP)
 - Orphaned SageMaker training artifacts in S3 (AWS)
 
 **AWS:**

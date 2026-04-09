@@ -662,7 +662,7 @@ jobs:
 
 ### GCP AI/ML Scan (Vertex AI)
 
-Run idle Vertex AI endpoint detection separately — requires `roles/aiplatform.viewer` bound to your service account in addition to the hygiene roles. See [gcp.md](gcp.md#ai-ml-scanning-vertex-ai) for setup.
+Run idle Vertex AI endpoint and Workbench instance detection separately — requires `roles/aiplatform.viewer` and `roles/notebooks.viewer` bound to your service account in addition to the hygiene roles. See [gcp.md](gcp.md#ai-ml-scanning-vertex-ai) for setup.
 
 ```yaml
 name: CleanCloud GCP AI/ML Scan

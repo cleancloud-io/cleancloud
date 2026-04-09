@@ -26,6 +26,17 @@
       "rules_covered": [
         "gcp.vertex.endpoint.idle"
       ]
+    },
+    {
+      "role": "roles/notebooks.viewer",
+      "title": "Notebooks Viewer",
+      "justification": "List and read Vertex AI Workbench instances (both v1 User-Managed Notebooks and v2 Workbench) to detect idle instances with ongoing compute charges",
+      "permissions_used": [
+        "notebooks.instances.list"
+      ],
+      "rules_covered": [
+        "gcp.vertex.workbench.idle"
+      ]
     }
   ],
   "binding_scope": {
@@ -43,5 +54,10 @@
     "description": "Vertex AI API must be enabled in each project you want to scan",
     "command": "gcloud services enable aiplatform.googleapis.com --project=$PROJECT_ID",
     "note": "Projects with Vertex AI API disabled return 0 findings (rule is skipped, not an error)"
+  },
+  "enable_notebooks_api": {
+    "description": "Notebooks API must be enabled in each project you want to scan for Workbench instances",
+    "command": "gcloud services enable notebooks.googleapis.com --project=$PROJECT_ID",
+    "note": "Projects with the Notebooks API disabled return 0 findings for the workbench rule (skipped, not an error)"
   }
 }
