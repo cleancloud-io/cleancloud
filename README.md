@@ -221,6 +221,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | SageMaker endpoint (GPU) | $500 – $23,000 / month |
 | SageMaker Notebook Instance (GPU) | $500 – $23,000+ / month |
 | Azure AML compute cluster (GPU) | $600 – $15,000 / month |
+| Azure ML Compute Instance (GPU) | $600 – $15,000+ / month |
 | Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
 
 CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
@@ -466,7 +467,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 
 ## What CleanCloud Detects
 
-34 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+35 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -483,7 +484,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Network: unused public IPs, empty load balancers (HIGH), empty App Gateways (HIGH), idle VNet Gateways
 - Platform: empty App Service Plans (HIGH), idle SQL databases (HIGH), idle App Services, unused Container Registries
 - Governance: untagged resources
-- AI/ML *(opt-in: `--category ai`)*: idle AML compute clusters with non-zero baseline capacity and no workload activity 14+ days — GPU clusters flagged HIGH risk ($600–$15K/month)
+- AI/ML *(opt-in: `--category ai`)*: idle AML compute clusters with non-zero baseline capacity and no workload activity 14+ days — GPU clusters flagged HIGH risk ($600–$15K/month); idle Compute Instances with no control-plane activity 14+ days — GPU instances CRITICAL risk ($600–$15K+/month)
 
 **GCP:**
 - Compute: stopped instances 30+ days (disk charges continue) (HIGH)

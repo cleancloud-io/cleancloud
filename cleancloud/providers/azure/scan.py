@@ -9,6 +9,9 @@ from azure.core.exceptions import AzureError, HttpResponseError, ResourceNotFoun
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
+from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
+    find_idle_aml_compute_instances,
+)
 from cleancloud.providers.azure.rules.app_gateway_no_backends import (
     find_app_gateway_no_backends,
 )
@@ -75,6 +78,7 @@ AZURE_RULE_MAP: Dict[str, Callable] = {
 
 AZURE_RULE_MAP_AI: Dict[str, Callable] = {
     "azure.aml.compute.idle": find_idle_aml_compute,
+    "azure.ml.compute_instance.idle": find_idle_aml_compute_instances,
 }
 
 AZURE_RULES: List[Callable] = list(AZURE_RULE_MAP.values())
@@ -213,6 +217,9 @@ def scan_azure_subscriptions(
 ) -> List[SubscriptionScanResult]:
     results: List[SubscriptionScanResult] = []
 
+    for sub_id in subscription_ids:
+        click.echo(f"  {sub_name_map.get(sub_id, sub_id)}")
+
     with click.progressbar(
         length=len(subscription_ids),
         label="Scanning Azure subscriptions",
@@ -277,8 +284,6 @@ def _scan_azure_subscription(
     resource_not_found_errors = 0
 
     rules_to_run = rules if rules is not None else AZURE_RULES
-
-    click.echo(f"  Scanning {subscription_name}")
 
     with ThreadPoolExecutor(max_workers=min(2, len(rules_to_run))) as executor:
         futures = {

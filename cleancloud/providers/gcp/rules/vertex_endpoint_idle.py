@@ -87,10 +87,10 @@ _GPU_MONTHLY_COST_EACH = {
 _DAYS_IDLE = 14
 
 # Endpoints with fewer than this many prediction requests in the idle window are
-# flagged as "near-idle" (MEDIUM confidence). Zero requests → fully idle.
+# flagged as "near-idle" (MEDIUM confidence). Zero requests -> fully idle.
 # GPU endpoints use a lower threshold — higher cost justifies more aggressive flagging.
 # Threshold is then scaled by sqrt(replicas) so large deployments can't hide inefficiency
-# behind a linearly growing bar (20 replicas → ×4.5, not ×20).
+# behind a linearly growing bar (20 replicas -> ×4.5, not ×20).
 _LOW_TRAFFIC_THRESHOLD = 10
 _LOW_TRAFFIC_THRESHOLD_GPU = 5
 
@@ -116,8 +116,8 @@ def find_idle_vertex_endpoints(
     abandoned after the model demo or prototype phase.
 
     Detection tiers:
-    - IDLE: Zero prediction requests over the idle window → HIGH/MEDIUM confidence
-    - NEAR-IDLE: < 10 requests over the idle window → MEDIUM confidence
+    - IDLE: Zero prediction requests over the idle window -> HIGH/MEDIUM confidence
+    - NEAR-IDLE: < 10 requests over the idle window -> MEDIUM confidence
 
     Endpoints using automaticResources (auto-scaling to zero) are excluded — they
     incur no compute cost when idle.

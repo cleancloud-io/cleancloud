@@ -70,6 +70,7 @@ Every finding includes a confidence level:
 | `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
+| `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no control-plane activity 14+ days *(opt-in: `--category ai`)* |
 
 **GCP:**
 
@@ -824,6 +825,45 @@ SageMaker Notebook Instances do not publish utilisation metrics to CloudWatch by
 - `Microsoft.Insights/metrics/read`
 
 > **Not run by default.** Run with `cleancloud scan --provider azure --category ai` (or `--category all`). Add `Microsoft.MachineLearningServices/workspaces/read` and `Microsoft.MachineLearningServices/workspaces/computes/read` to your custom role or use the built-in `AzureML Data Scientist` role in read-only mode.
+
+---
+
+#### Idle Azure ML Compute Instances
+
+**Rule ID:** `azure.ml.compute_instance.idle`
+
+**Category:** `ai`
+
+**What it detects:** Azure ML Compute Instances in `Running` state with no control-plane activity for 14+ days, detected via `last_operation.operation_time`. Compute Instances are single-VM interactive development environments (Jupyter, VS Code, RStudio) that bill continuously while Running — regardless of kernel activity. GPU instances (NC/ND/NV series) idle for 2× the threshold are escalated to CRITICAL.
+
+**Detection signal — why `last_operation`:**
+Azure ML Compute Instances do not publish per-instance utilisation metrics to Azure Monitor by default. `last_operation.operation_time` is updated by the Azure ML control plane on Start, Stop, Restart, and Create operations. An instance with no recent operation has had no control-plane activity — the same approach used for SageMaker Notebook `LastModifiedTime`. Falls back to `system_data.last_modified_at` if `last_operation` is unavailable.
+
+**Confidence:**
+- **HIGH:** `last_operation.operation_time` or `last_modified_at` signal ≥ 14 days ago AND instance age ≥ 14 days
+- **MEDIUM:** ≥ 75% of threshold on both signals, OR age-only fallback (when neither `last_operation` nor `last_modified_at` is available — age alone is not evidence of idleness)
+
+**Risk:**
+- **CRITICAL:** GPU instance AND `idle_ratio ≥ 2.0` (e.g. 28+ days at the default 14-day window)
+- **HIGH:** GPU instance (`Standard_NC*`, `Standard_ND*`, `Standard_NV*`)
+- **MEDIUM:** CPU instance
+
+**Why this matters:**
+- Compute Instances bill at the full VM rate while Running — a stopped instance costs nothing
+- GPU instances cost $600–$15K+/month running continuously
+- Data scientists frequently leave instances Running after finishing a sprint, switching to a new instance, or during holidays
+
+**Estimated monthly cost:**
+- `Standard_DS3_v2` — ~$260/month
+- `Standard_NC6s_v3` — ~$2,203/month
+- `Standard_NC24s_v3` — ~$8,812/month
+- `Standard_ND40rs_v2` — ~$15,862/month
+
+**Required permissions:**
+- `Microsoft.MachineLearningServices/workspaces/read`
+- `Microsoft.MachineLearningServices/workspaces/computes/read`
+
+> **Not run by default.** Run with `cleancloud scan --provider azure --category ai`. Attach `security/azure/ai-readonly-role.json` to your service principal to enable this rule.
 
 ---
 

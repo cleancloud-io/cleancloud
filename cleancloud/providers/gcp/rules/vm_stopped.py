@@ -65,7 +65,7 @@ def find_stopped_vms(
                 continue
 
             zone_name = zone_scope.split("/")[-1]
-            region = zone_name.rsplit("-", 1)[0]  # "us-central1-a" → "us-central1"
+            region = zone_name.rsplit("-", 1)[0]  # "us-central1-a" -> "us-central1"
 
             if region_filter and region != region_filter:
                 continue
@@ -107,7 +107,7 @@ def find_stopped_vms(
                 machine_type_url = instance.machine_type or ""
                 machine_type = machine_type_url.split("/")[-1] if machine_type_url else "unknown"
 
-                # scheduling.automaticRestart=False → VM was configured to not restart on
+                # scheduling.automaticRestart=False -> VM was configured to not restart on
                 # failure (preemptible-style or intentional); mild signal of deliberate shutdown.
                 scheduling = instance.scheduling
                 automatic_restart = (

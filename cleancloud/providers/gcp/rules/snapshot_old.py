@@ -99,7 +99,9 @@ def find_old_snapshots(
                 f"Disk size: {disk_size_gb} GB",
             ]
             if storage_bytes > 0:
-                signals.append(f"Actual stored size: {billable_gb:.1f} GB → ~${monthly_cost}/month")
+                signals.append(
+                    f"Actual stored size: {billable_gb:.1f} GB -> ~${monthly_cost}/month"
+                )
             else:
                 signals.append(f"Estimated cost: ~${monthly_cost}/month (disk size used as proxy)")
             if source_disk_deleted:

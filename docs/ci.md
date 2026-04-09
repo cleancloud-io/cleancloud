@@ -605,9 +605,9 @@ jobs:
 
 > To run hygiene and AI rules together, use `--category all`.
 
-### Azure AI/ML Scan (AML Compute)
+### Azure AI/ML Scan (AML Compute Clusters and Compute Instances)
 
-Run idle AML compute cluster detection separately — requires `security/azure/ai-readonly-role.json` assigned to your service principal in addition to Reader. See [azure.md](azure.md#custom-role-optional-least-privilege) for setup.
+Run idle AML compute cluster and Compute Instance detection separately — requires `security/azure/ai-readonly-role.json` assigned to your service principal in addition to Reader. See [azure.md](azure.md#custom-role-optional-least-privilege) for setup.
 
 ```yaml
 name: CleanCloud Azure AI/ML Scan

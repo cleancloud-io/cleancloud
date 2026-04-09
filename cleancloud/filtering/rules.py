@@ -98,12 +98,12 @@ def _validate_params(rule_id: str, params: Dict[str, Any], func: Callable) -> No
         if key not in valid:
             close = difflib.get_close_matches(key, valid.keys(), n=1, cutoff=0.6)
             hint = f" (did you mean '{close[0]}'?)" if close else f". Valid params: {sorted(valid)}"
-            raise ValueError(f"Invalid config: rules.{rule_id}.params.{key} → unknown field{hint}")
+            raise ValueError(f"Invalid config: rules.{rule_id}.params.{key} -> unknown field{hint}")
 
         expected_type = valid[key]
         if expected_type is not None and not isinstance(value, expected_type):
             raise ValueError(
-                f"Invalid config: rules.{rule_id}.params.{key} → "
+                f"Invalid config: rules.{rule_id}.params.{key} -> "
                 f"expected {expected_type.__name__}, got {type(value).__name__} ({value!r})"
             )
 

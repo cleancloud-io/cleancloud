@@ -173,7 +173,7 @@ def test_scratch_disks_excluded_from_cost(monkeypatch):
     findings = find_stopped_vms(project_id="proj-1", credentials=MagicMock())
 
     assert len(findings) == 1
-    # No PERSISTENT disk → cost is $0 → estimated_monthly_cost_usd is None
+    # No PERSISTENT disk -> cost is $0 -> estimated_monthly_cost_usd is None
     assert findings[0].estimated_monthly_cost_usd is None
 
 

@@ -23,7 +23,7 @@ def print_human(findings: List[Finding]):
                 else f.account_id
             )
             print(f"   Account    : {label} ({f.account_id})")
-        print(f"   Resource   : {f.resource_type} → {f.resource_id}")
+        print(f"   Resource   : {f.resource_type} -> {f.resource_id}")
         if f.region:
             print(f"   Region     : {f.region}")
 

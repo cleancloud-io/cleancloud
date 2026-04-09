@@ -172,6 +172,7 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 | `idle_days` | `aws.sagemaker.endpoint.idle` | 14 | Days of zero invocations before flagging |
 | `idle_days` | `aws.sagemaker.notebook.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.aml.compute.idle` | 14 | Days of no runs before flagging |
+| `idle_days` | `azure.ml.compute_instance.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.sql.database.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `azure.app_service.idle` | 14 | Days of zero requests before flagging |
 | `max_age_days` | `aws.ec2.ami.old` | 180 | Age in days before flagging |

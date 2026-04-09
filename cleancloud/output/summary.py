@@ -85,6 +85,18 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
         click.echo(f"Rules skipped:  {len(skipped_rules)} (missing permissions)")
     click.echo(f"Total findings: {summary['total_findings']}")
 
+    rules_evaluated = summary.get("rules_evaluated", {})
+    if rules_evaluated:
+        n = len(rules_evaluated)
+        if summary["total_findings"] == 0:
+            click.echo(f"\nRules evaluated ({n}):")
+            max_len = max(len(r) for r in rules_evaluated)
+            for rule_id, count in sorted(rules_evaluated.items()):
+                click.echo(f"  {rule_id:<{max_len}}  — {count} findings")
+        else:
+            names = ", ".join(sorted(rules_evaluated.keys()))
+            click.echo(f"Rules evaluated: {n}  ({names})")
+
     # By risk
     by_risk = _format_enum_counts(summary.get("by_risk", {}))
     if by_risk:
@@ -99,40 +111,29 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
         for conf in sorted(by_conf):
             click.echo(f"  {conf}: {by_conf[conf]}")
 
-    # Regions/Subscriptions scanned
+    # Regions/Subscriptions/Projects scanned
     regions_scanned = summary.get("regions_scanned", [])
     if isinstance(regions_scanned, list):
         regions_str = ", ".join(regions_scanned)
     else:
         regions_str = str(regions_scanned)
 
-    # Use provider-aware label
     provider = summary.get("provider", "aws")
+
     if provider == "azure":
-        subscriptions_scanned = summary.get("subscriptions_scanned", [])
-        label = "Subscriptions scanned"
-        regions_str = ", ".join(subscriptions_scanned) if subscriptions_scanned else regions_str
+        # Subscription display is handled below in the unified per_subscription block
+        pass
     elif provider == "gcp":
         projects_scanned = summary.get("projects_scanned", [])
         label = "Projects scanned"
         regions_str = ", ".join(projects_scanned) if projects_scanned else regions_str
+        click.echo(f"\n{label}: {regions_str}", nl=False)
     else:
         label = "Regions scanned"
+        click.echo(f"\n{label}: {regions_str}", nl=False)
 
-    click.echo(f"\n{label}: {regions_str}", nl=False)
-
-    # Selection mode annotations
-    if provider == "azure":
-        mode = summary.get("subscription_selection_mode", "")
-        if mode == "all":
-            click.echo(" (all accessible)")
-        elif mode == "management-group":
-            click.echo(" (management group)")
-        elif mode == "explicit":
-            click.echo(" (explicit)")
-        else:
-            click.echo()
-    elif provider == "gcp":
+    # Selection mode annotations (non-Azure)
+    if provider == "gcp":
         mode = summary.get("project_selection_mode", "")
         if mode == "all":
             click.echo(" (all accessible)")
@@ -140,7 +141,7 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             click.echo(" (explicit)")
         else:
             click.echo()
-    else:  # AWS
+    elif provider == "aws":
         if region_selection_mode == "all-regions":
             click.echo(" (auto-detected)")
         elif region_selection_mode == "explicit":
@@ -179,7 +180,7 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
         click.echo(f"\nWARNING: {expired_count} exception(s) expired and were not applied.")
         click.echo("  Run with --explain to see which findings are now unprotected.")
 
-    click.echo(f"Scanned at: {summary['scanned_at']}")
+    click.echo(f"\nScanned at: {summary['scanned_at']}")
 
     # Skipped rules detail
     if skipped_rules:
@@ -271,26 +272,31 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
             for r in timed_out:
                 click.echo(f"  [timeout] {r.account_name} ({r.account_id})")
 
-    # Azure multi-subscription breakdown
+    # Azure subscription breakdown (unified — always shown for Azure)
     per_sub = summary.get("per_subscription")
-    if per_sub:
+    if provider == "azure" and per_sub is not None:
         failed_subs = summary.get("subscriptions_failed", [])
-        click.echo()
-        click.echo(f"Subscriptions scanned: {len(per_sub) - len(failed_subs)}")
+        mode = summary.get("subscription_selection_mode", "")
+        mode_label = {
+            "all": " (all accessible)",
+            "management-group": " (management group)",
+            "explicit": " (explicit)",
+        }.get(mode, "")
+        ok_subs = [r for r in per_sub if r["status"] != "failed"]
+        total_findings = summary["total_findings"]
+        n = len(ok_subs)
+
+        if total_findings == 0:
+            click.echo(f"\nSubscriptions scanned ({n}){mode_label}:")
+            max_name = max((len(r["name"]) for r in ok_subs), default=0)
+            for r in ok_subs:
+                click.echo(f"  {r['name']:<{max_name}}  ({r['id']})  — {r['findings']} findings")
+        else:
+            names = ", ".join(r["name"] for r in ok_subs)
+            click.echo(f"\nSubscriptions scanned: {n}{mode_label}  ({names})")
+
         if failed_subs:
-            click.echo(f"Subscriptions failed:  {len(failed_subs)}")
-        click.echo()
-        click.echo("Per-subscription breakdown:")
-        for r in per_sub:
-            cost = r.get("estimated_monthly_cost_usd", 0)
-            cost_str = f"  ~${cost:,.0f}/month" if cost else ""
-            status = "" if r["status"] == "success" else f"  [{r['status']}]"
-            click.echo(
-                f"  {r['name']:<30} ({r['id']}):" f"  {r['findings']} findings{cost_str}{status}"
-            )
-        if failed_subs:
-            click.echo()
-            click.echo("Failed subscriptions:")
+            click.echo(f"\nSubscriptions failed: {len(failed_subs)}")
             for r in failed_subs:
                 click.echo(f"  [failed] {r['name']} ({r['id']}): {r.get('error', '')}")
 
@@ -323,5 +329,5 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
     # Success message
     if summary["total_findings"] == 0:
         click.echo()
-        click.echo("No hygiene issues detected")
+        click.echo("No issues detected")
         click.echo()

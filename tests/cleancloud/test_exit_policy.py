@@ -104,7 +104,7 @@ def test_fail_on_cost_no_cost_estimates():
         FakeResult(confidence="Low"),
         FakeResult(confidence="Medium"),
     ]
-    # No cost data on findings → total is 0 → no violation
+    # No cost data on findings -> total is 0 -> no violation
     assert determine_exit_code(results, fail_on_cost=5.0) == 0
 
 
@@ -144,7 +144,7 @@ def test_both_confidence_and_cost_pass():
     results = [
         FakeResult(confidence="Low", estimated_monthly_cost_usd=5.0),
     ]
-    # Confidence below threshold AND cost below threshold → pass
+    # Confidence below threshold AND cost below threshold -> pass
     assert determine_exit_code(results, fail_on_confidence="HIGH", fail_on_cost=100.0) == 0
 
 

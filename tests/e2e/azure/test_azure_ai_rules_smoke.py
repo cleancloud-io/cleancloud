@@ -4,6 +4,9 @@ import pytest
 
 from cleancloud.core.finding import Finding
 from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
+from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
+    find_idle_aml_compute_instances,
+)
 from cleancloud.providers.azure.session import create_azure_session
 
 
@@ -21,6 +24,7 @@ def test_azure_ai_rules_run_without_error():
 
     rules = [
         find_idle_aml_compute,
+        find_idle_aml_compute_instances,
     ]
 
     all_results = []
@@ -36,7 +40,7 @@ def test_azure_ai_rules_run_without_error():
     for f in all_results:
         assert isinstance(f, Finding)
         assert f.provider == "azure"
-        assert f.rule_id.startswith("azure.aml.")
+        assert f.rule_id.startswith("azure.")
         assert f.resource_id
         assert f.region
         assert f.detected_at and isinstance(f.detected_at, datetime)

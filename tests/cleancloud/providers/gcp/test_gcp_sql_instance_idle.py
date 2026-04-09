@@ -163,7 +163,7 @@ def test_region_filter(monkeypatch):
 
 
 def test_empty_instance_list_returns_empty(monkeypatch):
-    """No Cloud SQL instances → no findings."""
+    """No Cloud SQL instances -> no findings."""
     _patch_sql_and_monitoring(monkeypatch, instances=[], has_connections=False)
     findings = find_idle_sql_instances(project_id="proj-1", credentials=MagicMock())
     assert findings == []

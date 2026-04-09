@@ -1,4 +1,5 @@
 import sys
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -664,17 +665,16 @@ def scan(
                     {"id": r.subscription_id, "name": r.subscription_name, "error": r.error}
                     for r in failed_subs
                 ]
-            if len(azure_sub_results) > 1:
-                summary["per_subscription"] = [
-                    {
-                        "id": r.subscription_id,
-                        "name": r.subscription_name,
-                        "status": r.status,
-                        "findings": len(r.findings),
-                        "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
-                    }
-                    for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
-                ]
+            summary["per_subscription"] = [
+                {
+                    "id": r.subscription_id,
+                    "name": r.subscription_name,
+                    "status": r.status,
+                    "findings": len(r.findings),
+                    "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
+                }
+                for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
+            ]
         elif provider == "gcp":
             summary["total_rules"] = len(gcp_rules_to_run)
             summary["project_selection_mode"] = project_selection_mode
@@ -699,6 +699,19 @@ def scan(
                     }
                     for r in sorted(gcp_project_results, key=lambda r: r.project_name)
                 ]
+        # Build rules_evaluated: {rule_id: finding_count} for all rules that ran
+        if provider == "aws":
+            _active_rule_map = {v: k for k, v in aws_rule_map.items() if v in aws_rules_to_run}
+        elif provider == "azure":
+            _active_rule_map = {v: k for k, v in azure_rule_map.items() if v in azure_rules_to_run}
+        else:
+            _active_rule_map = {v: k for k, v in gcp_rule_map.items() if v in gcp_rules_to_run}
+        _findings_by_rule = Counter(f.rule_id for f in findings)
+        summary["rules_evaluated"] = {
+            rule_id: _findings_by_rule.get(rule_id, 0)
+            for rule_id in sorted(_active_rule_map.values())
+        }
+
         summary["highest_confidence"] = max(
             (f.confidence for f in findings),
             default=None,
@@ -747,7 +760,7 @@ def scan(
                         f"  [{s.suppression_reason}]"
                     )
                     click.echo(f"  Detail: {s.suppression_detail}")
-                    click.echo(f"  Path:   {' → '.join(s.decision_path)}")
+                    click.echo(f"  Path:   {' -> '.join(s.decision_path)}")
                 click.echo()
             if explain and all_expired_exception_events:
                 click.echo("\n--- Expired Exceptions (--explain) ---")
@@ -781,7 +794,7 @@ def scan(
                     click.echo(
                         f"Tip: {ai_count} AI/ML rule{'s' if ai_count != 1 else ''} available"
                         f" — cleancloud scan --provider azure --category ai"
-                        f" (idle AML compute clusters)"
+                        f" (idle AML compute clusters and Compute Instances)"
                     )
                     click.echo()
                 elif provider == "gcp":

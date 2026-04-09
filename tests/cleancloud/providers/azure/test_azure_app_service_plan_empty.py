@@ -30,15 +30,15 @@ def _make_plan(
 @pytest.fixture
 def mock_web_client(mocker):
     plans = [
-        # Paid + empty → should be flagged
+        # Paid + empty -> should be flagged
         _make_plan("plan-empty-standard", "Standard", "S1", 0),
-        # Paid + has apps → skip
+        # Paid + has apps -> skip
         _make_plan("plan-with-apps", "Premium", "P1", 3),
-        # Free + empty → skip (no cost signal)
+        # Free + empty -> skip (no cost signal)
         _make_plan("plan-free-empty", "Free", "F1", 0),
-        # Shared + empty → skip (no cost signal)
+        # Shared + empty -> skip (no cost signal)
         _make_plan("plan-shared-empty", "Shared", "D1", 0),
-        # Paid + empty but still provisioning → skip
+        # Paid + empty but still provisioning -> skip
         _make_plan("plan-provisioning", "Standard", "S1", 0, provisioning_state="Creating"),
     ]
     client = mocker.MagicMock()

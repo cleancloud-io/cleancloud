@@ -3,14 +3,14 @@ Tests for gcp.vertex.endpoint.idle rule.
 
 Coverage:
 - Core detection: idle CPU endpoint (MEDIUM risk), idle GPU endpoint (HIGH risk)
-- Near-idle tier: < LOW_TRAFFIC_THRESHOLD requests → MEDIUM confidence
+- Near-idle tier: < LOW_TRAFFIC_THRESHOLD requests -> MEDIUM confidence
 - Skipping logic: active endpoints, young endpoints, automaticResources (scales to zero)
 - Age calculation and effective window capping
 - Confidence levels: HIGH (age >= 14d), MEDIUM (age >= 10.5d or unknown age or near-idle)
 - GPU detection: NVIDIA_TESLA_T4, NVIDIA_TESLA_A100, TPU_V2
 - Cost estimation: per-model accuracy, machine + GPU addon for n1 machines, bundled for a2
 - Multiple deployed models: total min_replica_count aggregated, per-model cost summed
-- Monitoring: batched per location (one call per location), error → assume active (conservative)
+- Monitoring: batched per location (one call per location), error -> assume active (conservative)
 - Region filter: endpoints outside the filter are skipped
 - Pagination: nextPageToken causes a second API call
 - Permission errors: PermissionError raised on 403 from list call
@@ -100,9 +100,9 @@ def _make_monitoring_client(request_counts: dict = None, error: bool = False):
     Build a mock monitoring client for the batch query API.
 
     request_counts: {endpoint_id: total_request_count}
-      {}  → no activity (all idle)
-      {"1234567890": 5} → endpoint has 5 requests (near-idle if < threshold)
-      {"1234567890": 42} → endpoint is active (>= threshold)
+      {}  -> no activity (all idle)
+      {"1234567890": 5} -> endpoint has 5 requests (near-idle if < threshold)
+      {"1234567890": 42} -> endpoint is active (>= threshold)
     error=True: list_time_series raises an exception.
     """
     client = MagicMock()
@@ -321,7 +321,7 @@ def test_gpu_endpoint_at_gpu_threshold_active():
         accelerator_count=1,
         min_replica_count=1,
     )
-    # Single replica GPU: effective_threshold = 5 * 1 = 5; count=5 → active
+    # Single replica GPU: effective_threshold = 5 * 1 = 5; count=5 -> active
     findings = _run([ep], request_counts={_ENDPOINT_ID: _LOW_TRAFFIC_THRESHOLD_GPU})
     assert findings == []
 
@@ -338,9 +338,9 @@ def test_cpu_endpoint_not_affected_by_gpu_threshold():
 
 
 def test_replica_aware_threshold_scales_with_replicas():
-    """3-replica CPU endpoint: threshold = int(10 * sqrt(3)) = 17; count=16 → near-idle."""
+    """3-replica CPU endpoint: threshold = int(10 * sqrt(3)) = 17; count=16 -> near-idle."""
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    # sqrt(3) ≈ 1.732 → threshold = int(10 * 1.732) = 17
+    # sqrt(3) ≈ 1.732 -> threshold = int(10 * 1.732) = 17
     findings = _run([ep], request_counts={_ENDPOINT_ID: 16})
 
     assert len(findings) == 1
@@ -349,9 +349,9 @@ def test_replica_aware_threshold_scales_with_replicas():
 
 
 def test_replica_aware_threshold_active_when_above_scaled():
-    """3-replica CPU endpoint: count >= sqrt-scaled threshold → active."""
+    """3-replica CPU endpoint: count >= sqrt-scaled threshold -> active."""
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 17})  # at threshold → active
+    findings = _run([ep], request_counts={_ENDPOINT_ID: 17})  # at threshold -> active
     assert findings == []
 
 
@@ -360,25 +360,25 @@ def test_sublinear_scaling_prevents_over_leniency():
     ep = _endpoint(machine_type="n1-standard-4", min_replica_count=20)
     expected_threshold = int(10 * max(1.0, 20**0.5))  # int(44.7) = 44
 
-    # At threshold → active
+    # At threshold -> active
     assert _run([ep], request_counts={_ENDPOINT_ID: expected_threshold}) == []
-    # Below threshold → near-idle
+    # Below threshold -> near-idle
     findings = _run([ep], request_counts={_ENDPOINT_ID: expected_threshold - 1})
     assert len(findings) == 1
     assert findings[0].details["effective_threshold"] == expected_threshold
 
 
 def test_no_monitoring_data_unknown_age_skipped():
-    """No monitoring data + unknown age = too many unknowns → skip."""
+    """No monitoring data + unknown age = too many unknowns -> skip."""
     ep = _endpoint()
     ep["createTime"] = ""  # unknown age
-    # Empty counts → no_monitoring_data=True
+    # Empty counts -> no_monitoring_data=True
     findings = _run([ep], request_counts={})
     assert findings == []
 
 
 def test_no_monitoring_data_known_age_still_flagged():
-    """No monitoring data + age ≥ 2×idle_threshold → still flagged (age well-established)."""
+    """No monitoring data + age ≥ 2×idle_threshold -> still flagged (age well-established)."""
     # Require age >= 2*14=28 before trusting absence of metrics as evidence of idleness
     ep = _endpoint(create_time=NOW - timedelta(days=30))  # age=30 ≥ 28
     findings = _run([ep], request_counts={})  # no monitoring data
@@ -506,22 +506,22 @@ def test_confidence_high_when_age_gte_threshold():
 
 
 def test_confidence_medium_when_age_in_75_percent_window():
-    """age=80% of threshold → MEDIUM, but only when monitoring data is present.
+    """age=80% of threshold -> MEDIUM, but only when monitoring data is present.
 
     When no monitoring data exists and age < idle threshold, the stricter guard skips
     the endpoint to avoid false positives from metric lag. Provide explicit zero-count
     series to confirm that MEDIUM confidence fires when monitoring confirms zero traffic.
     """
-    age = int(_DAYS_IDLE * 0.80)  # 80% of threshold → MEDIUM
+    age = int(_DAYS_IDLE * 0.80)  # 80% of threshold -> MEDIUM
     ep = _endpoint(create_time=NOW - timedelta(days=age))
-    # Explicit 0-count series → no_monitoring_data=False (confirmed zero traffic)
+    # Explicit 0-count series -> no_monitoring_data=False (confirmed zero traffic)
     findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
     assert len(findings) == 1
     assert findings[0].confidence.value == "medium"
 
 
 def test_confidence_medium_when_age_unknown():
-    """Missing createTime → age unknown → MEDIUM confidence (when monitoring data IS present)."""
+    """Missing createTime -> age unknown -> MEDIUM confidence (when monitoring data IS present)."""
     ep = _endpoint()
     ep["createTime"] = ""  # No timestamp — age unknown
     # Provide explicit 0-count series so no_monitoring_data=False; only age is unknown
@@ -531,7 +531,7 @@ def test_confidence_medium_when_age_unknown():
 
 
 def test_borderline_age_below_75_percent_skipped():
-    """age < 75% of threshold — too borderline → skip."""
+    """age < 75% of threshold — too borderline -> skip."""
     age = int(_DAYS_IDLE * 0.60)  # 60% — below 75% cutoff
     ep = _endpoint(create_time=NOW - timedelta(days=age))
     findings = _run([ep])
@@ -955,7 +955,7 @@ def test_finding_fields_are_complete():
 def test_no_monitoring_data_adds_transparency_signal():
     """When no time series exist for an endpoint, a transparency signal is added."""
     ep = _endpoint()
-    # Empty counts dict — endpoint_id absent → no_monitoring_data = True
+    # Empty counts dict — endpoint_id absent -> no_monitoring_data = True
     findings = _run([ep], request_counts={})
 
     assert len(findings) == 1
@@ -1009,7 +1009,7 @@ def test_eligible_endpoint_ids_guard_filters_stale_series():
             credentials=mock_credentials,
         )
 
-    # stale_id series should be ignored; our endpoint has 0 count → flagged as idle
+    # stale_id series should be ignored; our endpoint has 0 count -> flagged as idle
     assert len(findings) == 1
     assert findings[0].details["request_count"] == 0
 
@@ -1154,27 +1154,27 @@ def test_near_idle_finding_fields():
 
 
 def test_no_monitoring_data_known_age_below_threshold_skipped():
-    """No monitoring data + known age < idle threshold → skipped (stricter guard).
+    """No monitoring data + known age < idle threshold -> skipped (stricter guard).
 
     Monitoring can be absent due to metric delay or permission gaps — not safe
     to flag unless we have the full observation window confirmed by age.
     """
     # age=12 is >= 7 (past young-endpoint filter) but < 14 (_DAYS_IDLE)
     ep = _endpoint(create_time=NOW - timedelta(days=12))
-    findings = _run([ep], request_counts={})  # absent from counts → no_monitoring_data=True
+    findings = _run([ep], request_counts={})  # absent from counts -> no_monitoring_data=True
     assert findings == []
 
 
 def test_no_monitoring_data_below_double_threshold_skipped():
-    """No monitoring data + age < 2×idle_threshold → skipped (bias toward false negatives)."""
-    # age=20 < 28 (2*14) → missing metrics insufficient evidence of idleness
+    """No monitoring data + age < 2×idle_threshold -> skipped (bias toward false negatives)."""
+    # age=20 < 28 (2*14) -> missing metrics insufficient evidence of idleness
     ep = _endpoint(create_time=NOW - timedelta(days=20))
     findings = _run([ep], request_counts={})
     assert findings == []
 
 
 def test_no_monitoring_data_at_double_threshold_flagged():
-    """No monitoring data + age >= 2×idle_threshold → flagged with transparency signal."""
+    """No monitoring data + age >= 2×idle_threshold -> flagged with transparency signal."""
     ep = _endpoint(create_time=NOW - timedelta(days=28))  # exactly 2×threshold
     findings = _run([ep], request_counts={})
     assert len(findings) == 1
@@ -1298,7 +1298,7 @@ def test_long_series_points_skipped():
     ep = _endpoint(create_time=NOW - timedelta(days=30))
     client = _make_monitoring_client_with_many_points(n=10)
     findings = _run_with_monitoring_client([ep], client)
-    # Long series skipped → endpoint_id not in counts → no_monitoring_data=True
+    # Long series skipped -> endpoint_id not in counts -> no_monitoring_data=True
     assert len(findings) == 1
     assert findings[0].details["no_monitoring_data"] is True
 
@@ -1316,7 +1316,7 @@ def test_recent_traffic_spike_skipped():
 
 
 def test_cron_pattern_very_low_count_is_medium():
-    """count <= 2 (cron/batch heuristic) → MEDIUM confidence regardless of age.
+    """count <= 2 (cron/batch heuristic) -> MEDIUM confidence regardless of age.
 
     Very few requests over 14 days could be a weekly inference job, not abandonment.
     Behavior-based (count <= 2), not age-based.
@@ -1329,7 +1329,7 @@ def test_cron_pattern_very_low_count_is_medium():
 
 
 def test_cron_pattern_count_above_threshold_still_medium():
-    """count=3 (> 2, so NOT cron pattern) → MEDIUM because is_near_idle, not cron."""
+    """count=3 (> 2, so NOT cron pattern) -> MEDIUM because is_near_idle, not cron."""
     ep = _endpoint(create_time=NOW - timedelta(days=30))
     findings = _run([ep], request_counts={_ENDPOINT_ID: 3})
     assert len(findings) == 1
@@ -1349,7 +1349,7 @@ def test_effective_threshold_minimum_is_one():
 def test_requests_per_replica_in_details():
     """requests_per_replica is present in details and correctly computed."""
     ep = _endpoint(min_replica_count=2)
-    # count=0, replicas=2 → requests_per_replica = 0 / 2 = 0.0
+    # count=0, replicas=2 -> requests_per_replica = 0 / 2 = 0.0
     findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
     assert len(findings) == 1
     assert findings[0].details["requests_per_replica"] == pytest.approx(0.0)
