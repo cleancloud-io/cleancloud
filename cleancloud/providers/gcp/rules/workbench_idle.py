@@ -196,9 +196,7 @@ def find_idle_workbench_instances(
         labels = inst["labels"]
         instance_id = name.split("/")[-1] if name else ""
 
-        is_gpu = accel_type in _GPU_ACCELERATORS or (machine_type or "").startswith(
-            ("a2-", "g2-")
-        )
+        is_gpu = accel_type in _GPU_ACCELERATORS or (machine_type or "").startswith(("a2-", "g2-"))
 
         monthly_cost = _estimate_cost(machine_type, accel_type, accel_count)
 
@@ -214,7 +212,7 @@ def find_idle_workbench_instances(
         activity_source = "age (fallback)" if using_age_fallback else "updateTime"
 
         signals = [
-            f"Instance state: ACTIVE",
+            "Instance state: ACTIVE",
             f"Last control-plane activity: {idle_since_days} days ago ({activity_source})",
         ]
         if age_days is not None:
@@ -225,7 +223,9 @@ def find_idle_workbench_instances(
             signals.append(f"Accelerator: {accel_type} x {accel_count}")
         if is_gpu:
             accel_label = "TPU-backed" if (accel_type or "").startswith("TPU_") else "GPU-backed"
-            signals.append(f"{accel_label} instance — high continuous cost (~${monthly_cost:,.0f}/month)")
+            signals.append(
+                f"{accel_label} instance — high continuous cost (~${monthly_cost:,.0f}/month)"
+            )
         if using_age_fallback:
             signals.append(
                 "updateTime unavailable — age used as fallback signal; "
@@ -233,8 +233,8 @@ def find_idle_workbench_instances(
             )
 
         not_checked = [
-            f"Active kernel sessions not captured by updateTime (requires Cloud Monitoring agent)",
-            f"Scheduled notebook runs via Cloud Scheduler or Vertex AI Pipelines",
+            "Active kernel sessions not captured by updateTime (requires Cloud Monitoring agent)",
+            "Scheduled notebook runs via Cloud Scheduler or Vertex AI Pipelines",
             "Planned future use by the assigned user",
             f"Idle shutdown policy configured on the instance — may auto-stop before {idle_days} days",
         ]

@@ -721,10 +721,7 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
             )
             if resp.status_code == 403:
                 permissions_failed.append("notebooks.instances.list")
-                warn(
-                    "notebooks.instances.list — MISSING "
-                    "(rule: workbench_idle will be skipped)"
-                )
+                warn("notebooks.instances.list — MISSING " "(rule: workbench_idle will be skipped)")
             elif resp.status_code == 404:
                 info(
                     "notebooks.instances.list — Notebooks API not enabled in this project "

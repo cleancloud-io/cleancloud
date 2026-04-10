@@ -37,9 +37,12 @@
       "Resource": "*"
     },
     {
-      "Sid": "CloudWatchLogsReadOnly",
+      "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
-      "Action": "logs:DescribeLogGroups",
+      "Action": [
+        "cloudwatch:GetMetricStatistics",
+        "logs:DescribeLogGroups"
+      ],
       "Resource": "*"
     },
     {

@@ -19,8 +19,8 @@ from cleancloud.providers.gcp.rules.ip_unused import find_unused_static_ips
 from cleancloud.providers.gcp.rules.snapshot_old import find_old_snapshots
 from cleancloud.providers.gcp.rules.sql_instance_idle import find_idle_sql_instances
 from cleancloud.providers.gcp.rules.vertex_endpoint_idle import find_idle_vertex_endpoints
-from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.rules.vm_stopped import find_stopped_vms
+from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.session import create_gcp_session
 from cleancloud.providers.gcp.validate import validate_project_params, validate_region_params
 

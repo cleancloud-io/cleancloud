@@ -23,11 +23,10 @@ import pytest
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
 from cleancloud.providers.gcp.rules.workbench_idle import (
-    RULE_METADATA,
-    _DAYS_IDLE,
     _DEFAULT_MACHINE_MONTHLY_COST,
     _GPU_MONTHLY_COST_EACH,
     _MACHINE_MONTHLY_COST,
+    RULE_METADATA,
     _estimate_cost,
     _normalize,
     find_idle_workbench_instances,
@@ -196,9 +195,7 @@ class TestFindIdleWorkbenchInstances:
             "cleancloud.providers.gcp.rules.workbench_idle._list_instances",
             return_value=instances,
         ):
-            with patch(
-                "cleancloud.providers.gcp.rules.workbench_idle.datetime"
-            ) as mock_dt:
+            with patch("cleancloud.providers.gcp.rules.workbench_idle.datetime") as mock_dt:
                 mock_dt.now.return_value = NOW
                 mock_dt.fromisoformat = datetime.fromisoformat
                 return find_idle_workbench_instances(
@@ -287,7 +284,11 @@ class TestFindIdleWorkbenchInstances:
 
     def test_gpu_cost_includes_addon(self):
         findings = self._run(
-            [_v2_instance(machine_type="n1-standard-4", accel_type="NVIDIA_TESLA_T4", accel_count=1)]
+            [
+                _v2_instance(
+                    machine_type="n1-standard-4", accel_type="NVIDIA_TESLA_T4", accel_count=1
+                )
+            ]
         )
         expected = (
             _MACHINE_MONTHLY_COST["n1-standard-4"] + _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
