@@ -13,6 +13,10 @@
 
 CleanCloud tells you exactly what to delete in your cloud — with cost per resource. Catches idle AI/ML resources burning $500–$23K/month unnoticed. Policy-as-code enforcement means exceptions, thresholds, and rules live in git alongside your infrastructure.
 
+> CleanCloud detects always-on AI infrastructure with zero workload.
+> Not utilisation dashboards. Not cost reports.
+> Deterministic waste detection — cross-cloud.
+
 **No agents. No SaaS. Read-only.**
 
 ## Quick Start
@@ -138,10 +142,10 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
-- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints, AML compute clusters, and Vertex AI endpoints silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
+- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints and notebooks, AML compute clusters and instances, Vertex AI endpoints and Workbench instances — silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
 - **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
-- **33 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **36 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
