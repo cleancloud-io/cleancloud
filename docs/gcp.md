@@ -609,7 +609,6 @@ Projects with an API disabled return 0 findings for that rule (skipped automatic
 | Instance STOPPED | No — not incurring compute charges |
 | Instance younger than 7 days | No — too new to classify |
 
-Covers both v1 (User-Managed Notebooks) and v2 (Vertex AI Workbench) instances.
 
 ### Confidence and Risk
 

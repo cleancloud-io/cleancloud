@@ -82,7 +82,7 @@ Every finding includes a confidence level:
 | `gcp.compute.ip.unused` | Network | Reserved static IPs (regional and global) in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 14+ days |
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
-| `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances (v1 + v2) ACTIVE with no control-plane activity for 14+ days (`--category ai`) |
+| `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances ACTIVE with no control-plane activity for 14+ days (`--category ai`) |
 
 ---
 
@@ -1696,7 +1696,7 @@ Costs are approximate for us-central1, on-demand. Multiply by `minReplicaCount` 
 
 **Rule ID:** `gcp.vertex.workbench.idle`
 
-**What it detects:** Vertex AI Workbench instances (v1 User-Managed Notebooks and v2 Workbench) in ACTIVE state with no control-plane activity for 14+ days
+**What it detects:** Vertex AI Workbench instances in ACTIVE state with no control-plane activity for 14+ days
 
 **Confidence:**
 
@@ -1720,10 +1720,6 @@ for instance in notebooks_api.list(project_id, location="-"):  # all locations
 ```
 
 **updateTime** is updated by the Notebooks API when the instance is started, stopped, restarted, or reconfigured. Instances with stale `updateTime` have had no control-plane activity. This mirrors `LastModifiedTime` (SageMaker) and `last_modified_at` (Azure ML).
-
-**Covers both API generations:**
-- v2: Vertex AI Workbench (current) — queried via `locations/-` wildcard
-- v1: User-Managed Notebooks (deprecated Sept 2024) — queried per-location; flagged instances include a deprecation notice
 
 **Cost estimates (per instance, us-central1, on-demand):**
 

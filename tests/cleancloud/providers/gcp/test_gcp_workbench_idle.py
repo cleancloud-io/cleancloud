@@ -128,25 +128,12 @@ class TestNormalize:
         assert norm["machine_type"] == "n1-standard-4"
         assert norm["accel_type"] == ""
         assert norm["accel_count"] == 0
-        assert norm["api_version"] == "v2"
 
     def test_v2_with_gpu(self):
         raw = _v2_instance(accel_type="NVIDIA_TESLA_T4", accel_count=2)
         norm = _normalize(raw)
         assert norm["accel_type"] == "NVIDIA_TESLA_T4"
         assert norm["accel_count"] == 2
-
-    def test_v1_machine_type_path_stripped(self):
-        raw = _v1_instance(machine_type="zones/us-central1-a/machineTypes/n1-highmem-8")
-        norm = _normalize(raw)
-        assert norm["machine_type"] == "n1-highmem-8"
-        assert norm["api_version"] == "v1"
-
-    def test_v1_with_gpu(self):
-        raw = _v1_instance(accel_type="NVIDIA_TESLA_A100", accel_count=1)
-        norm = _normalize(raw)
-        assert norm["accel_type"] == "NVIDIA_TESLA_A100"
-        assert norm["accel_count"] == 1
 
     def test_unspecified_accel_normalized_to_empty(self):
         raw = _v2_instance(accel_type="ACCELERATOR_TYPE_UNSPECIFIED")
@@ -292,12 +279,6 @@ class TestFindIdleWorkbenchInstances:
     def test_region_filter_case_insensitive(self):
         findings = self._run([_v2_instance()], region_filter="US-CENTRAL1")
         assert len(findings) == 1
-
-    def test_v1_instance_flagged_with_deprecation_signal(self):
-        findings = self._run([_v1_instance()])
-        assert len(findings) == 1
-        signals = findings[0].evidence.signals_used
-        assert any("v1" in s.lower() or "deprecated" in s.lower() for s in signals)
 
     def test_cost_estimate_in_finding(self):
         findings = self._run([_v2_instance(machine_type="n1-standard-4")])

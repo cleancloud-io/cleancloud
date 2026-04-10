@@ -80,32 +80,6 @@ _GPU_MONTHLY_COST_EACH = {
 
 _DAYS_IDLE = 14
 
-# Locations where Vertex AI Workbench is available
-_NOTEBOOK_LOCATIONS = [
-    "us-central1",
-    "us-east1",
-    "us-east4",
-    "us-west1",
-    "us-west2",
-    "us-west4",
-    "northamerica-northeast1",
-    "southamerica-east1",
-    "europe-west1",
-    "europe-west2",
-    "europe-west3",
-    "europe-west4",
-    "europe-west6",
-    "europe-north1",
-    "asia-east1",
-    "asia-east2",
-    "asia-northeast1",
-    "asia-northeast3",
-    "asia-south1",
-    "asia-southeast1",
-    "australia-southeast1",
-    "me-west1",
-]
-
 
 def find_idle_workbench_instances(
     *,
@@ -121,10 +95,6 @@ def find_idle_workbench_instances(
     of whether any notebooks or kernels are running. GPU-backed instances cost
     $300–$2,900+/month. Data scientists frequently leave instances running after
     a sprint ends, a project is deprioritised, or when they switch to a new instance.
-
-    Covers both generations:
-    - Vertex AI Workbench (v2): current managed notebook experience
-    - User-Managed Notebooks (v1): older generation, deprecated Sept 2024
 
     Detection logic:
     - Instance state is ACTIVE (only ACTIVE instances incur compute charges)
@@ -225,7 +195,6 @@ def find_idle_workbench_instances(
         accel_count = inst["accel_count"]
         labels = inst["labels"]
         instance_id = name.split("/")[-1] if name else ""
-        api_version = inst["api_version"]
 
         is_gpu = accel_type in _GPU_ACCELERATORS or (machine_type or "").startswith(
             ("a2-", "g2-")
@@ -252,8 +221,7 @@ def find_idle_workbench_instances(
             signals.append(f"Instance age: {age_days} days")
         if machine_type:
             signals.append(f"Machine type: {machine_type}")
-        if is_gpu and accel_type and accel_type != "ACCELERATOR_TYPE_UNSPECIFIED":
-            accel_label = "TPU-backed" if accel_type.startswith("TPU_") else "GPU-backed"
+        if is_gpu and accel_type:
             signals.append(f"Accelerator: {accel_type} x {accel_count}")
         if is_gpu:
             accel_label = "TPU-backed" if (accel_type or "").startswith("TPU_") else "GPU-backed"
@@ -262,11 +230,6 @@ def find_idle_workbench_instances(
             signals.append(
                 "updateTime unavailable — age used as fallback signal; "
                 "confidence capped at MEDIUM"
-            )
-        if api_version == "v1":
-            signals.append(
-                "User-Managed Notebook (v1 API) — deprecated Sept 2024; "
-                "consider migrating to Vertex AI Workbench"
             )
 
         not_checked = [
@@ -339,7 +302,7 @@ def find_idle_workbench_instances(
                     "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
                     "cost_basis": "us-central1 baseline estimate",
                     "labels": labels,
-                    "api_version": api_version,
+                    "api_version": "v2",
                 },
             )
         )
@@ -352,128 +315,49 @@ find_idle_workbench_instances.RULE_ID = "gcp.vertex.workbench.idle"
 
 def _list_instances(session: AuthorizedSession, project_id: str) -> list:
     """
-    List all ACTIVE Vertex AI Workbench instances across all locations.
+    List all Vertex AI Workbench instances across all locations using the v2 API.
 
-    Queries both v2 (Vertex AI Workbench, current) and v1 (User-Managed Notebooks,
-    deprecated Sept 2024) APIs to give full coverage across generations.
-
-    v2 uses the locations/- wildcard for a single paginated call.
-    v1 queries each known location individually.
+    Uses the locations/- wildcard for a single paginated call covering all regions.
 
     Raises PermissionError on 403. Returns [] on 404 (API not enabled).
     """
     results = []
-    seen_names: set = set()
+    url = f"https://notebooks.googleapis.com/v2/projects/{project_id}/locations/-/instances"
+    params: dict = {"pageSize": 100}
 
-    # --- v2: Vertex AI Workbench (current generation) ---
-    v2_base = f"https://notebooks.googleapis.com/v2/projects/{project_id}/locations"
-
-    def _paginate_v2(url: str) -> Optional[list]:
-        out = []
-        params: dict = {"pageSize": 100}
-        while True:
-            try:
-                resp = session.get(url, params=params)
-            except Exception:
-                break  # network error — skip this URL, don't abort project scan
-            if resp.status_code == 403:
-                raise PermissionError(
-                    "notebooks.instances.list permission required (roles/notebooks.viewer)"
-                )
-            if resp.status_code == 404:
-                return []
-            if resp.status_code == 400:
-                return None  # wildcard not supported — signal caller to try per-location
-            if resp.status_code >= 500:
-                break  # transient server error — skip rather than abort scan
-            resp.raise_for_status()
-            data = resp.json()
-            for inst in data.get("instances", []):
-                inst["_api_version"] = "v2"
-                out.append(inst)
-            next_token = data.get("nextPageToken")
-            if not next_token:
-                break
-            params["pageToken"] = next_token
-        return out
-
-    v2_result = _paginate_v2(f"{v2_base}/-/instances")
-    if v2_result is None:
-        # Wildcard not supported — query per location
-        for loc in _NOTEBOOK_LOCATIONS:
-            loc_result = _paginate_v2(f"{v2_base}/{loc}/instances")
-            if loc_result is None:
-                continue
-            for inst in loc_result:
-                n = inst.get("name", "")
-                if n and n not in seen_names:
-                    seen_names.add(n)
-                    results.append(inst)
-    else:
-        for inst in v2_result:
-            n = inst.get("name", "")
-            if n:
-                seen_names.add(n)
-                results.append(inst)
-
-    # --- v1: User-Managed Notebooks (deprecated, but still widely deployed) ---
-    v1_base = f"https://notebooks.googleapis.com/v1/projects/{project_id}/locations"
-
-    for loc in _NOTEBOOK_LOCATIONS:
-        params: dict = {"pageSize": 100}
-        while True:
-            try:
-                resp = session.get(f"{v1_base}/{loc}/instances", params=params)
-            except Exception:
-                break  # network error — skip location, don't abort project scan
-            if resp.status_code == 403:
-                # v1 returns 403 for locations it doesn't support with a body
-                # containing "is not found or access is unauthorized" — this is
-                # not a real permission failure, just an unsupported region.
-                # Only raise for genuine auth denials.
-                try:
-                    err_msg = resp.json().get("error", {}).get("message", "")
-                except Exception:
-                    err_msg = ""
-                if "not found or access is unauthorized" in err_msg.lower():
-                    break  # unsupported location — skip silently
-                raise PermissionError(
-                    "notebooks.instances.list permission required (roles/notebooks.viewer)"
-                )
-            if resp.status_code in (404, 400):
-                break  # location not available or API not enabled
-            if resp.status_code >= 500:
-                break  # transient server error — skip location rather than abort scan
-            resp.raise_for_status()
-            data = resp.json()
-            for inst in data.get("instances", []):
-                n = inst.get("name", "")
-                if n and n not in seen_names:
-                    # v1 instances have a different name path prefix
-                    inst["_api_version"] = "v1"
-                    seen_names.add(n)
-                    results.append(inst)
-            next_token = data.get("nextPageToken")
-            if not next_token:
-                break
-            params["pageToken"] = next_token
+    while True:
+        try:
+            resp = session.get(url, params=params)
+        except Exception:
+            break  # network error — skip, don't abort project scan
+        if resp.status_code == 403:
+            raise PermissionError(
+                "notebooks.instances.list permission required (roles/notebooks.viewer)"
+            )
+        if resp.status_code in (404, 400):
+            return []  # API not enabled for this project
+        if resp.status_code >= 500:
+            break  # transient server error — skip rather than abort scan
+        resp.raise_for_status()
+        data = resp.json()
+        for inst in data.get("instances", []):
+            inst["_api_version"] = "v2"
+            results.append(inst)
+        next_token = data.get("nextPageToken")
+        if not next_token:
+            break
+        params["pageToken"] = next_token
 
     return results
 
 
 def _normalize(instance: dict) -> dict:
     """
-    Normalize a v1 or v2 Workbench instance dict to a common schema.
+    Normalize a v2 Workbench instance dict to a common schema.
 
-    v2 (Vertex AI Workbench):
-      machineType lives under gceSetup.machineType (already short name)
-      accelerators under gceSetup.acceleratorConfigs (list)
-
-    v1 (User-Managed Notebooks):
-      machineType is a zone-qualified path: zones/{zone}/machineTypes/{type}
-      accelerator under acceleratorConfig (singular dict)
+    machineType lives under gceSetup.machineType (short name).
+    Accelerators under gceSetup.acceleratorConfigs (list).
     """
-    api_version = instance.get("_api_version", "v2")
     name = instance.get("name", "")
 
     # Extract location from resource name:
@@ -481,18 +365,11 @@ def _normalize(instance: dict) -> dict:
     parts = name.split("/")
     location = parts[3] if len(parts) > 3 else ""
 
-    if api_version == "v2":
-        gce = instance.get("gceSetup", {})
-        machine_type = gce.get("machineType", "")
-        accels = gce.get("acceleratorConfigs", [])
-        accel_type = accels[0].get("type", "") if accels else ""
-        accel_count = int(accels[0].get("coreCount", 0) or 0) if accels else 0
-    else:
-        mt_raw = instance.get("machineType", "")
-        machine_type = mt_raw.split("/")[-1] if "/" in mt_raw else mt_raw
-        accel = instance.get("acceleratorConfig", {}) or {}
-        accel_type = accel.get("type", "")
-        accel_count = int(accel.get("coreCount", 0) or 0)
+    gce = instance.get("gceSetup", {})
+    machine_type = gce.get("machineType", "")
+    accels = gce.get("acceleratorConfigs", [])
+    accel_type = accels[0].get("type", "") if accels else ""
+    accel_count = int(accels[0].get("coreCount", 0) or 0) if accels else 0
 
     if accel_type == "ACCELERATOR_TYPE_UNSPECIFIED":
         accel_type = ""
@@ -507,7 +384,6 @@ def _normalize(instance: dict) -> dict:
         "accel_type": accel_type,
         "accel_count": accel_count,
         "labels": instance.get("labels", {}),
-        "api_version": api_version,
     }
 
 
