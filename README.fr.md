@@ -223,13 +223,14 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
 | Instance de calcul Azure ML (GPU) | 600 – 15 000+ $ / mois |
 | Endpoint Vertex AI Online Prediction (GPU) | 449 – 23 000+ $ / mois |
+| Instance Vertex AI Workbench (GPU) | 449 – 8 000+ $ / mois |
 
 CleanCloud détecte les endpoints à zéro invocation / zéro prédiction et les instances de notebook inactives sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
 
 ```bash
-cleancloud scan --provider aws --category ai          # endpoints SageMaker
-cleancloud scan --provider azure --category ai        # clusters AML Compute
-cleancloud scan --provider gcp --category ai          # endpoints Vertex AI
+cleancloud scan --provider aws --category ai          # endpoints + notebooks SageMaker
+cleancloud scan --provider azure --category ai        # clusters AML + instances ML
+cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench
 cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
 ```
 
@@ -491,7 +492,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
 - Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
 - Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
-- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois)
+- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois) ; instances Workbench (v1 + v2) sans activité depuis 14+ jours — instances GPU flaggées HIGH/CRITICAL ($449–$8K+/mois)
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 
@@ -501,7 +502,7 @@ Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuri
 
 ## Feuille de route
 
-**Plus de règles IA/ML** — SageMaker Training Jobs (runaway/bloqués), artefacts d'entraînement orphelins dans S3, instances de notebook Vertex AI inactives
+**Plus de règles IA/ML** — SageMaker Training Jobs (runaway/bloqués), artefacts d'entraînement orphelins dans S3
 
 **Plus de règles AWS** — lacunes de cycle de vie S3, Redshift inactif, fuite de coût NAT Gateway, VPC endpoints inutilisés
 

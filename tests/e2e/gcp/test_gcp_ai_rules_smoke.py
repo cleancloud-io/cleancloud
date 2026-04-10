@@ -4,6 +4,7 @@ import pytest
 
 from cleancloud.core.finding import Finding
 from cleancloud.providers.gcp.rules.vertex_endpoint_idle import find_idle_vertex_endpoints
+from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.session import create_gcp_session
 
 
@@ -19,6 +20,7 @@ def test_gcp_ai_rules_run_without_error():
 
     rules = [
         find_idle_vertex_endpoints,
+        find_idle_workbench_instances,
     ]
 
     all_results = []

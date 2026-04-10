@@ -13,7 +13,7 @@
 | Single-project scan | `roles/compute.viewer` + `roles/cloudsql.viewer` + `roles/monitoring.viewer` on the target project |
 | Multi-project / org-wide scan | Same 3 roles + `roles/browser` — bound at the **organization or folder level** (covers all projects automatically) |
 | Project enumeration (`--all-projects`) | `roles/browser` at org or folder level |
-| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai) |
+| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` + `roles/notebooks.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai) |
 
 All roles are read-only. No create, delete, or modify permissions — ever.
 
@@ -522,7 +522,7 @@ This means you can run CleanCloud with only the permissions you have — it repo
 
 ## AI/ML Scanning (Vertex AI)
 
-Detect idle Vertex AI Online Prediction endpoints — deployed models with `minReplicaCount > 0` that keep dedicated compute running 24/7 with zero prediction traffic. GPU-backed endpoints (T4, V100, A100, L4, H100) cost $300–$8K/month per GPU and are the highest-cost idle resource type in most GCP AI workloads.
+Detect idle Vertex AI resources — online prediction endpoints keeping dedicated compute alive with zero traffic, and Workbench instances left running after a project ends. GPU-backed resources (T4, V100, A100, L4, H100) cost $300–$8K/month and are the highest-cost idle resource type in most GCP AI workloads.
 
 AI scanning is **opt-in** — it requires an extra role and runs separately from hygiene scanning.
 
@@ -540,13 +540,14 @@ cleancloud scan --provider gcp --category ai --all-projects
 cleancloud scan --provider gcp --category all --all-projects
 ```
 
-### Required Permission
+### Required Permissions
 
-One additional role beyond the hygiene roles:
+Two additional roles beyond the hygiene roles:
 
-| Role | What it grants |
-|---|---|
-| `roles/aiplatform.viewer` | `aiplatform.endpoints.list` + `aiplatform.endpoints.get` |
+| Role | What it grants | Rule |
+|---|---|---|
+| `roles/aiplatform.viewer` | `aiplatform.endpoints.list` + `aiplatform.endpoints.get` | `gcp.vertex.endpoint.idle` |
+| `roles/notebooks.viewer` | `notebooks.instances.list` | `gcp.vertex.workbench.idle` |
 
 `roles/monitoring.viewer` is already required for hygiene rules — no additional grant needed.
 
@@ -555,6 +556,10 @@ One additional role beyond the hygiene roles:
 gcloud organizations add-iam-policy-binding "${ORG_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/aiplatform.viewer"
+
+gcloud organizations add-iam-policy-binding "${ORG_ID}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/notebooks.viewer"
 ```
 
 **Grant at project level** (single project only):
@@ -562,19 +567,31 @@ gcloud organizations add-iam-policy-binding "${ORG_ID}" \
 gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --member="serviceAccount:${SA_EMAIL}" \
   --role="roles/aiplatform.viewer"
+
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${SA_EMAIL}" \
+  --role="roles/notebooks.viewer"
 ```
 
-The full role definition is in [`security/gcp/ai-readonly-roles.json`](../security/gcp/ai-readonly-roles.json).
+The full role definitions are in [`security/gcp/ai-readonly-roles.json`](../security/gcp/ai-readonly-roles.json).
 
-### Enable the Vertex AI API
+### Enable Required APIs
 
-The Vertex AI API must be enabled in each project you want to scan. Projects with the API disabled return 0 findings (the rule is skipped automatically — not an error):
-
+**Vertex AI** (for `gcp.vertex.endpoint.idle`):
 ```bash
 gcloud services enable aiplatform.googleapis.com --project="${PROJECT_ID}"
 ```
 
+**Notebooks** (for `gcp.vertex.workbench.idle`):
+```bash
+gcloud services enable notebooks.googleapis.com --project="${PROJECT_ID}"
+```
+
+Projects with an API disabled return 0 findings for that rule (skipped automatically — not an error).
+
 ### What Gets Flagged
+
+**Vertex AI Endpoints (`gcp.vertex.endpoint.idle`):**
 
 | Condition | Flagged |
 |---|---|
@@ -583,12 +600,30 @@ gcloud services enable aiplatform.googleapis.com --project="${PROJECT_ID}"
 | Endpoint with predictions in the last 14 days | No |
 | Endpoint younger than 7 days | No — too new to classify |
 
+**Vertex AI Workbench (`gcp.vertex.workbench.idle`):**
+
+| Condition | Flagged |
+|---|---|
+| Instance ACTIVE + `updateTime` ≥ 14 days ago | Yes |
+| Instance ACTIVE + age ≥ 14 days (when `updateTime` unavailable) | Yes — MEDIUM confidence |
+| Instance STOPPED | No — not incurring compute charges |
+| Instance younger than 7 days | No — too new to classify |
+
+
 ### Confidence and Risk
 
+**Endpoints:**
 - **HIGH confidence:** Zero predictions for the full 14-day window (endpoint ≥ 14 days old)
 - **MEDIUM confidence:** Zero predictions, endpoint 10–14 days old, or age unknown
 - **HIGH risk:** GPU-backed endpoint (NVIDIA_TESLA_T4, V100, A100, L4, H100, TPU)
 - **MEDIUM risk:** CPU-only endpoint
+
+**Workbench:**
+- **HIGH confidence:** `updateTime` ≥ 14 days AND instance age ≥ 14 days
+- **MEDIUM confidence:** `updateTime` ≥ 10 days **and** instance age ≥ 10 days, or `updateTime` unavailable (age-fallback)
+- **CRITICAL risk:** GPU-backed, idle ≥ 28 days (2× threshold)
+- **HIGH risk:** GPU-backed instance
+- **MEDIUM risk:** CPU-only instance
 
 ### Validate Before Running
 
@@ -597,9 +632,10 @@ cleancloud doctor --provider gcp --project <PROJECT_ID> --category ai
 ```
 
 Output confirms:
-- `aiplatform.endpoints.list` — required for scanning
+- `aiplatform.endpoints.list` — required for endpoint scanning
+- `notebooks.instances.list` — required for workbench scanning
 - `monitoring.timeSeries.list` — required for idle detection metrics
-- Which projects have the Vertex AI API enabled
+- Which projects have the required APIs enabled
 
 ---
 

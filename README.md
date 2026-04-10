@@ -223,13 +223,14 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | Azure AML compute cluster (GPU) | $600 – $15,000 / month |
 | Azure ML Compute Instance (GPU) | $600 – $15,000+ / month |
 | Vertex AI Online Prediction endpoint (GPU) | $449 – $23,000+ / month |
+| Vertex AI Workbench instance (GPU) | $449 – $8,000+ / month |
 
 CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
 
 ```bash
-cleancloud scan --provider aws --category ai          # SageMaker endpoints
-cleancloud scan --provider azure --category ai        # AML compute clusters
-cleancloud scan --provider gcp --category ai          # Vertex AI endpoints
+cleancloud scan --provider aws --category ai          # SageMaker endpoints + notebooks
+cleancloud scan --provider azure --category ai        # AML compute clusters + ML instances
+cleancloud scan --provider gcp --category ai          # Vertex AI endpoints + Workbench
 cleancloud scan --provider aws --category all         # hygiene + AI/ML together
 ```
 
@@ -491,7 +492,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Storage: unattached Persistent Disks (HIGH), old snapshots 90+ days
 - Network: unused reserved static IPs — regional and global (HIGH)
 - Platform: idle Cloud SQL instances with zero connections 14+ days (HIGH)
-- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month)
+- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month); idle Workbench instances (v1 + v2) with no control-plane activity 14+ days — GPU instances flagged HIGH/CRITICAL ($449–$8K+/month)
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 
@@ -501,7 +502,7 @@ Rules without a confidence marker are MEDIUM — they use time-based heuristics 
 
 ## Roadmap
 
-**More AI/ML waste rules** — SageMaker Training Jobs (runaway/hung), orphaned training artifacts in S3, Vertex AI notebook instances idle
+**More AI/ML waste rules** — SageMaker Training Jobs (runaway/hung), orphaned training artifacts in S3
 
 **More AWS rules** — S3 lifecycle gaps, Redshift idle, NAT Gateway cost leakage (internal services routing through NAT instead of VPC endpoints — S3, DynamoDB, ECR, SSM), unused VPC endpoints
 

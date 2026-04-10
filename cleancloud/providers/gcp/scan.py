@@ -20,6 +20,7 @@ from cleancloud.providers.gcp.rules.snapshot_old import find_old_snapshots
 from cleancloud.providers.gcp.rules.sql_instance_idle import find_idle_sql_instances
 from cleancloud.providers.gcp.rules.vertex_endpoint_idle import find_idle_vertex_endpoints
 from cleancloud.providers.gcp.rules.vm_stopped import find_stopped_vms
+from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.session import create_gcp_session
 from cleancloud.providers.gcp.validate import validate_project_params, validate_region_params
 
@@ -64,6 +65,7 @@ GCP_RULE_MAP: Dict[str, Callable] = {
 
 GCP_RULE_MAP_AI: Dict[str, Callable] = {
     "gcp.vertex.endpoint.idle": find_idle_vertex_endpoints,
+    "gcp.vertex.workbench.idle": find_idle_workbench_instances,
 }
 
 GCP_RULES: List[Callable] = list(GCP_RULE_MAP.values())

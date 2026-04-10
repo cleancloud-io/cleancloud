@@ -710,6 +710,30 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
     else:
         info("monitoring.timeSeries.list — skipped (no project specified)")
 
+    # --- notebooks.instances.list ---
+    if probe_project_id:
+        try:
+            session = AuthorizedSession(credentials)
+            resp = session.get(
+                f"https://notebooks.googleapis.com/v2"
+                f"/projects/{probe_project_id}/locations/-/instances",
+                params={"pageSize": 1},
+            )
+            if resp.status_code == 403:
+                permissions_failed.append("notebooks.instances.list")
+                warn("notebooks.instances.list — MISSING " "(rule: workbench_idle will be skipped)")
+            elif resp.status_code == 404:
+                info(
+                    "notebooks.instances.list — Notebooks API not enabled in this project "
+                    "(enable via: gcloud services enable notebooks.googleapis.com)"
+                )
+            else:
+                success("notebooks.instances.list")
+        except Exception as e:
+            info(f"notebooks.instances.list — check skipped ({type(e).__name__})")
+    else:
+        info("notebooks.instances.list — skipped (no project specified)")
+
     # -------------------------------------------------------------------------
     # Rule coverage summary
     # -------------------------------------------------------------------------
@@ -730,19 +754,30 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
     else:
         warn("  ✗ gcp.vertex.endpoint.idle          (disabled: missing aiplatform.endpoints.list)")
 
+    if "notebooks.instances.list" not in permissions_failed:
+        success("  ✓ gcp.vertex.workbench.idle         (enabled)")
+    else:
+        warn("  ✗ gcp.vertex.workbench.idle         (disabled: missing notebooks.instances.list)")
+
     # -------------------------------------------------------------------------
     # Remediation guidance
     # -------------------------------------------------------------------------
     if permissions_failed:
         info("")
-        info("To grant the required permissions, add roles/aiplatform.viewer:")
+        info("To grant the required permissions:")
         info("")
         sa_hint = "SA_EMAIL@PROJECT.iam.gserviceaccount.com"
         proj_hint = probe_project_id or "PROJECT_ID"
-        info(f"  gcloud projects add-iam-policy-binding {proj_hint} \\")
-        info(f'    --member="serviceAccount:{sa_hint}" \\')
-        info('    --role="roles/aiplatform.viewer"')
-        info("")
+        roles_needed = []
+        if "aiplatform.endpoints.list" in permissions_failed:
+            roles_needed.append("roles/aiplatform.viewer")
+        if "notebooks.instances.list" in permissions_failed:
+            roles_needed.append("roles/notebooks.viewer")
+        for role in roles_needed:
+            info(f"  gcloud projects add-iam-policy-binding {proj_hint} \\")
+            info(f'    --member="serviceAccount:{sa_hint}" \\')
+            info(f'    --role="{role}"')
+            info("")
         info("Then re-run: cleancloud doctor --provider gcp --category ai")
         info("")
         warn("GCP AI/ML PERMISSIONS INCOMPLETE")
