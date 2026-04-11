@@ -42,7 +42,7 @@ def _version_info():
 
     if not providers:
         lines.append("")
-        lines.append("Install providers: pipx install cleancloud --force")
+        lines.append("Install providers: pip install 'cleancloud[aws]'  # or [azure], [gcp], [all]")
 
     return "\n".join(lines)
 

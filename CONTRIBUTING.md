@@ -53,9 +53,8 @@ cd cleancloud
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
-pip install -e .
-pip install -r requirements-dev.txt  # If exists
+# Install with all cloud SDKs and dev dependencies
+pip install -e '.[all,dev]'
 ```
 
 ### 3. Run Tests

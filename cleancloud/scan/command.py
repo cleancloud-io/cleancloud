@@ -4,7 +4,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-import botocore.exceptions
+try:
+    import botocore.exceptions
+
+    _NoCredentialsError = botocore.exceptions.NoCredentialsError
+except ImportError:
+
+    class _NoCredentialsError(Exception):  # type: ignore[no-redef]
+        """Never raised — placeholder so the except clause compiles without boto3."""
+
+
 import click
 import yaml
 
@@ -41,33 +50,82 @@ from cleancloud.policy.exit_policy import (
     EXIT_POLICY_VIOLATION,
     determine_exit_code,
 )
-from cleancloud.providers.aws.multi_account import (
-    AccountScanResult,
-    discover_org_accounts,
-    scan_multiple_accounts,
-)
-from cleancloud.providers.aws.scan import (
-    AWS_AI_RULES,
-    AWS_RULE_MAP,
-    AWS_RULE_MAP_AI,
-    AWS_RULES,
-    scan_aws_with_region_selection,
-)
-from cleancloud.providers.azure.scan import (
-    AZURE_AI_RULES,
-    AZURE_RULE_MAP,
-    AZURE_RULE_MAP_AI,
-    AZURE_RULES,
-    scan_azure_with_region_selection,
-)
-from cleancloud.providers.gcp.scan import (
-    GCP_AI_RULES,
-    GCP_RULE_MAP,
-    GCP_RULE_MAP_AI,
-    GCP_RULES,
-    ProjectScanResult,
-    scan_gcp_with_project_selection,
-)
+
+try:
+    from cleancloud.providers.aws.multi_account import (
+        AccountScanResult,
+        discover_org_accounts,
+        scan_multiple_accounts,
+    )
+    from cleancloud.providers.aws.scan import (
+        AWS_AI_RULES,
+        AWS_RULE_MAP,
+        AWS_RULE_MAP_AI,
+        AWS_RULES,
+        scan_aws_with_region_selection,
+    )
+
+    _AWS_AVAILABLE = True
+except ImportError:
+    _AWS_AVAILABLE = False
+    AWS_RULES = AWS_AI_RULES = []
+    AWS_RULE_MAP = AWS_RULE_MAP_AI = {}
+    AccountScanResult = None
+    discover_org_accounts = scan_multiple_accounts = scan_aws_with_region_selection = None
+
+try:
+    from cleancloud.providers.azure.scan import (
+        AZURE_AI_RULES,
+        AZURE_RULE_MAP,
+        AZURE_RULE_MAP_AI,
+        AZURE_RULES,
+        scan_azure_with_region_selection,
+    )
+
+    _AZURE_AVAILABLE = True
+except ImportError:
+    _AZURE_AVAILABLE = False
+    AZURE_RULES = AZURE_AI_RULES = []
+    AZURE_RULE_MAP = AZURE_RULE_MAP_AI = {}
+    scan_azure_with_region_selection = None
+
+try:
+    from cleancloud.providers.gcp.scan import (
+        GCP_AI_RULES,
+        GCP_RULE_MAP,
+        GCP_RULE_MAP_AI,
+        GCP_RULES,
+        ProjectScanResult,
+        scan_gcp_with_project_selection,
+    )
+
+    _GCP_AVAILABLE = True
+except ImportError:
+    _GCP_AVAILABLE = False
+    GCP_RULES = GCP_AI_RULES = []
+    GCP_RULE_MAP = GCP_RULE_MAP_AI = {}
+    ProjectScanResult = None
+    scan_gcp_with_project_selection = None
+
+_PROVIDER_AVAILABLE = {
+    "aws": lambda: _AWS_AVAILABLE,
+    "azure": lambda: _AZURE_AVAILABLE,
+    "gcp": lambda: _GCP_AVAILABLE,
+}
+_INSTALL_HINTS = {
+    "aws": "pip install 'cleancloud[aws]'",
+    "azure": "pip install 'cleancloud[azure]'",
+    "gcp": "pip install 'cleancloud[gcp]'",
+}
+
+
+def _require_provider(provider: str) -> None:
+    if not _PROVIDER_AVAILABLE.get(provider, lambda: True)():
+        click.echo(f"Provider '{provider}' SDK is not installed.")
+        click.echo(
+            f"Install it with: {_INSTALL_HINTS.get(provider, 'pip install cleancloud[all]')}"
+        )
+        sys.exit(EXIT_ERROR)
 
 
 @click.command("scan")
@@ -287,6 +345,8 @@ def scan(
         provider = cfg.scan.provider
     if provider is None:
         raise click.UsageError("--provider is required (or set scan.provider in cleancloud.yaml)")
+
+    _require_provider(provider)
 
     # Resolve regions for AWS: CLI flags > scan.regions in config > error (handled in validate)
     if provider == "aws" and not region and not all_regions and cfg.scan and cfg.scan.regions:
@@ -846,7 +906,7 @@ def scan(
         click.echo(f"Run `cleancloud doctor --provider {provider}` to diagnose.")
         sys.exit(EXIT_PERMISSION_ERROR)
 
-    except botocore.exceptions.NoCredentialsError:
+    except _NoCredentialsError:
         click.echo()
         click.echo("Authentication failed — no AWS credentials found.")
         click.echo()

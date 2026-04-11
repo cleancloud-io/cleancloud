@@ -45,7 +45,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::${{ vars.AWS_ACCOUNT_ID }}:role/CleanCloudCIReadOnly
           aws-region: us-east-1
-      - run: pip install cleancloud
+      - run: pip install 'cleancloud[aws]'
       - run: cleancloud scan --provider aws --all-regions --fail-on-confidence HIGH
 ```
 
@@ -66,7 +66,7 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      - run: pip install cleancloud
+      - run: pip install 'cleancloud[azure]'
       - run: cleancloud scan --provider azure --fail-on-confidence HIGH
 ```
 
@@ -86,7 +86,7 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-      - run: pip install cleancloud
+      - run: pip install 'cleancloud[gcp]'
       - run: cleancloud scan --provider gcp --all-projects --fail-on-confidence HIGH
 ```
 
@@ -527,7 +527,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[aws]'
 
       - name: Validate credentials
         run: cleancloud doctor --provider aws
@@ -579,7 +579,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[aws]'
 
       - name: Validate AI permissions
         run: cleancloud doctor --provider aws --category ai
@@ -635,7 +635,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[azure]'
 
       - name: Validate AI permissions
         run: cleancloud doctor --provider azure --category ai
@@ -689,7 +689,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[gcp]'
 
       - name: Validate AI permissions
         run: cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }} --category ai
@@ -747,7 +747,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[azure]'
 
       - name: Validate credentials
         run: |
@@ -806,7 +806,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[gcp]'
 
       - name: Validate credentials
         run: cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }}
@@ -868,7 +868,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[aws]'
 
       - name: Scan AWS
         run: |
@@ -901,7 +901,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[azure]'
 
       - name: Scan Azure
         run: |
@@ -932,7 +932,7 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[gcp]'
 
       - name: Scan GCP
         run: |
@@ -1246,7 +1246,7 @@ jobs:
           aws-region: us-east-1
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[aws]'
 
       - name: Scan all accounts
         run: |
@@ -1322,7 +1322,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[azure]'
 
       - name: Scan all subscriptions
         run: |
@@ -1456,7 +1456,7 @@ jobs:
   weekly-scan:
     steps:
       - name: Install CleanCloud
-        run: pip install cleancloud
+        run: pip install 'cleancloud[aws]'
 
       - name: Run comprehensive scan
         run: |
@@ -1647,7 +1647,7 @@ Coming soon. For now, use Azure CLI task with manual commands:
     scriptType: 'bash'
     scriptLocation: 'inlineScript'
     inlineScript: |
-      pip install cleancloud
+      pip install 'cleancloud[azure]'
       cleancloud scan --provider azure --output json --output-file results.json
 ```
 

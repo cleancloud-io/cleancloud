@@ -1,10 +1,42 @@
 import sys
 from typing import Optional
 
-from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
-from cleancloud.doctor.azure import run_azure_ai_doctor, run_azure_doctor
 from cleancloud.doctor.common import DoctorError, info, success
-from cleancloud.doctor.gcp import run_gcp_ai_doctor, run_gcp_doctor
+
+try:
+    from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
+
+    _AWS_DOCTOR_AVAILABLE = True
+except ImportError:
+    _AWS_DOCTOR_AVAILABLE = False
+    run_aws_doctor = run_aws_ai_doctor = None  # type: ignore[assignment]
+
+try:
+    from cleancloud.doctor.azure import run_azure_ai_doctor, run_azure_doctor
+
+    _AZURE_DOCTOR_AVAILABLE = True
+except ImportError:
+    _AZURE_DOCTOR_AVAILABLE = False
+    run_azure_doctor = run_azure_ai_doctor = None  # type: ignore[assignment]
+
+try:
+    from cleancloud.doctor.gcp import run_gcp_ai_doctor, run_gcp_doctor
+
+    _GCP_DOCTOR_AVAILABLE = True
+except ImportError:
+    _GCP_DOCTOR_AVAILABLE = False
+    run_gcp_doctor = run_gcp_ai_doctor = None  # type: ignore[assignment]
+
+_DOCTOR_AVAILABLE = {
+    "aws": lambda: _AWS_DOCTOR_AVAILABLE,
+    "azure": lambda: _AZURE_DOCTOR_AVAILABLE,
+    "gcp": lambda: _GCP_DOCTOR_AVAILABLE,
+}
+_INSTALL_HINTS = {
+    "aws": "pip install 'cleancloud[aws]'",
+    "azure": "pip install 'cleancloud[azure]'",
+    "gcp": "pip install 'cleancloud[gcp]'",
+}
 
 
 def run_doctor(
@@ -46,6 +78,14 @@ def run_doctor(
 
     # Run checks for each provider
     for p in providers_to_check:
+        if not _DOCTOR_AVAILABLE.get(p, lambda: True)():
+            hint = _INSTALL_HINTS.get(p, "pip install 'cleancloud[all]'")
+            info(f"Provider '{p}' SDK is not installed. Install it with: {hint}")
+            results[p] = {"status": "failed", "error": f"SDK not installed — {hint}"}
+            if len(providers_to_check) == 1:
+                sys.exit(1)
+            continue
+
         try:
             if p == "aws":
                 if category == "ai":

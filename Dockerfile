@@ -8,10 +8,11 @@ RUN apk update && apk upgrade && rm -rf /var/cache/apk/* \
     && pip install --upgrade pip
 
 ARG CLEANCLOUD_VERSION
+ARG CLEANCLOUD_EXTRAS=all
 RUN if [ -n "${CLEANCLOUD_VERSION}" ]; then \
-        pip install cleancloud==${CLEANCLOUD_VERSION}; \
+        pip install "cleancloud[${CLEANCLOUD_EXTRAS}]==${CLEANCLOUD_VERSION}"; \
     else \
-        pip install cleancloud; \
+        pip install "cleancloud[${CLEANCLOUD_EXTRAS}]"; \
     fi
 
 ENTRYPOINT ["cleancloud"]

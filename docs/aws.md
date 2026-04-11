@@ -291,7 +291,7 @@ jobs:
 
       - name: Validate AWS permissions
         run: |
-          pip install cleancloud
+          pip install 'cleancloud[aws]'
           cleancloud doctor --provider aws --region us-east-1
 ```
 
