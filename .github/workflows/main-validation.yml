@@ -21,23 +21,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[all,dev]"
 
-#      - name: Verify imports
-#        run: |
-#          python -c "from cleancloud.cli import main; print('✅ CLI imports')"
-#          python -c "from cleancloud.core.finding import Finding; print('✅ Models import')"
-#          python -c "from cleancloud.providers.aws.session import create_aws_session; print('✅ AWS imports')"
-#          python -c "from cleancloud.providers.azure.session import create_azure_session; print('✅ Azure imports')"
-
       - name: Run linting
         run: |
-          pip install ruff black
           ruff check cleancloud/
           black --check cleancloud/
 
@@ -56,7 +48,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install CleanCloud
         run: |
@@ -99,7 +91,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install CleanCloud
         run: |
@@ -141,7 +133,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install CleanCloud
         run: |
@@ -186,7 +178,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install CleanCloud
         run: |
@@ -228,7 +220,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Install CleanCloud
         run: |
