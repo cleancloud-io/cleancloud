@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from azure.core.exceptions import AzureError, HttpResponseError
 from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.web import WebSiteManagementClient
 
@@ -106,7 +107,7 @@ def find_idle_app_services(
             tier = getattr(plan.sku, "tier", None) if plan.sku else None
             if plan.id and tier:
                 plan_tiers[plan.id.lower()] = tier
-    except Exception:
+    except (AzureError, HttpResponseError):
         pass  # conservative: fall back to per-app tier detection below
 
     def _norm(s: str) -> str:
@@ -212,7 +213,7 @@ def _get_plan_tier(app) -> Optional[str]:
         sku = getattr(app, "sku", None)
         if sku:
             return getattr(sku, "tier", None)
-    except Exception:
+    except (AzureError, AttributeError):
         pass
 
     # Fallback: infer from kind — "functionapp" on Consumption = Dynamic (skip)

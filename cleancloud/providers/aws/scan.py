@@ -176,7 +176,7 @@ def _get_active_aws_regions(session) -> List[str]:
     if account_id and result:
         try:
             set_cached_regions(account_id, result)
-        except Exception:
+        except OSError:
             pass  # cache write failure is non-fatal
 
     return result
