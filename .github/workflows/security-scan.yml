@@ -23,7 +23,7 @@ jobs:
       - name: Install project dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e ".[all]"
           # Freeze before pip-audit is installed so its own transitive deps
           # (rich → pygments etc.) are not included in the audit scope.
           pip freeze --exclude-editable > project-requirements.txt
@@ -96,7 +96,7 @@ jobs:
 
       - name: TruffleHog Secrets Scan - PR
         if: github.event_name == 'pull_request'
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha }}
@@ -105,7 +105,7 @@ jobs:
 
       - name: TruffleHog Secrets Scan - Push to Main
         if: github.event_name == 'push'
-        uses: trufflesecurity/trufflehog@main
+        uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
           base: ${{ github.event.before }}
@@ -127,7 +127,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .
+          pip install -e ".[all]"
           pip install pip-licenses
 
       - name: Generate license report
