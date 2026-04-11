@@ -61,7 +61,7 @@ jobs:
       - name: Install CleanCloud
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          pip install -e ".[aws,dev]"
 
       # AWS via OIDC (no static secrets)
       - name: Configure AWS credentials (OIDC)
@@ -104,7 +104,7 @@ jobs:
       - name: Install CleanCloud
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          pip install -e ".[aws,dev]"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
@@ -146,7 +146,7 @@ jobs:
       - name: Install CleanCloud
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          pip install -e ".[azure,dev]"
 
       - name: Azure Login via OIDC
         uses: azure/login@v2
@@ -191,7 +191,7 @@ jobs:
       - name: Install CleanCloud
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          pip install -e ".[azure,dev]"
 
       - name: Azure Login via OIDC (no subscription pin — scans all)
         uses: azure/login@v2
@@ -233,7 +233,7 @@ jobs:
       - name: Install CleanCloud
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]"
+          pip install -e ".[gcp,dev]"
 
       - name: Authenticate to GCP (Workload Identity Federation)
         uses: google-github-actions/auth@v2
