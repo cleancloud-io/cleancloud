@@ -5,6 +5,7 @@ from cleancloud.doctor.common import DoctorError, info, success
 
 try:
     from cleancloud.doctor.aws import run_aws_ai_doctor, run_aws_doctor
+
     _AWS_DOCTOR_AVAILABLE = True
 except ImportError:
     _AWS_DOCTOR_AVAILABLE = False
@@ -12,6 +13,7 @@ except ImportError:
 
 try:
     from cleancloud.doctor.azure import run_azure_ai_doctor, run_azure_doctor
+
     _AZURE_DOCTOR_AVAILABLE = True
 except ImportError:
     _AZURE_DOCTOR_AVAILABLE = False
@@ -19,12 +21,17 @@ except ImportError:
 
 try:
     from cleancloud.doctor.gcp import run_gcp_ai_doctor, run_gcp_doctor
+
     _GCP_DOCTOR_AVAILABLE = True
 except ImportError:
     _GCP_DOCTOR_AVAILABLE = False
     run_gcp_doctor = run_gcp_ai_doctor = None  # type: ignore[assignment]
 
-_DOCTOR_AVAILABLE = {"aws": lambda: _AWS_DOCTOR_AVAILABLE, "azure": lambda: _AZURE_DOCTOR_AVAILABLE, "gcp": lambda: _GCP_DOCTOR_AVAILABLE}
+_DOCTOR_AVAILABLE = {
+    "aws": lambda: _AWS_DOCTOR_AVAILABLE,
+    "azure": lambda: _AZURE_DOCTOR_AVAILABLE,
+    "gcp": lambda: _GCP_DOCTOR_AVAILABLE,
+}
 _INSTALL_HINTS = {
     "aws": "pip install 'cleancloud[aws]'",
     "azure": "pip install 'cleancloud[azure]'",

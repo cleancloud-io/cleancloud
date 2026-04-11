@@ -6,10 +6,13 @@ from typing import List, Optional
 
 try:
     import botocore.exceptions
+
     _NoCredentialsError = botocore.exceptions.NoCredentialsError
 except ImportError:
+
     class _NoCredentialsError(Exception):  # type: ignore[no-redef]
         """Never raised — placeholder so the except clause compiles without boto3."""
+
 
 import click
 import yaml
@@ -47,6 +50,7 @@ from cleancloud.policy.exit_policy import (
     EXIT_POLICY_VIOLATION,
     determine_exit_code,
 )
+
 try:
     from cleancloud.providers.aws.multi_account import (
         AccountScanResult,
@@ -60,6 +64,7 @@ try:
         AWS_RULES,
         scan_aws_with_region_selection,
     )
+
     _AWS_AVAILABLE = True
 except ImportError:
     _AWS_AVAILABLE = False
@@ -76,6 +81,7 @@ try:
         AZURE_RULES,
         scan_azure_with_region_selection,
     )
+
     _AZURE_AVAILABLE = True
 except ImportError:
     _AZURE_AVAILABLE = False
@@ -92,6 +98,7 @@ try:
         ProjectScanResult,
         scan_gcp_with_project_selection,
     )
+
     _GCP_AVAILABLE = True
 except ImportError:
     _GCP_AVAILABLE = False
@@ -100,7 +107,11 @@ except ImportError:
     ProjectScanResult = None
     scan_gcp_with_project_selection = None
 
-_PROVIDER_AVAILABLE = {"aws": lambda: _AWS_AVAILABLE, "azure": lambda: _AZURE_AVAILABLE, "gcp": lambda: _GCP_AVAILABLE}
+_PROVIDER_AVAILABLE = {
+    "aws": lambda: _AWS_AVAILABLE,
+    "azure": lambda: _AZURE_AVAILABLE,
+    "gcp": lambda: _GCP_AVAILABLE,
+}
 _INSTALL_HINTS = {
     "aws": "pip install 'cleancloud[aws]'",
     "azure": "pip install 'cleancloud[azure]'",
@@ -111,7 +122,9 @@ _INSTALL_HINTS = {
 def _require_provider(provider: str) -> None:
     if not _PROVIDER_AVAILABLE.get(provider, lambda: True)():
         click.echo(f"Provider '{provider}' SDK is not installed.")
-        click.echo(f"Install it with: {_INSTALL_HINTS.get(provider, 'pip install cleancloud[all]')}")
+        click.echo(
+            f"Install it with: {_INSTALL_HINTS.get(provider, 'pip install cleancloud[all]')}"
+        )
         sys.exit(EXIT_ERROR)
 
 
