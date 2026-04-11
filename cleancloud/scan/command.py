@@ -843,10 +843,7 @@ def scan(
         click.echo()
         click.echo(f"Authentication failed — {e}")
         click.echo()
-        if provider == "gcp":
-            click.echo("Run `cleancloud doctor --provider gcp` to diagnose.")
-        else:
-            click.echo("Run `cleancloud doctor --provider azure` to diagnose.")
+        click.echo(f"Run `cleancloud doctor --provider {provider}` to diagnose.")
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except botocore.exceptions.NoCredentialsError:

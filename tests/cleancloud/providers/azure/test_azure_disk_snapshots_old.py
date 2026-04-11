@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
+from cleancloud.providers.azure.rules.disk_snapshots_old import find_old_snapshots
 
 
 def test_find_old_snapshots(monkeypatch):
@@ -40,7 +40,7 @@ def test_find_old_snapshots(monkeypatch):
             self.snapshots = MockSnapshots()
 
     monkeypatch.setattr(
-        "cleancloud.providers.azure.rules.ebs_snapshots_old.ComputeManagementClient",
+        "cleancloud.providers.azure.rules.disk_snapshots_old.ComputeManagementClient",
         MockComputeClient,
     )
 
