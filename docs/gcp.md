@@ -211,7 +211,7 @@ jobs:
 
       - name: Validate credentials
         run: |
-          pip install cleancloud
+          pip install 'cleancloud[gcp]'
           cleancloud doctor --provider gcp --project ${{ vars.GCP_PROJECT_ID }}
 
       - name: Run scan (all projects)

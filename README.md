@@ -22,14 +22,16 @@ CleanCloud tells you exactly what to delete in your cloud — with cost per reso
 ## Quick Start
 
 ```bash
-pipx install cleancloud
-cleancloud demo                      # see sample findings — no credentials needed
-cleancloud demo --category ai        # see AI/ML waste findings (SageMaker, AML, Vertex AI)
+pipx install cleancloud                 # core only — no cloud SDKs
+cleancloud demo                         # see sample findings — no credentials needed
+cleancloud demo --category ai           # see AI/ML waste findings (SageMaker, AML, Vertex AI)
 ```
 
-Scan your cloud:
+Scan your cloud (install the SDK for your provider):
 
 ```bash
+pipx install 'cleancloud[aws]'          # or [azure], [gcp], [all]
+
 cleancloud scan --provider aws --all-regions
 cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
@@ -244,7 +246,7 @@ Fully read-only. Safe for production and regulated environments.
 ## Get Started
 
 ```bash
-pipx install cleancloud
+pipx install 'cleancloud[all]'            # all cloud SDKs (AWS + Azure + GCP)
 cleancloud demo                           # no credentials needed
 ```
 

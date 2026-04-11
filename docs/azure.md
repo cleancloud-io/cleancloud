@@ -149,7 +149,7 @@ jobs:
 
       - name: Validate Azure permissions
         run: |
-          pip install cleancloud
+          pip install 'cleancloud[azure]'
           cleancloud doctor --provider azure
 ```
 

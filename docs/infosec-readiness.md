@@ -1556,7 +1556,7 @@ azure-core >= 1.38.0 # Azure SDK core
 
 **Dependency Security:**
 - All dependencies are from well-known, actively maintained projects (AWS, Microsoft, Google, Pallets)
-- AWS, Azure, and GCP dependencies are included by default (`pip install cleancloud`)
+- Cloud SDK dependencies are optional extras — install only what you need (`pip install 'cleancloud[aws]'`, `'cleancloud[azure]'`, `'cleancloud[gcp]'`, or `'cleancloud[all]'`)
 - Minimum version pinning (allows security updates)
 - No transitive dependencies from untrusted sources
 - Dependencies scanned with `pip-audit` in CI
@@ -1593,8 +1593,8 @@ All releases are tagged in GitHub:
 Generate an SBOM for compliance:
 
 ```bash
-pip install cleancloud
-pip freeze | grep -iE "(cleancloud|boto3|azure|click|pyyaml)" > cleancloud-sbom.txt
+pip install 'cleancloud[all]'
+pip freeze | grep -iE "(cleancloud|boto3|azure|click|pyyaml|google)" > cleancloud-sbom.txt
 ```
 
 **Example SBOM:**

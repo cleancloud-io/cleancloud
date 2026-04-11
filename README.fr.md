@@ -22,14 +22,16 @@ CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — 
 ## Démarrage rapide
 
 ```bash
-pipx install cleancloud
-cleancloud demo                      # visualisez des findings — aucun credential requis
-cleancloud demo --category ai        # findings IA/ML (SageMaker, AML, Vertex AI)
+pipx install cleancloud                  # core uniquement — sans SDK cloud
+cleancloud demo                          # visualisez des findings — aucun credential requis
+cleancloud demo --category ai            # findings IA/ML (SageMaker, AML, Vertex AI)
 ```
 
-Scannez votre cloud :
+Scannez votre cloud (installez le SDK de votre fournisseur) :
 
 ```bash
+pipx install 'cleancloud[aws]'           # ou [azure], [gcp], [all]
+
 cleancloud scan --provider aws --all-regions
 cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
@@ -244,7 +246,7 @@ Entièrement en lecture seule. Sûr pour la production et les environnements ré
 ## Démarrage
 
 ```bash
-pipx install cleancloud
+pipx install 'cleancloud[all]'                     # tous les SDK cloud (AWS + Azure + GCP)
 cleancloud demo                                    # aucun credential requis
 ```
 
