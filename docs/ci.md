@@ -182,7 +182,7 @@ The simplest way to add CleanCloud to GitHub Actions — one step, no pip instal
 | Input | Description | AWS | Azure | GCP |
 |---|---|:---:|:---:|:---:|
 | `provider` | `aws`, `azure`, or `gcp` (required) | ✓ | ✓ | ✓ |
-| `category` | `hygiene` (default), `ai` (SageMaker on AWS, AML Compute on Azure), or `all` | ✓ | ✓ | — |
+| `category` | `hygiene` (default), `ai` (SageMaker + EC2 GPU on AWS, AML Compute on Azure, Vertex AI on GCP), or `all` | ✓ | ✓ | — |
 | `region` | Single region filter (AWS) or location filter (Azure — filters results; all subscriptions always scanned) | ✓ | ✓ | — |
 | `all-regions` | Scan all active AWS regions (AWS-only; Azure scans all subscriptions by default) | ✓ | — | — |
 | `org` | Auto-discover all AWS Organization accounts | ✓ | — | — |
@@ -550,9 +550,9 @@ jobs:
           retention-days: 30
 ```
 
-### AWS AI/ML Scan (SageMaker)
+### AWS AI/ML Scan (SageMaker + EC2 GPU)
 
-Run SageMaker idle resource detection (endpoints + notebook instances) separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
+Run AI/ML idle resource detection (SageMaker endpoints + notebook instances, EC2 GPU/accelerator instances) separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
 
 ```yaml
 name: CleanCloud AI/ML Scan

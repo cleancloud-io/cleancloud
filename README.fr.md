@@ -41,9 +41,50 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
 ## Exemple de résultat détaillé
 
 ```
-6 problèmes détectés :
+cleancloud scan --provider aws --category all
 
-1. [AWS] Instance RDS inactive (aucune connexion depuis 21 jours)
+10 findings détectés (6 hygiène + 4 IA/ML) :
+
+1. [AWS] Instance EC2 GPU inactive (utilisation GPU <5% sur 7 jours)
+   Risque     : Critique
+   Confiance  : High
+   Ressource  : aws.ec2.instance → i-0a1b2c3d4e5f67890
+   Région     : us-east-1
+   Règle      : aws.ec2.gpu.idle
+   Raison     : Instance GPU EC2 avec faible utilisation GPU (1,2%) depuis 7 jours
+   Détails :
+     - instance_type: p4d.24xlarge
+     - name: ml-training-cluster-node-1
+     - gpu_metric_available: true
+     - utilisation_pct: 1.2
+     - estimated_monthly_cost: ~$23 374/mois
+
+2. [GCP] Instance Workbench GPU inactive (>14 jours, 31 jours sans activité)
+   Risque     : Critique
+   Confiance  : High
+   Ressource  : gcp.vertex.workbench.instance → projects/ml-platform/locations/us-central1/instances/research-nb-gpu
+   Région     : us-central1
+   Règle      : gcp.vertex.workbench.idle
+   Raison     : Instance Workbench sans activité sur le plan de contrôle depuis 31 jours, état ACTIVE
+   Détails :
+     - machine_type: a2-highgpu-4g
+     - accelerator_type: NVIDIA_TESLA_A100
+     - accelerator_count: 4
+     - estimated_monthly_cost: ~$11 732/mois
+
+3. [Azure] Instance de calcul Azure ML inactive (31 jours sans activité)
+   Risque     : Élevé
+   Confiance  : High
+   Ressource  : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
+   Région     : eastus
+   Règle      : azure.ml.compute_instance.idle
+   Raison     : Instance de calcul sans activité depuis 31 jours, état Running
+   Détails :
+     - vm_size: Standard_NC24s_v3
+     - is_gpu: true
+     - estimated_monthly_cost: ~$2 190/mois
+
+4. [AWS] Instance RDS inactive (aucune connexion depuis 21 jours)
    Risque     : Élevé
    Confiance  : High
    Ressource  : aws.rds.instance → db-prod-analytics
@@ -55,19 +96,18 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
      - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/mois
 
-2. [AWS] Volume EBS non attaché
-   Risque     : Faible
+5. [AWS] Endpoint SageMaker inactif (aucune invocation depuis 21 jours)
+   Risque     : Élevé
    Confiance  : High
-   Ressource  : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Ressource  : aws.sagemaker.endpoint → fraud-detection-v2
    Région     : us-east-1
-   Règle      : aws.ebs.volume.unattached
-   Raison     : Volume non attaché depuis 47 jours
+   Règle      : aws.sagemaker.endpoint.idle
+   Raison     : Endpoint SageMaker sans invocation depuis 21 jours
    Détails :
-     - size_gb: 500
-     - state: available
-     - tags: {"Project": "legacy-api", "Owner": "platform"}
+     - instance_type: ml.g5.2xlarge
+     - estimated_monthly_cost: ~$1 008/mois
 
-3. [AWS] NAT Gateway inactive
+6. [AWS] NAT Gateway inactive
    Risque     : Moyen
    Confiance  : Medium
    Ressource  : aws.ec2.nat_gateway → nat-0abcdef1234567890
@@ -79,7 +119,7 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
      - total_bytes_out: 0
      - estimated_monthly_cost: ~$32/mois
 
-4. [AWS] Load Balancer inactif (aucune cible saine)
+7. [AWS] Load Balancer inactif (aucune cible saine)
    Risque     : Moyen
    Confiance  : High
    Ressource  : aws.elbv2.load_balancer → alb-staging-api
@@ -90,7 +130,18 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
      - type: application
      - estimated_monthly_cost: ~$18/mois
 
-5. [AWS] Elastic IP non attachée
+8. [AWS] Volume EBS non attaché
+   Risque     : Faible
+   Confiance  : High
+   Ressource  : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Région     : us-east-1
+   Règle      : aws.ebs.volume.unattached
+   Raison     : Volume non attaché depuis 47 jours
+   Détails :
+     - size_gb: 500
+     - state: available
+
+9. [AWS] Elastic IP non attachée
    Risque     : Faible
    Confiance  : High
    Ressource  : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
@@ -98,23 +149,23 @@ cleancloud scan --provider aws --category ai   # détectez les endpoints SageMak
    Règle      : aws.ec2.elastic_ip.unattached
    Raison     : Elastic IP non associée à aucune instance ou ENI (ancienneté : 92 jours)
 
-6. [AWS] Ancien snapshot EBS (438 jours)
-   Risque     : Faible
-   Confiance  : High
-   Ressource  : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
-   Région     : us-west-2
-   Règle      : aws.ebs.snapshot.old
-   Raison     : Snapshot âgé de 438 jours sans activité récente
-   Détails :
-     - size_gb: 200
-     - estimated_monthly_cost: ~$10/mois
+10. [AWS] Ancien snapshot EBS (438 jours)
+    Risque     : Faible
+    Confiance  : High
+    Ressource  : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
+    Région     : us-west-2
+    Règle      : aws.ebs.snapshot.old
+    Raison     : Snapshot âgé de 438 jours sans activité récente
+    Détails :
+      - size_gb: 200
+      - estimated_monthly_cost: ~$10/mois
 
 --- Résumé du scan ---
-Total findings : 6
-Par risque :     faible: 3  moyen: 2  élevé: 1
-Par confiance :  high: 5  medium: 1
-Gaspillage minimum estimé : ~$480/mois
-(5 findings sur 6 chiffrés)
+Total findings : 10
+Par risque :     critique: 2  élevé: 3  moyen: 2  faible: 3
+Par confiance :  high: 9  medium: 1
+Gaspillage minimum estimé : ~$38 744/mois
+(9 findings sur 10 chiffrés)
 Régions scannées : us-east-1, us-west-2, eu-west-1 (auto-détectées)
 ```
 
@@ -145,7 +196,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 - **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker et notebooks, clusters AML Compute et instances ML, endpoints Vertex AI et instances Workbench — facturés 500–23 000 $/mois par ressource en silence. Ressources GPU flaggées risque HIGH. Les outils natifs montrent la facture — CleanCloud indique quoi supprimer. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **36 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **37 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus

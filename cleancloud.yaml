@@ -82,6 +82,12 @@ rules:
     # It does NOT affect fail_on_confidence thresholds (which use signal strength, not risk).
     override_risk_level: HIGH
 
+  # aws.ec2.gpu.idle:
+  #   params:
+  #     idle_days: 14           # default: 7   (days of low utilisation before flagging)
+  #     gpu_threshold: 10.0     # default: 5.0 (max GPU utilisation %, HIGH confidence path)
+  #     cpu_threshold: 20.0     # default: 10.0 (max CPU utilisation %, MEDIUM confidence fallback)
+
 # ── Categories ───────────────────────────────────────────────────────────────
 # Override the default category without using the --category CLI flag.
 # Equivalent to: cleancloud scan --provider aws --category all

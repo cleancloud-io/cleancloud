@@ -55,10 +55,19 @@ resource "aws_iam_role_policy" "cleancloud_ai" {
         Resource = "*"
       },
       {
-        Sid    = "CloudWatchMetrics"
+        Sid    = "EC2GPUReadOnly"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudWatchGPUMetrics"
         Effect = "Allow"
         Action = [
           "cloudwatch:GetMetricStatistics",
+          "cloudwatch:ListMetrics",
         ]
         Resource = "*"
       },

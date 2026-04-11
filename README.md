@@ -41,9 +41,50 @@ cleancloud scan --provider aws --category ai   # detect idle SageMaker endpoints
 ## What It Looks Like
 
 ```
-Found 6 hygiene issues:
+cleancloud scan --provider aws --category all
 
-1. [AWS] Idle RDS Instance (No Connections for 21 Days)
+Found 10 findings (6 hygiene + 4 AI/ML):
+
+1. [AWS] Idle GPU EC2 Instance (GPU utilisation <5% over 7 days)
+   Risk       : Critical
+   Confidence : High
+   Resource   : aws.ec2.instance → i-0a1b2c3d4e5f67890
+   Region     : us-east-1
+   Rule       : aws.ec2.gpu.idle
+   Reason     : GPU EC2 instance has low GPU utilisation (1.2%) for 7 days
+   Details:
+     - instance_type: p4d.24xlarge
+     - name: ml-training-cluster-node-1
+     - gpu_metric_available: true
+     - utilisation_pct: 1.2
+     - estimated_monthly_cost: ~$23,374/month
+
+2. [GCP] Idle GPU-Backed Workbench Instance (>14 Days Idle, 31 Days Since Activity)
+   Risk       : Critical
+   Confidence : High
+   Resource   : gcp.vertex.workbench.instance → projects/ml-platform/locations/us-central1/instances/research-nb-gpu
+   Region     : us-central1
+   Rule       : gcp.vertex.workbench.idle
+   Reason     : Workbench instance has had no control-plane activity for 31 days while ACTIVE
+   Details:
+     - machine_type: a2-highgpu-4g
+     - accelerator_type: NVIDIA_TESLA_A100
+     - accelerator_count: 4
+     - estimated_monthly_cost: ~$11,732/month
+
+3. [Azure] Idle Azure ML Compute Instance (31 Days Since Last Activity)
+   Risk       : High
+   Confidence : High
+   Resource   : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
+   Region     : eastus
+   Rule       : azure.ml.compute_instance.idle
+   Reason     : Compute instance has had no control-plane activity for 31 days while Running
+   Details:
+     - vm_size: Standard_NC24s_v3
+     - is_gpu: true
+     - estimated_monthly_cost: ~$2,190/month
+
+4. [AWS] Idle RDS Instance (No Connections for 21 Days)
    Risk       : High
    Confidence : High
    Resource   : aws.rds.instance → db-prod-analytics
@@ -55,19 +96,18 @@ Found 6 hygiene issues:
      - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/month
 
-2. [AWS] Unattached EBS Volume
-   Risk       : Low
+5. [AWS] Idle SageMaker Endpoint (No Invocations for 21 Days)
+   Risk       : High
    Confidence : High
-   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Resource   : aws.sagemaker.endpoint → fraud-detection-v2
    Region     : us-east-1
-   Rule       : aws.ebs.volume.unattached
-   Reason     : Volume has been unattached for 47 days
+   Rule       : aws.sagemaker.endpoint.idle
+   Reason     : SageMaker endpoint has zero invocations for 21 days
    Details:
-     - size_gb: 500
-     - state: available
-     - tags: {"Project": "legacy-api", "Owner": "platform"}
+     - instance_type: ml.g5.2xlarge
+     - estimated_monthly_cost: ~$1,008/month
 
-3. [AWS] Idle NAT Gateway
+6. [AWS] Idle NAT Gateway
    Risk       : Medium
    Confidence : Medium
    Resource   : aws.ec2.nat_gateway → nat-0abcdef1234567890
@@ -79,7 +119,7 @@ Found 6 hygiene issues:
      - total_bytes_out: 0
      - estimated_monthly_cost: ~$32/month
 
-4. [AWS] Idle Load Balancer (No Healthy Targets)
+7. [AWS] Idle Load Balancer (No Healthy Targets)
    Risk       : Medium
    Confidence : High
    Resource   : aws.elbv2.load_balancer → alb-staging-api
@@ -90,7 +130,18 @@ Found 6 hygiene issues:
      - type: application
      - estimated_monthly_cost: ~$18/month
 
-5. [AWS] Unattached Elastic IP
+8. [AWS] Unattached EBS Volume
+   Risk       : Low
+   Confidence : High
+   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
+   Region     : us-east-1
+   Rule       : aws.ebs.volume.unattached
+   Reason     : Volume has been unattached for 47 days
+   Details:
+     - size_gb: 500
+     - state: available
+
+9. [AWS] Unattached Elastic IP
    Risk       : Low
    Confidence : High
    Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
@@ -98,23 +149,23 @@ Found 6 hygiene issues:
    Rule       : aws.ec2.elastic_ip.unattached
    Reason     : Elastic IP not associated with any instance or ENI (age: 92 days)
 
-6. [AWS] Old EBS Snapshot (438 Days)
-   Risk       : Low
-   Confidence : High
-   Resource   : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
-   Region     : us-west-2
-   Rule       : aws.ebs.snapshot.old
-   Reason     : Snapshot is 438 days old with no recent activity
-   Details:
-     - size_gb: 200
-     - estimated_monthly_cost: ~$10/month
+10. [AWS] Old EBS Snapshot (438 Days)
+    Risk       : Low
+    Confidence : High
+    Resource   : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
+    Region     : us-west-2
+    Rule       : aws.ebs.snapshot.old
+    Reason     : Snapshot is 438 days old with no recent activity
+    Details:
+      - size_gb: 200
+      - estimated_monthly_cost: ~$10/month
 
 --- Scan Summary ---
-Total findings: 6
-By risk:        low: 3  medium: 2  high: 1
-By confidence:  high: 5  medium: 1
-Minimum estimated waste: ~$480/month
-(5 of 6 findings costed)
+Total findings: 10
+By risk:        critical: 2  high: 3  medium: 2  low: 3
+By confidence:  high: 9  medium: 1
+Minimum estimated waste: ~$38,744/month
+(9 of 10 findings costed)
 Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
 ```
 
@@ -145,7 +196,7 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 - **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints and notebooks, AML compute clusters and instances, Vertex AI endpoints and Workbench instances — silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
 - **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
-- **36 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **37 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
