@@ -6,7 +6,6 @@ import yaml
 
 from cleancloud.config.accounts import load_accounts_config
 from cleancloud.config.schema import CleanCloudConfig, load_config
-from cleancloud.doctor.aws import run_aws_multi_account_doctor
 from cleancloud.doctor.runner import run_doctor
 
 
@@ -71,6 +70,8 @@ def doctor(
         ma_config = load_accounts_config(multi_account_file)
         if role_name != "CleanCloudReadOnlyRole":
             ma_config.role_name = role_name
+        from cleancloud.doctor.aws import run_aws_multi_account_doctor  # noqa: PLC0415
+
         run_aws_multi_account_doctor(ma_config, profile=profile, region=region)
         return
 
