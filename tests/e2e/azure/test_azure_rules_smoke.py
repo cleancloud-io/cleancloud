@@ -9,7 +9,7 @@ from cleancloud.providers.azure.rules.app_service_plan_empty import find_empty_a
 from cleancloud.providers.azure.rules.container_registry_unused import (
     find_unused_container_registries,
 )
-from cleancloud.providers.azure.rules.ebs_snapshots_old import find_old_snapshots
+from cleancloud.providers.azure.rules.disk_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.sql_database_idle import find_idle_sql_databases
