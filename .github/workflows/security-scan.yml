@@ -96,7 +96,7 @@ jobs:
 
       - name: TruffleHog Secrets Scan - PR
         if: github.event_name == 'pull_request'
-        uses: trufflesecurity/trufflehog@v3
+        uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
           base: ${{ github.event.pull_request.base.sha }}
@@ -105,7 +105,7 @@ jobs:
 
       - name: TruffleHog Secrets Scan - Push to Main
         if: github.event_name == 'push'
-        uses: trufflesecurity/trufflehog@v3
+        uses: trufflesecurity/trufflehog@v3.94.3
         with:
           path: ./
           base: ${{ github.event.before }}
