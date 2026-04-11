@@ -22,20 +22,16 @@ CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — 
 ## Démarrage rapide
 
 ```bash
-pipx install cleancloud                  # core uniquement — sans SDK cloud
-cleancloud demo                          # visualisez des findings — aucun credential requis
-cleancloud demo --category ai            # findings IA/ML (SageMaker, AML, Vertex AI)
-```
+# Essayez sans credentials :
+pipx install cleancloud
+cleancloud demo
+cleancloud demo --category ai
 
-Scannez votre cloud (installez le SDK de votre fournisseur) :
-
-```bash
+# Prêt à scanner votre cloud ? Ajoutez votre fournisseur :
 pipx install 'cleancloud[aws]'           # ou [azure], [gcp], [all]
-
 cleancloud scan --provider aws --all-regions
 cleancloud scan --provider azure
 cleancloud scan --provider gcp --all-projects
-cleancloud scan --provider aws --category ai   # détectez les endpoints SageMaker inactifs
 ```
 
 ---
