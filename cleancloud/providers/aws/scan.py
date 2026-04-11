@@ -13,6 +13,7 @@ from cleancloud.providers.aws.rules.cloudwatch_inactive import (
 )
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
+from cleancloud.providers.aws.rules.ec2_gpu_idle import find_idle_gpu_instances
 from cleancloud.providers.aws.rules.ec2_sg_unused import find_unused_security_groups
 from cleancloud.providers.aws.rules.ec2_stopped import find_stopped_ec2_instances
 from cleancloud.providers.aws.rules.elastic_ip_unattached import (
@@ -54,6 +55,7 @@ AWS_RULE_MAP: Dict[str, Callable] = {
 AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
     "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
+    "aws.ec2.gpu.idle": find_idle_gpu_instances,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())

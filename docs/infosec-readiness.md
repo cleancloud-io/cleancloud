@@ -274,7 +274,7 @@ AWS permissions are split across three composable policy files under [`security/
 |------|---------|--------------|
 | [`base-readonly.json`](../security/aws/base-readonly.json) | STS identity + CloudWatch metrics | All scans |
 | [`hygiene-readonly.json`](../security/aws/hygiene-readonly.json) | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
-| [`ai-readonly.json`](../security/aws/ai-readonly.json) | SageMaker | `--category ai` |
+| [`ai-readonly.json`](../security/aws/ai-readonly.json) | SageMaker, EC2 GPU instances | `--category ai` |
 
 **Verification:**
 
@@ -587,7 +587,7 @@ cd cleancloud
 # AWS
 # - security/aws/base-readonly.json              (AWS base policy — all scans)
 # - security/aws/hygiene-readonly.json           (AWS hygiene rules policy)
-# - security/aws/ai-readonly.json                (AWS AI/ML rules policy — SageMaker)
+# - security/aws/ai-readonly.json                (AWS AI/ML rules policy — SageMaker, EC2 GPU)
 # Azure
 # - security/azure/hygiene-readonly-role.json    (Azure hygiene rules custom role)
 # - security/azure/ai-readonly-role.json         (Azure AI/ML rules custom role — AML Compute)

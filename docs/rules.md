@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 36 rules implemented by CleanCloud (30 hygiene + 6 AI/ML).
+Complete reference for all 37 rules implemented by CleanCloud (30 hygiene + 7 AI/ML).
 
 ---
 
@@ -52,6 +52,7 @@ Every finding includes a confidence level:
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
 | `aws.sagemaker.endpoint.idle` | AI/ML | SageMaker endpoints with zero invocations 14+ days *(opt-in: `--category ai`)* |
 | `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances InService with no activity 14+ days *(opt-in: `--category ai`)* |
+| `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances (p/g/trn/inf/dl families) running with <5% GPU or <10% CPU utilisation over 7 days *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -787,6 +788,56 @@ SageMaker Notebook Instances do not publish utilisation metrics to CloudWatch by
 - `sagemaker:DescribeNotebookInstance`
 
 > **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+
+---
+
+#### Idle EC2 GPU Instances
+
+**Rule ID:** `aws.ec2.gpu.idle`
+
+**Category:** `ai`
+
+**What it detects:** EC2 GPU and accelerator instances (p2/p3/p4/p5, g4dn/g4ad/g5/g5g/g6/g6e/gr6, trn1/trn2, inf1/inf2, dl1/dl2q families) in `running` state with low utilisation over 7+ days (default, configurable). Unlike SageMaker rules which target managed services, this rule catches raw GPU instances spun up directly for training, inference, or experimentation and left running after the job completes.
+
+Detection uses two tiers based on metric availability:
+- **GPU utilisation (HIGH confidence):** When the NVIDIA CloudWatch agent is installed, `nvidia_smi_utilization_gpu` is read from the `CWAgent` namespace. MAX statistic across all GPU indices is used — a single active GPU on a multi-GPU instance (e.g., p4d.24xlarge with 8 A100s) will not be masked by averaging.
+- **CPU utilisation fallback (MEDIUM confidence):** When the NVIDIA agent is not installed, `CPUUtilization` from `AWS/EC2` is used as a proxy signal. Neuron instances (Trainium/Inferentia) always use this path by design — they use the AWS Neuron SDK, not NVIDIA CUDA.
+
+**Confidence levels:**
+- **HIGH:** GPU metric available AND max GPU utilisation < 5% over 7 days
+- **MEDIUM:** GPU metric unavailable; avg CPU utilisation < 10% over 7 days
+
+**Risk levels:**
+- **CRITICAL:** `idle_ratio ≥ 2.0` (e.g. running for 14+ days at the 7-day threshold)
+- **HIGH:** GPU/accelerator instance with low utilisation (all other cases)
+
+**Cost estimates (us-east-1 on-demand):**
+
+| Instance | Est. monthly cost |
+|---|---|
+| g4dn.xlarge (T4) | $379 |
+| g5.xlarge (A10G) | $604 |
+| p3.2xlarge (V100) | $2,234 |
+| p4d.24xlarge (8× A100 40GB) | $23,374 |
+| p4de.24xlarge (8× A100 80GB) | $32,074 |
+| g6e.48xlarge (8× L40S) | $18,000 |
+| p5.48xlarge (8× H100) | $98,318 |
+| trn2.48xlarge (Trainium2) | $110,000 |
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `7` | Days of low utilisation before flagging |
+| `gpu_threshold` | `5.0` | Max GPU utilisation % (HIGH confidence path) |
+| `cpu_threshold` | `10.0` | Max CPU utilisation % (MEDIUM confidence fallback) |
+
+**Required permissions:**
+- `ec2:DescribeInstances`
+- `cloudwatch:GetMetricStatistics`
+- `cloudwatch:ListMetrics`
+
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule. The NVIDIA CloudWatch agent is not required — instances without it fall back to CPU utilisation at MEDIUM confidence.
 
 ---
 

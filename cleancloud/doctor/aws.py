@@ -706,6 +706,27 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("cloudwatch:GetMetricStatistics", str(e)))
         warn(f"cloudwatch:GetMetricStatistics - {e}")
 
+    # --- ec2:DescribeInstances (aws.ec2.gpu.idle) ---
+    try:
+        ec2 = session.client("ec2", region_name=region)
+        ec2.describe_instances(
+            MaxResults=5, Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+        )
+        permissions_tested.append("ec2:DescribeInstances")
+        success("ec2:DescribeInstances")
+    except Exception as e:
+        permissions_failed.append(("ec2:DescribeInstances", str(e)))
+        warn(f"ec2:DescribeInstances - {e}")
+
+    # --- cloudwatch:ListMetrics (aws.ec2.gpu.idle — GPU metric probe) ---
+    try:
+        cloudwatch.list_metrics(Namespace="CWAgent", MetricName="nvidia_smi_utilization_gpu")
+        permissions_tested.append("cloudwatch:ListMetrics")
+        success("cloudwatch:ListMetrics")
+    except Exception as e:
+        permissions_failed.append(("cloudwatch:ListMetrics", str(e)))
+        warn(f"cloudwatch:ListMetrics - {e}")
+
     info("")
     info("=" * 70)
     total = len(permissions_tested) + len(permissions_failed)
