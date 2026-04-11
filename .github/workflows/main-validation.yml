@@ -38,8 +38,8 @@ jobs:
       - name: Run linting
         run: |
           pip install ruff black
-          ruff check cleancloud/ || echo "⚠️  Linting warnings found"
-          black --check cleancloud/ || echo "⚠️  Formatting issues found"
+          ruff check cleancloud/
+          black --check cleancloud/
 
   # =========================
   # INTEGRATION TESTS (REQUIRED - Must pass)
