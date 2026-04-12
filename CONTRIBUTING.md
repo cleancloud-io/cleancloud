@@ -1,6 +1,6 @@
 # Contributing to CleanCloud
 
-Thank you for your interest in CleanCloud! We welcome contributions from the community.
+Thank you for your interest in CleanCloud. Community contributions are welcome, but CleanCloud remains a maintainer-led project with a deliberately narrow product scope.
 
 ---
 
@@ -31,9 +31,28 @@ CleanCloud is a **trust-first cloud hygiene engine** designed for production and
 
 **Documentation Improvements** - Fix typos, clarify instructions, add examples
 
-**Code Contributions** - Bug fixes, performance improvements, new rules
+**Code Contributions** - Bug fixes, performance improvements, and maintainer-approved rules
 
-**Cloud Provider Support** - Help add GCP, OCI, or other cloud platforms
+**Scope-aligned Enhancements** - Improvements that stay within CleanCloud's core thesis: read-only cloud hygiene and waste detection for AWS, Azure, and GCP
+
+### Scope Boundaries
+
+CleanCloud is intentionally focused on:
+
+- **Read-only cloud hygiene** for AWS, Azure, and GCP
+- **Deterministic waste detection** with conservative confidence scoring
+- **Policy-as-code workflows** for production and regulated environments
+
+CleanCloud prioritises depth in cloud cost and governance signals over breadth across infrastructure categories.
+
+The following usually require **maintainer approval before implementation begins**:
+
+- New providers, platforms, or execution environments
+- Features that expand beyond cloud hygiene into host, agent, runtime, or general observability tooling
+- New product categories, broad architectural changes, or major UX changes
+- Large feature PRs that are not based on a pre-approved issue
+
+If a proposal changes the product boundary, open an issue or discussion first. Unsolicited large feature PRs may be closed without merge if they fall outside the current product scope or roadmap priorities.
 
 ---
 
@@ -107,6 +126,17 @@ All code changes must include documentation updates:
 - Add examples for new features
 - Update README.md if user-facing changes
 - Add entry to CHANGELOG.md (if exists)
+
+### Approval Required for Major Changes
+
+Open an issue and wait for maintainer approval before starting work on any of the following:
+
+- New providers or provider families
+- New auth models or trust boundaries
+- New scan surfaces outside AWS/Azure/GCP cloud APIs
+- Large refactors of CLI flow, output schema, packaging, or release process
+
+PRs opened without prior alignment for these categories may be closed to preserve roadmap focus and product consistency.
 
 ---
 
@@ -198,11 +228,16 @@ Examples:
 - Any breaking changes?
 - Screenshots (if UI/output changes)
 
+**Additional expectations for non-trivial PRs:**
+- The change must be within the current CleanCloud scope
+- The implementation should follow existing architecture and output conventions
+- New features should link to a pre-approved issue or maintainer discussion
+
 ### Review Process
 
-1. Maintainer will review within 48 hours (best effort)
+1. Maintainer reviews based on scope fit, product direction, and code quality
 2. Address any feedback or requested changes
-3. Once approved, maintainer will merge
+3. Approved changes may be merged, revised by the maintainer, or re-implemented independently based on the proposed idea.
 
 ---
 
@@ -312,11 +347,25 @@ cleancloud scan --provider aws --region us-east-1
 
 ---
 
+## Contribution Terms
+
+By submitting a pull request, patch, or other contribution to this repository, you represent that:
+
+- The contribution is your original work, or you have the legal right to submit it
+- You are authorized to grant the rights described below
+- The contribution does not knowingly infringe the rights of any third party
+
+Unless explicitly agreed otherwise in writing with the maintainer prior to merge:
+
+- Your contribution is submitted under the repository's MIT License
+- You grant the project maintainer and downstream recipients a perpetual, worldwide, non-exclusive, irrevocable license to use, copy, modify, distribute, sublicense, relicense, and commercialize your contribution as part of CleanCloud
+- Submitting a contribution does **not** obligate the maintainer to merge it, ship it, credit it beyond normal project practice, or adopt your proposed roadmap direction
+
+For substantial features, new providers, or strategically sensitive work, the maintainer may require a separate CLA or other written agreement before merge.
+
 ## License
 
-By contributing to CleanCloud, you agree that your contributions will be licensed under the MIT License.
-
-All contributions must be your original work or properly attributed.
+CleanCloud is distributed under the MIT License. See [`LICENSE`](LICENSE).
 
 ---
 
@@ -328,6 +377,6 @@ Contributors will be:
 - Listed in CONTRIBUTORS.md (for substantial contributions)
 - Referenced for enterprise features on our website (with permission)
 
-**We value all contributions** - whether it's fixing a typo, improving documentation, or adding a major feature. Every contribution helps make CleanCloud better for enterprise teams worldwide.
+**We value all contributions** - especially focused bug fixes, docs improvements, and scope-aligned rule proposals that strengthen CleanCloud's core thesis.
 
 Thank you for helping make CleanCloud better!
