@@ -9,7 +9,9 @@
     {
       "Actions": [
         "Microsoft.MachineLearningServices/workspaces/read",
-        "Microsoft.MachineLearningServices/workspaces/computes/read"
+        "Microsoft.MachineLearningServices/workspaces/computes/read",
+        "Microsoft.CognitiveServices/accounts/read",
+        "Microsoft.CognitiveServices/accounts/deployments/read"
       ],
       "NotActions": [],
       "DataActions": [],

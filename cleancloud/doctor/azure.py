@@ -237,6 +237,11 @@ def run_azure_doctor() -> None:
         info("  Microsoft.Insights/metrics/read")
         info("  Microsoft.Resources/subscriptions/read")
         info("  Microsoft.Resources/resources/read")
+        info("  AI/ML rules (opt-in via --category ai):")
+        info("    - Microsoft.MachineLearningServices/workspaces/read")
+        info("    - Microsoft.MachineLearningServices/workspaces/computes/read")
+        info("    - Microsoft.CognitiveServices/accounts/read")
+        info("    - Microsoft.CognitiveServices/accounts/deployments/read")
         info("")
         info("Copy the ready-to-use RBAC setup from:")
         info("  docs/azure.md  (Workload Identity + Reader role assignment)")
@@ -304,6 +309,8 @@ def run_azure_doctor() -> None:
     info("  AI/ML rules (opt-in via --category ai):")
     info("    - Microsoft.MachineLearningServices/workspaces/read")
     info("    - Microsoft.MachineLearningServices/workspaces/computes/read")
+    info("    - Microsoft.CognitiveServices/accounts/read")
+    info("    - Microsoft.CognitiveServices/accounts/deployments/read")
 
     # Summary
     info("")
@@ -328,7 +335,7 @@ def run_azure_doctor() -> None:
 
 
 def run_azure_ai_doctor(subscription_id: str = None) -> None:
-    """Validate Azure permissions for --category ai (Azure ML compute cluster and compute instance rules)."""
+    """Validate Azure permissions for --category ai (AML compute, ML compute instance, and Azure OpenAI provisioned deployment rules)."""
     info("")
     info("=" * 70)
     info("AZURE AI/ML PERMISSION VALIDATION")
@@ -400,6 +407,44 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
             "  Skipping computes/read check — no workspaces found to test against "
             "(permission may still be present)"
         )
+
+    # Check: Microsoft.CognitiveServices/accounts/read (for Azure OpenAI provisioned deployments)
+    try:
+        from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
+
+        cs_client = CognitiveServicesManagementClient(
+            credential=credential,
+            subscription_id=test_sub,
+        )
+        accounts = list(cs_client.accounts.list())
+        permissions_tested.append("Microsoft.CognitiveServices/accounts/read")
+        success(f"Microsoft.CognitiveServices/accounts/read " f"({len(accounts)} account(s) found)")
+
+        # Check deployments/read on the first OpenAI/AIServices account if available
+        openai_accounts = [
+            a for a in accounts if getattr(a, "kind", None) in ("OpenAI", "AIServices")
+        ]
+        if openai_accounts:
+            try:
+                acct = openai_accounts[0]
+                rg = acct.id.split("/")[acct.id.lower().split("/").index("resourcegroups") + 1]
+                list(cs_client.deployments.list(rg, acct.name))
+                permissions_tested.append("Microsoft.CognitiveServices/accounts/deployments/read")
+                success("Microsoft.CognitiveServices/accounts/deployments/read")
+            except Exception as e:
+                permissions_failed.append(
+                    ("Microsoft.CognitiveServices/accounts/deployments/read", str(e))
+                )
+                warn(f"Microsoft.CognitiveServices/accounts/deployments/read — {e}")
+        else:
+            info(
+                "  Skipping deployments/read check — no OpenAI/AIServices accounts found to test "
+                "against (permission may still be present)"
+            )
+
+    except Exception as e:
+        permissions_failed.append(("Microsoft.CognitiveServices/accounts/read", str(e)))
+        warn(f"Microsoft.CognitiveServices/accounts/read — {e}")
 
     # Check: Microsoft.Insights/metrics/read (already required by hygiene rules)
     try:

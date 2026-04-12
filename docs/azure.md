@@ -251,7 +251,7 @@ az role assignment create \
 | `Microsoft.ContainerRegistry/registries/read` | Unused Container Registries |
 | `Microsoft.Sql/servers/read` | SQL server discovery |
 | `Microsoft.Sql/servers/databases/read` | Idle SQL databases |
-| `Microsoft.Insights/metrics/read` | SQL connection metrics, idle App Services, idle VNet gateways, unused Container Registries, idle AML compute |
+| `Microsoft.Insights/metrics/read` | SQL connection metrics, idle App Services, idle VNet gateways, unused Container Registries, idle AML compute, idle Azure OpenAI provisioned deployments |
 | `Microsoft.Resources/subscriptions/read` | Subscription discovery |
 | `Microsoft.Resources/resources/read` | Resource discovery |
 
@@ -261,8 +261,10 @@ az role assignment create \
 |---|---|
 | `Microsoft.MachineLearningServices/workspaces/read` | Idle AML compute clusters, idle AML Compute Instances |
 | `Microsoft.MachineLearningServices/workspaces/computes/read` | Idle AML compute clusters, idle AML Compute Instances |
+| `Microsoft.CognitiveServices/accounts/read` | Idle Azure OpenAI provisioned deployments (PTUs) |
+| `Microsoft.CognitiveServices/accounts/deployments/read` | Idle Azure OpenAI provisioned deployments (PTUs) |
 
-> Reader does not grant `Microsoft.MachineLearningServices` access. Assign `CleanCloudAIReadOnly` (see [Custom Role](#custom-role-optional-least-privilege)) or a built-in role such as **AzureML Data Scientist** in addition to Reader.
+> Reader does not grant `Microsoft.MachineLearningServices` or `Microsoft.CognitiveServices` access. Assign `CleanCloudAIReadOnly` (see [Custom Role](#custom-role-optional-least-privilege)) or built-in roles such as **AzureML Data Scientist** and **Cognitive Services Reader** in addition to Reader.
 >
 > Rules that require missing permissions are skipped gracefully — hygiene rules continue to run unaffected. Run `cleancloud doctor --provider azure --category ai` to validate.
 

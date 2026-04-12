@@ -970,12 +970,12 @@ cleancloud scan \
 
 **JSON is the recommended format for programmatic processing** as it contains complete data including evidence and detailed metadata.
 
-The JSON output follows a versioned schema (see `schemas/output-v1.2.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
+The JSON output follows a versioned schema (see `schemas/output-v1.3.0.json`) and varies slightly between providers to accommodate their different organizational models (AWS regions vs Azure subscriptions).
 
 **AWS Schema Example:**
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.3.0",
   "summary": {
     "total_findings": 12,
     "by_risk": {"medium": 12},
@@ -1017,7 +1017,7 @@ The JSON output follows a versioned schema (see `schemas/output-v1.2.0.json`) an
 **Azure Schema Example:**
 ```json
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.3.0",
   "summary": {
     "total_findings": 5,
     "by_risk": {"low": 5},

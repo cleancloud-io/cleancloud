@@ -53,7 +53,7 @@ AWS_FINDINGS: List[Finding] = [
     ),
     Finding(
         provider="aws",
-        rule_id="aws.ebs.volume.unattached",
+        rule_id="aws.ebs.unattached",
         resource_type="aws.ebs.volume",
         resource_id="vol-0a1b2c3d4e5f67890",
         region="us-east-1",

@@ -24,6 +24,9 @@ from cleancloud.providers.azure.rules.container_registry_unused import (
 )
 from cleancloud.providers.azure.rules.disk_snapshots_old import find_old_snapshots
 from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
+from cleancloud.providers.azure.rules.openai_provisioned_idle import (
+    find_idle_openai_provisioned_deployments,
+)
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.sql_database_idle import find_idle_sql_databases
 from cleancloud.providers.azure.rules.unattached_managed_disks import (
@@ -79,6 +82,7 @@ AZURE_RULE_MAP: Dict[str, Callable] = {
 AZURE_RULE_MAP_AI: Dict[str, Callable] = {
     "azure.aml.compute.idle": find_idle_aml_compute,
     "azure.ml.compute_instance.idle": find_idle_aml_compute_instances,
+    "azure.openai.provisioned_deployment.idle": find_idle_openai_provisioned_deployments,
 }
 
 AZURE_RULES: List[Callable] = list(AZURE_RULE_MAP.values())

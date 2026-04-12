@@ -7,6 +7,9 @@ from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_comp
 from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
     find_idle_aml_compute_instances,
 )
+from cleancloud.providers.azure.rules.openai_provisioned_idle import (
+    find_idle_openai_provisioned_deployments,
+)
 from cleancloud.providers.azure.session import create_azure_session
 
 
@@ -25,6 +28,7 @@ def test_azure_ai_rules_run_without_error():
     rules = [
         find_idle_aml_compute,
         find_idle_aml_compute_instances,
+        find_idle_openai_provisioned_deployments,
     ]
 
     all_results = []

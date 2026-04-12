@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 37 rules implemented by CleanCloud (30 hygiene + 7 AI/ML).
+Complete reference for all 38 rules implemented by CleanCloud (30 hygiene + 8 AI/ML).
 
 ---
 
@@ -39,7 +39,7 @@ Every finding includes a confidence level:
 |---|---|---|
 | `aws.ec2.instance.stopped` | Compute | EC2 instances stopped 30+ days (EBS charges continue) |
 | `aws.ec2.security_group.unused` | Governance | Security groups with no ENI associations |
-| `aws.ebs.volume.unattached` | Storage | EBS volumes not attached to any instance |
+| `aws.ebs.unattached` | Storage | EBS volumes not attached to any instance |
 | `aws.ebs.snapshot.old` | Storage | Snapshots ≥ 90 days old |
 | `aws.ec2.ami.old` | Storage | AMIs older than 180 days |
 | `aws.ec2.elastic_ip.unattached` | Network | Elastic IPs allocated 30+ days with no attachment |
@@ -72,6 +72,7 @@ Every finding includes a confidence level:
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no control-plane activity 14+ days *(opt-in: `--category ai`)* |
+| `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero API requests for 7+ days *(opt-in: `--category ai`)* (default, configurable) |
 
 **GCP:**
 
@@ -195,7 +196,7 @@ for sg in describe_security_groups():
 
 #### Unattached EBS Volumes
 
-**Rule ID:** `aws.ebs.volume.unattached`
+**Rule ID:** `aws.ebs.unattached`
 
 **What it detects:** EBS volumes not attached to any EC2 instance
 
@@ -916,6 +917,57 @@ Azure ML Compute Instances do not publish per-instance utilisation metrics to Az
 - `Microsoft.MachineLearningServices/workspaces/computes/read`
 
 > **Not run by default.** Run with `cleancloud scan --provider azure --category ai`. Attach `security/azure/ai-readonly-role.json` to your service principal to enable this rule.
+
+---
+
+#### Idle Azure OpenAI Provisioned Deployment
+
+**Rule ID:** `azure.openai.provisioned_deployment.idle`
+
+**Category:** `ai`
+
+**What it detects:** Azure OpenAI provisioned deployments (PTUs) with zero API requests for 7+ days (default, configurable). Provisioned Throughput Units reserve dedicated model capacity and bill continuously at ~$1,460/PTU/month on-demand regardless of traffic — a single idle 100-PTU GPT-4o deployment wastes ~$146,000/month.
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `7` | Days of zero requests before flagging |
+
+**Detection signal:**
+
+Queries Azure Monitor `AzureOpenAIRequests` (falling back to `ProcessedPromptTokens`) with a `ModelDeploymentName` dimension filter to isolate per-deployment traffic. If the per-deployment dimension is unsupported in a region, falls back to account-level totals. Conservative: returns no finding on any API error.
+
+**Provisioned SKUs detected:**
+- `ProvisionedManaged` — single-region reserved capacity
+- `GlobalProvisionedManaged` — multi-region reserved capacity
+- `DataZoneProvisionedManaged` — data-zone-scoped reserved capacity
+
+**Confidence:**
+- **HIGH:** Per-deployment metric confirms zero requests AND deployment age ≥ `idle_days`
+- **MEDIUM:** Per-deployment zero confirmed but age < `idle_days`; OR account-level zero (per-deployment dimension unavailable in region)
+
+**Risk:**
+- **HIGH:** ≥ 7 PTUs (~$10K+/month estimated)
+- **MEDIUM:** < 7 PTUs (still significant — PTU deployments have no cost-free tier)
+
+**Why this matters:**
+- PTU deployments have no free tier — every hour of idle time is pure waste
+- Common abandonment pattern: PoC deployments left running after evaluation, dev/test deployments forgotten when team moves to production, traffic migrated to a new deployment without decommissioning the old one
+- Nobody else detects idle PTU deployments in CI — first-mover advantage
+
+**Estimated monthly cost:**
+- 1 PTU — ~$1,460/month (on-demand)
+- 10 PTUs — ~$14,600/month
+- 100 PTUs — ~$146,000/month
+- *Note: Monthly/annual reserved pricing is 30–50% lower; estimated cost shown is on-demand ceiling*
+
+**Required permissions:**
+- `Microsoft.CognitiveServices/accounts/read`
+- `Microsoft.CognitiveServices/accounts/deployments/read`
+- `Microsoft.Insights/metrics/read`
+
+> **Not run by default.** Run with `cleancloud scan --provider azure --category ai` (or `--category all`). Add the permissions above to your custom read-only role.
 
 ---
 
