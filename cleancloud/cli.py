@@ -30,6 +30,13 @@ def _version_info():
     try:
         import google.cloud.compute_v1  # noqa: F401
 
+    try:
+        import docker as _docker_lib  # noqa: F401
+
+    providers.append("docker")
+    except ImportError:
+     pass
+
         providers.append("gcp")
     except ImportError:
         pass
