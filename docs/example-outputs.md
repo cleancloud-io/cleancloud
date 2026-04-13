@@ -497,7 +497,7 @@ Found 84 hygiene issues:
    Confidence : High
    Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
    Region     : us-east-1
-   Rule       : aws.ebs.volume.unattached
+   Rule       : aws.ebs.unattached
    Reason     : Volume has been unattached for 47 days
    ...
 
@@ -557,7 +557,7 @@ Found 9 hygiene issues:
    Confidence : High
    Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
    Region     : us-east-1
-   Rule       : aws.ebs.volume.unattached
+   Rule       : aws.ebs.unattached
    Reason     : Volume has been unattached for 47 days
    Detected   : 2026-02-08T14:32:02+00:00
    Details:
@@ -799,7 +799,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "summary": {
     "total_findings": 9,
     "by_provider": { "aws": 9 },
@@ -851,7 +851,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
     },
     {
       "provider": "aws",
-      "rule_id": "aws.ebs.volume.unattached",
+      "rule_id": "aws.ebs.unattached",
       "resource_type": "aws.ebs.volume",
       "resource_id": "vol-0a1b2c3d4e5f67890",
       "region": "us-east-1",
@@ -1098,7 +1098,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "summary": {
     "total_findings": 7,
     "by_provider": { "azure": 7 },
@@ -1509,7 +1509,7 @@ For GCP, the **Projects scanned** field is shown instead of **Regions**, and fin
 
 ```json
 {
-  "schema_version": "1.2.0",
+  "schema_version": "1.3.0",
   "summary": {
     "total_findings": 5,
     "by_provider": { "gcp": 5 },
@@ -1627,9 +1627,9 @@ For GCP, the **Projects** field is shown instead of **Regions** or **Subscriptio
 
 ## JSON Schema Reference
 
-CleanCloud uses a versioned JSON schema (current: `1.2.0`). All JSON output includes a `schema_version` field for backward compatibility.
+CleanCloud uses a versioned JSON schema (current: `1.3.0`). All JSON output includes a `schema_version` field for backward compatibility.
 
-- **Schema definition**: [`schemas/output-v1.2.0.json`](../schemas/output-v1.2.0.json)
+- **Schema definition**: [`schemas/output-v1.3.0.json`](../schemas/output-v1.3.0.json)
 - **CI/CD integration guide**: [`docs/ci.md`](ci.md)
 
 **Key differences between AWS, Azure, and GCP JSON output:**
