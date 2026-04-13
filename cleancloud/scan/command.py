@@ -4,16 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-try:
-    import botocore.exceptions
-
-    _NoCredentialsError = botocore.exceptions.NoCredentialsError
-except ImportError:
-
-    class _NoCredentialsError(Exception):  # type: ignore[no-redef]
-        """Never raised — placeholder so the except clause compiles without boto3."""
-
-
+import botocore.exceptions
 import click
 import yaml
 
@@ -50,82 +41,40 @@ from cleancloud.policy.exit_policy import (
     EXIT_POLICY_VIOLATION,
     determine_exit_code,
 )
-
-try:
-    from cleancloud.providers.aws.multi_account import (
-        AccountScanResult,
-        discover_org_accounts,
-        scan_multiple_accounts,
-    )
-    from cleancloud.providers.aws.scan import (
-        AWS_AI_RULES,
-        AWS_RULE_MAP,
-        AWS_RULE_MAP_AI,
-        AWS_RULES,
-        scan_aws_with_region_selection,
-    )
-
-    _AWS_AVAILABLE = True
-except ImportError:
-    _AWS_AVAILABLE = False
-    AWS_RULES = AWS_AI_RULES = []
-    AWS_RULE_MAP = AWS_RULE_MAP_AI = {}
-    AccountScanResult = None
-    discover_org_accounts = scan_multiple_accounts = scan_aws_with_region_selection = None
-
-try:
-    from cleancloud.providers.azure.scan import (
-        AZURE_AI_RULES,
-        AZURE_RULE_MAP,
-        AZURE_RULE_MAP_AI,
-        AZURE_RULES,
-        scan_azure_with_region_selection,
-    )
-
-    _AZURE_AVAILABLE = True
-except ImportError:
-    _AZURE_AVAILABLE = False
-    AZURE_RULES = AZURE_AI_RULES = []
-    AZURE_RULE_MAP = AZURE_RULE_MAP_AI = {}
-    scan_azure_with_region_selection = None
-
-try:
-    from cleancloud.providers.gcp.scan import (
-        GCP_AI_RULES,
-        GCP_RULE_MAP,
-        GCP_RULE_MAP_AI,
-        GCP_RULES,
-        ProjectScanResult,
-        scan_gcp_with_project_selection,
-    )
-
-    _GCP_AVAILABLE = True
-except ImportError:
-    _GCP_AVAILABLE = False
-    GCP_RULES = GCP_AI_RULES = []
-    GCP_RULE_MAP = GCP_RULE_MAP_AI = {}
-    ProjectScanResult = None
-    scan_gcp_with_project_selection = None
-
-_PROVIDER_AVAILABLE = {
-    "aws": lambda: _AWS_AVAILABLE,
-    "azure": lambda: _AZURE_AVAILABLE,
-    "gcp": lambda: _GCP_AVAILABLE,
-}
-_INSTALL_HINTS = {
-    "aws": "pip install 'cleancloud[aws]'",
-    "azure": "pip install 'cleancloud[azure]'",
-    "gcp": "pip install 'cleancloud[gcp]'",
-}
-
-
-def _require_provider(provider: str) -> None:
-    if not _PROVIDER_AVAILABLE.get(provider, lambda: True)():
-        click.echo(f"Provider '{provider}' SDK is not installed.")
-        click.echo(
-            f"Install it with: {_INSTALL_HINTS.get(provider, 'pip install cleancloud[all]')}"
-        )
-        sys.exit(EXIT_ERROR)
+from cleancloud.providers.aws.multi_account import (
+    AccountScanResult,
+    discover_org_accounts,
+    scan_multiple_accounts,
+)
+from cleancloud.providers.aws.scan import (
+    AWS_AI_RULES,
+    AWS_RULE_MAP,
+    AWS_RULE_MAP_AI,
+    AWS_RULES,
+    scan_aws_with_region_selection,
+)
+from cleancloud.providers.azure.scan import (
+    AZURE_AI_RULES,
+    AZURE_RULE_MAP,
+    AZURE_RULE_MAP_AI,
+    AZURE_RULES,
+    scan_azure_with_region_selection,
+)
+from cleancloud.providers.gcp.scan import (
+    GCP_AI_RULES,
+    GCP_RULE_MAP,
+    GCP_RULE_MAP_AI,
+    GCP_RULES,
+    ProjectScanResult,
+    scan_gcp_with_project_selection,
+)
+from cleancloud.providers.docker.scan import (
+    DOCKER_AI_RULES,
+    DOCKER_RULE_MAP,
+    DOCKER_RULE_MAP_AI,
+    DOCKER_RULES,
+    scan_docker,
+)
 
 
 @click.command("scan")
@@ -133,7 +82,7 @@ def _require_provider(provider: str) -> None:
     "--provider",
     required=False,
     default=None,
-    type=click.Choice(["aws", "azure", "gcp"]),
+    type=click.Choice(["aws", "azure", "gcp", "docker"]),
     help="Cloud provider to scan (or set scan.provider in cleancloud.yaml)",
 )
 @click.option(
@@ -346,8 +295,6 @@ def scan(
     if provider is None:
         raise click.UsageError("--provider is required (or set scan.provider in cleancloud.yaml)")
 
-    _require_provider(provider)
-
     # Resolve regions for AWS: CLI flags > scan.regions in config > error (handled in validate)
     if provider == "aws" and not region and not all_regions and cfg.scan and cfg.scan.regions:
         raw_regions = cfg.scan.regions
@@ -468,7 +415,28 @@ def scan(
         gcp_rules_to_run = list(GCP_RULES)  # unused for non-GCP but keeps type consistent
         gcp_policy_skipped: list = []
 
-    policy_skipped = aws_policy_skipped + azure_policy_skipped + gcp_policy_skipped
+    # Build the Docker rule list based on --category
+    if provider == "docker":
+        if category == "hygiene":
+            docker_rules_to_run = list(DOCKER_RULES)
+        elif category == "ai":
+            docker_rules_to_run = list(DOCKER_AI_RULES)
+        else:  # all
+            docker_rules_to_run = list(DOCKER_RULES) + list(DOCKER_AI_RULES)
+        docker_rule_map = {**DOCKER_RULE_MAP, **DOCKER_RULE_MAP_AI}
+        try:
+            docker_rules_to_run, docker_policy_skipped = apply_rule_config(
+                docker_rules_to_run, docker_rule_map, cfg, skip_ids
+            )
+        except ValueError as e:
+            click.echo(f"Error in policy config: {e}", err=True)
+            click.echo("See docs/configuration.md for valid options.", err=True)
+            sys.exit(EXIT_ERROR)
+    else:
+        docker_rules_to_run = list(DOCKER_RULES)
+        docker_policy_skipped: list = []
+
+    policy_skipped = aws_policy_skipped + azure_policy_skipped + gcp_policy_skipped + docker_policy_skipped
 
     click.echo()
     click.echo("Starting CleanCloud scan...")
@@ -605,6 +573,12 @@ def scan(
             )
             # Extract unique regions/zones from findings
             regions_scanned = sorted(set(f.region for f in findings if f.region))
+
+        elif provider == "docker":
+            findings, skipped_rules = scan_docker(
+                host=None,
+                rules=docker_rules_to_run,
+            )
 
         all_suppressed: List[SuppressedFinding] = []
         all_expired_exception_events: List[dict] = []
@@ -759,11 +733,15 @@ def scan(
                     }
                     for r in sorted(gcp_project_results, key=lambda r: r.project_name)
                 ]
+        elif provider == "docker":
+            summary["total_rules"] = len(docker_rules_to_run)
         # Build rules_evaluated: {rule_id: finding_count} for all rules that ran
         if provider == "aws":
             _active_rule_map = {v: k for k, v in aws_rule_map.items() if v in aws_rules_to_run}
         elif provider == "azure":
             _active_rule_map = {v: k for k, v in azure_rule_map.items() if v in azure_rules_to_run}
+        elif provider == "docker":
+            _active_rule_map = {v: k for k, v in docker_rule_map.items() if v in docker_rules_to_run}
         else:
             _active_rule_map = {v: k for k, v in gcp_rule_map.items() if v in gcp_rules_to_run}
         _findings_by_rule = Counter(f.rule_id for f in findings)
@@ -899,14 +877,21 @@ def scan(
         sys.exit(EXIT_PERMISSION_ERROR)
 
     except EnvironmentError as e:
-        # Raised by create_azure_session() or create_gcp_session() when auth fails
+        # Raised by create_azure_session(), create_gcp_session(), or create_docker_session()
         click.echo()
-        click.echo(f"Authentication failed — {e}")
+        click.echo(f"Connection failed — {e}")
         click.echo()
-        click.echo(f"Run `cleancloud doctor --provider {provider}` to diagnose.")
+        if provider == "gcp":
+            click.echo("Run `cleancloud doctor --provider gcp` to diagnose.")
+        elif provider == "docker":
+            click.echo("Check that Docker is running and the socket is accessible.")
+        elif provider == "aws":
+            click.echo("Run `cleancloud doctor --provider aws` to diagnose.")
+        else:
+            click.echo("Run `cleancloud doctor --provider azure` to diagnose.")
         sys.exit(EXIT_PERMISSION_ERROR)
 
-    except _NoCredentialsError:
+    except botocore.exceptions.NoCredentialsError:
         click.echo()
         click.echo("Authentication failed — no AWS credentials found.")
         click.echo()

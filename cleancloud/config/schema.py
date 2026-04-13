@@ -6,7 +6,7 @@ _VALID_CONFIDENCE = {"LOW", "MEDIUM", "HIGH"}
 _VALID_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH", "CRITICAL"}
 _VALID_TAG_MODES = {"exclude"}  # "include" (allowlist) planned for a future release
 _VALID_CATEGORIES = {"hygiene", "ai", "all"}
-_VALID_PROVIDERS = {"aws", "azure", "gcp"}
+_VALID_PROVIDERS = {"aws", "azure", "gcp", "docker"}
 
 
 @dataclass(frozen=True)

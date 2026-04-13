@@ -33,6 +33,12 @@ def _version_info():
         providers.append("gcp")
     except ImportError:
         pass
+    try:
+        import docker as _docker_lib  # noqa: F401
+
+        providers.append("docker")
+    except ImportError:
+        pass
 
     lines = [
         f"cleancloud {ver}",
