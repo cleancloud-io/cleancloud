@@ -1,8 +1,8 @@
-from functools import partial
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple
 
 import click
