@@ -43,6 +43,14 @@ resource "aws_iam_role_policy" "cleancloud_ai" {
     Version = "2012-10-17"
     Statement = [
       {
+        Sid    = "BedrockReadOnly"
+        Effect = "Allow"
+        Action = [
+          "bedrock:ListProvisionedModelThroughputs",
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "SageMakerReadOnly"
         Effect = "Allow"
         Action = [

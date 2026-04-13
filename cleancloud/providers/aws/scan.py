@@ -8,6 +8,9 @@ from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.aws.region_cache import get_cached_regions, set_cached_regions
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
+from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+    find_idle_bedrock_provisioned_throughputs,
+)
 from cleancloud.providers.aws.rules.cloudwatch_inactive import (
     find_inactive_cloudwatch_logs,
 )
@@ -56,6 +59,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
     "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
     "aws.ec2.gpu.idle": find_idle_gpu_instances,
+    "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())

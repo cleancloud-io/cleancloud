@@ -194,7 +194,7 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 - **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints and notebooks, AML compute clusters and instances, Vertex AI endpoints and Workbench instances — silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
 - **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
-- **38 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **39 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
@@ -271,6 +271,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 
 | Resource | Idle cost range |
 |---|---|
+| Bedrock Provisioned Throughput | $600 – $7,300+ / MU / month |
 | SageMaker endpoint (GPU) | $500 – $23,000 / month |
 | SageMaker Notebook Instance (GPU) | $500 – $23,000+ / month |
 | Azure AML compute cluster (GPU) | $600 – $15,000 / month |
@@ -282,7 +283,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
 
 ```bash
-cleancloud scan --provider aws --category ai          # SageMaker endpoints + notebooks
+cleancloud scan --provider aws --category ai          # Bedrock PTUs + SageMaker endpoints + notebooks + idle GPU EC2
 cleancloud scan --provider azure --category ai        # AML compute clusters + ML instances + OpenAI PTUs
 cleancloud scan --provider gcp --category ai          # Vertex AI endpoints + Workbench
 cleancloud scan --provider aws --category all         # hygiene + AI/ML together
@@ -531,7 +532,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
-- AI/ML *(opt-in: `--category ai`)*: idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month); idle Notebook Instances with no activity 14+ days — GPU-backed notebooks flagged HIGH risk ($500–$23K+/month)
+- AI/ML *(opt-in: `--category ai`)*: idle Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills $600–$7,300+/MU/month regardless of traffic; idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month); idle Notebook Instances with no activity 14+ days — GPU-backed notebooks flagged HIGH risk ($500–$23K+/month)
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)

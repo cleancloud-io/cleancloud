@@ -88,6 +88,10 @@ rules:
   #     gpu_threshold: 10.0     # default: 5.0 (max GPU utilisation %, HIGH confidence path)
   #     cpu_threshold: 20.0     # default: 10.0 (max CPU utilisation %, MEDIUM confidence fallback)
 
+  # aws.bedrock.provisioned_throughput.idle:
+  #   params:
+  #     idle_days: 14           # default: 7 (days of zero invocations before flagging)
+
   # azure.openai.provisioned_deployment.idle:
   #   params:
   #     idle_days: 14           # default: 7 (days of zero requests before flagging)

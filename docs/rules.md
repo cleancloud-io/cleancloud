@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 38 rules implemented by CleanCloud (30 hygiene + 8 AI/ML).
+Complete reference for all 39 rules implemented by CleanCloud (30 hygiene + 9 AI/ML).
 
 ---
 
@@ -53,6 +53,7 @@ Every finding includes a confidence level:
 | `aws.sagemaker.endpoint.idle` | AI/ML | SageMaker endpoints with zero invocations 14+ days *(opt-in: `--category ai`)* |
 | `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances InService with no activity 14+ days *(opt-in: `--category ai`)* |
 | `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances (p/g/trn/inf/dl families) running with <5% GPU or <10% CPU utilisation over 7 days *(opt-in: `--category ai`)* |
+| `aws.bedrock.provisioned_throughput.idle` | AI/ML | Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills per MU per hour regardless of traffic *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -839,6 +840,52 @@ Detection uses two tiers based on metric availability:
 - `cloudwatch:ListMetrics`
 
 > **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule. The NVIDIA CloudWatch agent is not required — instances without it fall back to CPU utilisation at MEDIUM confidence.
+
+---
+
+#### Idle Bedrock Provisioned Throughput
+
+**Rule ID:** `aws.bedrock.provisioned_throughput.idle`
+
+**Category:** `ai`
+
+**What it detects:** AWS Bedrock Provisioned Throughput reservations (Model Units) in `InService` state with zero invocations over 7+ days (default, configurable). Provisioned Throughput reserves dedicated model capacity and bills per Model Unit per hour regardless of whether any inference requests are made — up to ~$7,300/MU/month for Claude 3 Opus on no-commitment pricing. A zero-invocation reservation is paying for capacity delivering zero value.
+
+**Confidence:**
+- **HIGH:** Zero invocations confirmed for the full idle window (deployment age ≥ `idle_days`)
+- **MEDIUM:** Zero invocations, age ≥ ceil(75% of `idle_days`) but < `idle_days`
+
+**Risk:**
+- **CRITICAL:** `idle_ratio ≥ 2.0` — reservation has been idle for 2× the threshold
+- **HIGH:** all other cases (all MU reservations are always-on significant spend)
+
+**Why this matters:**
+- Provisioned Throughput bills per Model Unit per hour while `InService`, regardless of invocation count
+- Claude 3 Opus: ~$7,300/MU/month; Claude 3 Sonnet / 3.5 Sonnet: ~$2,600/MU/month; Claude 3 Haiku: ~$600/MU/month (no-commitment pricing — reserved terms are 25–60% lower but still significant)
+- Abandoned proof-of-concept and experiment reservations are common — teams switch to on-demand after initial testing but forget to delete the provisioned throughput
+
+**Cost estimates (per Model Unit, us-east-1, no-commitment):**
+
+| Model family | Monthly cost per MU |
+|---|---|
+| Claude 3 Opus | ~$7,300 |
+| Claude 3 Sonnet / 3.5 Sonnet | ~$2,600 |
+| Claude 3 Haiku / 3.5 Haiku | ~$600 |
+| Meta Llama 3 | ~$1,000 |
+
+Multiply by `desiredModelUnits` for total monthly idle cost.
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `7` | Days of zero invocations before flagging |
+
+**Required permissions:**
+- `bedrock:ListProvisionedModelThroughputs`
+- `cloudwatch:GetMetricStatistics`
+
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
 
 ---
 
