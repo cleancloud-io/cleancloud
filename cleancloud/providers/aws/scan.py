@@ -8,6 +8,9 @@ from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.aws.region_cache import get_cached_regions, set_cached_regions
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
+from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+    find_idle_bedrock_provisioned_throughputs,
+)
 from cleancloud.providers.aws.rules.cloudwatch_inactive import (
     find_inactive_cloudwatch_logs,
 )
@@ -56,6 +59,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
     "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
     "aws.ec2.gpu.idle": find_idle_gpu_instances,
+    "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
@@ -94,14 +98,23 @@ def scan_aws_with_region_selection(
 
     else:
         click.echo("Auto-detecting regions with resources...")
-        regions_to_scan = _get_active_aws_regions(base_session)
+        # rules=None means "run everything" — treat as including AI rules so
+        # Bedrock/SageMaker-only regions are not skipped during auto-discovery.
+        include_ai = rules is None or bool(set(rules) & set(AWS_AI_RULES))
+        regions_to_scan = _get_active_aws_regions(base_session, include_ai=include_ai)
 
         if regions_to_scan:
             click.echo(f"Found {len(regions_to_scan)} active regions:")
             click.echo(f"   {', '.join(regions_to_scan)}")
-            click.echo(
-                "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, NAT Gateways, or ELBs)"
-            )
+            if include_ai:
+                click.echo(
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, "
+                    "NAT Gateways, ELBs, SageMaker endpoints/notebooks, or Bedrock provisioned throughputs)"
+                )
+            else:
+                click.echo(
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, NAT Gateways, or ELBs)"
+                )
         else:
             click.echo("No active regions detected")
             click.echo("   Falling back to us-east-1")
@@ -117,7 +130,7 @@ def scan_aws_with_region_selection(
     return region_selection_mode, findings, regions_scanned, skipped_rules
 
 
-def _get_active_aws_regions(session) -> List[str]:
+def _get_active_aws_regions(session, include_ai: bool = False) -> List[str]:
     try:
         account_id = session.client("sts").get_caller_identity()["Account"]
         cached = get_cached_regions(account_id)
@@ -148,7 +161,7 @@ def _get_active_aws_regions(session) -> List[str]:
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_region_has_cleancloud_resources, session, region): region
+            executor.submit(_region_has_cleancloud_resources, session, region, include_ai): region
             for region in enabled_regions
         }
 
@@ -182,7 +195,9 @@ def _get_active_aws_regions(session) -> List[str]:
     return result
 
 
-def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Optional[str]]:
+def _region_has_cleancloud_resources(
+    session, region: str, include_ai: bool = False
+) -> tuple[bool, Optional[str]]:
     try:
         ec2 = session.client("ec2", region_name=region, config=BOTO_CONFIG)
 
@@ -231,6 +246,31 @@ def _region_has_cleancloud_resources(session, region: str) -> tuple[bool, Option
         lbs = elbv2.describe_load_balancers(PageSize=1)
         if lbs.get("LoadBalancers"):
             return True, None
+
+        # AI resource probes — only when running AI/ML rules.
+        # Wrapped individually so a missing permission for one service doesn't
+        # prevent the other from being checked.
+        if include_ai:
+            # 9. Check SageMaker endpoints
+            try:
+                sagemaker = session.client("sagemaker", region_name=region, config=BOTO_CONFIG)
+                endpoints = sagemaker.list_endpoints(MaxResults=1)
+                if endpoints.get("Endpoints"):
+                    return True, None
+                notebooks = sagemaker.list_notebook_instances(MaxResults=1)
+                if notebooks.get("NotebookInstances"):
+                    return True, None
+            except Exception:
+                pass  # no SageMaker perms or service not available in region — skip
+
+            # 10. Check Bedrock provisioned throughputs
+            try:
+                bedrock = session.client("bedrock", region_name=region, config=BOTO_CONFIG)
+                response = bedrock.list_provisioned_model_throughputs(statusEquals="InService")
+                if response.get("provisionedModelSummaries"):
+                    return True, None
+            except Exception:
+                pass  # no Bedrock perms or service not available in region — skip
 
         # No resources found - this is OK, just an empty region
         return False, None

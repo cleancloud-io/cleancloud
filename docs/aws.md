@@ -307,9 +307,9 @@ For the complete production workflow with enforcement flags, scheduling, and art
 > |------|----------|---------------|
 > | `base-readonly.json` | `sts:GetCallerIdentity`, `cloudwatch:GetMetricStatistics` | **Always — every scan, every category** |
 > | `hygiene-readonly.json` | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
-> | `ai-readonly.json` | SageMaker, EC2 GPU instances, CloudWatch GPU metrics | `--category ai` |
+> | `ai-readonly.json` | Bedrock Provisioned Throughput, SageMaker, EC2 GPU instances, CloudWatch metrics | `--category ai` |
 >
-> `base-readonly.json` must be attached alongside any category file. It provides `cloudwatch:GetMetricStatistics` (used by the NAT gateway, RDS, and ELB idle rules) and `sts:GetCallerIdentity` (used at startup to verify credentials). A role with only `hygiene-readonly.json` attached will have CloudWatch metric calls fail silently on those rules.
+> `base-readonly.json` must be attached alongside any category file. It provides `cloudwatch:GetMetricStatistics` (used by the NAT gateway, RDS, and ELB idle rules) and `sts:GetCallerIdentity` (used at startup to verify credentials). A role with only `hygiene-readonly.json` attached will have CloudWatch metric calls fail silently on hygiene rules. AI rules behave differently — they surface a `PermissionError` and are reported in the skipped rules section rather than failing silently.
 
 Attach this policy to your IAM role or user (combined view — for the split files see above):
 
