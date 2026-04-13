@@ -243,9 +243,9 @@ def test_high_confidence_per_deployment_old_enough():
 
 
 def test_medium_confidence_per_deployment_borderline_age():
-    """Per-deployment zero confirmed but age at 75% of idle_days → MEDIUM."""
+    """Per-deployment zero confirmed, age exactly at ceil(75%) of idle_days → MEDIUM."""
     account = _make_account()
-    # idle_days=7, age=6, int(7*0.75)=5 → 6 >= 5 → MEDIUM
+    # idle_days=7, ceil(7*0.75)=ceil(5.25)=6 → age=6 is the minimum for MEDIUM
     dep = _make_deployment(age_days=6)
     cs_client, mon_client = _make_clients(account, [dep])
 
@@ -258,10 +258,23 @@ def test_medium_confidence_per_deployment_borderline_age():
 
 
 def test_below_75pct_age_skipped():
-    """Deployment below the 75% confidence threshold should be skipped entirely."""
+    """Deployment below the ceil(75%) threshold should be skipped entirely."""
     account = _make_account()
-    # idle_days=7, age=4, int(7*0.75)=5 → 4 < 5 → skip
+    # idle_days=7, ceil(7*0.75)=6 → age=4 < 6 → skip
     dep = _make_deployment(age_days=4)
+    cs_client, mon_client = _make_clients(account, [dep])
+
+    findings = find_idle_openai_provisioned_deployments(
+        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+    )
+
+    assert findings == []
+
+
+def test_age_5_with_idle_days_7_skipped():
+    """age=5 with idle_days=7: ceil(7*0.75)=6, so 5 < 6 must be skipped (not MEDIUM)."""
+    account = _make_account()
+    dep = _make_deployment(age_days=5)
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
@@ -374,17 +387,17 @@ def test_per_deployment_dimension_filter_used():
     assert any("gpt4-prod" in str(kw.get("filter", "")) for kw in call_kwargs)
 
 
-def test_account_level_fallback_when_no_per_deployment_timeseries():
-    """If per-deployment dimension query returns no timeseries, account-level fallback runs."""
+def test_no_per_deployment_timeseries_falls_back_to_no_data():
+    """If per-deployment dimension query returns no timeseries, account-level is NOT trusted.
+    The deployment is treated as no_data — account-level zero is unsafe because it only
+    covers deployments that emit the metric; those that don't are invisible to it."""
     account = _make_account()
-    dep = _make_deployment(age_days=30)
-    call_kwargs = []
+    dep = _make_deployment(age_days=30)  # 30 >= 2×7=14 → age-only fallback applies
 
     def _mock_metrics(resource_uri, **kwargs):
-        call_kwargs.append(dict(kwargs))
         if "filter" in kwargs:
             return _make_total_metric_response(has_timeseries=False)  # dimension not supported
-        return _make_total_metric_response(0.0)  # account-level zero
+        return _make_total_metric_response(0.0)  # account-level zero — NOT used
 
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
@@ -392,23 +405,21 @@ def test_account_level_fallback_when_no_per_deployment_timeseries():
         subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
     )
 
+    # Finding produced via age-only fallback, not account-level
     assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"  # account-level → MEDIUM
-    assert findings[0].details["idle_signal_scope"] == "account_level"
-    # Verify both filtered and unfiltered calls were made
-    assert any("filter" in kw for kw in call_kwargs)
-    assert any("filter" not in kw for kw in call_kwargs)
+    assert findings[0].confidence.value == "medium"
+    assert findings[0].details["idle_signal_scope"] == "age_only"
 
 
-def test_account_level_with_activity_causes_skip():
-    """If account-level fallback shows any traffic, deployment should be skipped (conservative)."""
+def test_no_per_deployment_timeseries_young_deployment_skipped():
+    """If per-deployment dimension unsupported AND deployment too young for age fallback → no finding."""
     account = _make_account()
-    dep = _make_deployment(age_days=30)
+    dep = _make_deployment(age_days=10)  # 10 < 2×7=14 — age fallback does not apply
 
     def _mock_metrics(resource_uri, **kwargs):
         if "filter" in kwargs:
             return _make_total_metric_response(has_timeseries=False)
-        return _make_total_metric_response(1_000.0)  # account has traffic
+        return _make_total_metric_response(0.0)  # account-level zero — NOT used
 
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
@@ -416,7 +427,7 @@ def test_account_level_with_activity_causes_skip():
         subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
     )
 
-    assert findings == []  # can't confirm this specific deployment is idle
+    assert findings == []
 
 
 def test_fallback_to_processed_prompt_tokens():
@@ -487,16 +498,17 @@ def test_no_timeseries_old_deployment_age_only_medium():
 def test_effective_window_capped_to_age():
     """For a deployment younger than idle_days, effective_window is capped to age."""
     account = _make_account()
-    dep = _make_deployment(age_days=5)  # age < idle_days=7
+    # age=6 < idle_days=7, and ceil(7*0.75)=6 so age=6 qualifies for MEDIUM
+    dep = _make_deployment(age_days=6)
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
         subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
     )
 
-    # age=5, int(7*0.75)=5, 5>=5 → MEDIUM; effective_window=min(7,5)=5
+    # age=6 >= ceil(7*0.75)=6 → MEDIUM; effective_window=min(7,6)=6
     assert len(findings) == 1
-    assert findings[0].evidence.time_window == "5 days"
+    assert findings[0].evidence.time_window == "6 days"
 
 
 def test_idle_days_clamped_to_minimum():

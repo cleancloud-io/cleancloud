@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
@@ -73,16 +74,17 @@ def find_idle_openai_provisioned_deployments(
       (per-deployment signal — most reliable)
     - Fall back to ProcessedPromptTokens with same filter if AzureOpenAIRequests
       returns no timeseries (metric or dimension unsupported in this region)
-    - If both per-deployment queries return no data, fall back to account-level
-      total: zero at account level confirms all deployments are idle (MEDIUM)
+    - If both per-deployment queries return no data, result is ("no_data", None).
+      Account-level aggregation is NOT used as a fallback: a zero account total only
+      covers deployments that emit the metric; deployments that don't are invisible,
+      making account-level zero an unsafe basis for a finding.
     - Conservative: return None (assume active) on any API exception
 
     Confidence:
     - HIGH: Per-deployment metric confirms zero requests, deployment age >= idle_days
-    - MEDIUM: Per-deployment metric confirms zero, age >= 75% of idle_days but < idle_days;
-      OR per-deployment metric confirms zero, age unknown; OR account-level metric confirms
-      zero (per-deployment dimension unavailable); OR metrics unavailable and deployment
-      age >= 2× idle_days (age-only fallback)
+    - MEDIUM: Per-deployment metric confirms zero, age >= ceil(75% of idle_days) but
+      < idle_days; OR per-deployment metric confirms zero, age unknown; OR metrics
+      unavailable and deployment age >= 2× idle_days (age-only fallback)
 
     IAM permissions:
     - Microsoft.CognitiveServices/accounts/read
@@ -141,7 +143,7 @@ def find_idle_openai_provisioned_deployments(
                     if created_at is not None:
                         if created_at.tzinfo is None:
                             created_at = created_at.replace(tzinfo=timezone.utc)
-                        age_days = (now - created_at).days
+                        age_days = max((now - created_at).days, 0)
                         if age_days < max(idle_days // 2, 3):
                             continue  # too new to classify
 
@@ -160,7 +162,6 @@ def find_idle_openai_provisioned_deployments(
                     )
                     # idle_signal:
                     #   ("per_deployment", metric_name) — zero confirmed at deployment level
-                    #   ("account_level", metric_name)  — zero confirmed at account level
                     #   ("active", None)                — has traffic, skip
                     #   ("no_data", None)               — metrics returned no timeseries (unsupported)
                     #   None                            — all metric calls failed (transient), skip
@@ -179,7 +180,6 @@ def find_idle_openai_provisioned_deployments(
                         else:
                             continue  # not enough signal
 
-                    # Confidence for metric-backed signals
                     elif (
                         signal_scope == "per_deployment"
                         and age_days is not None
@@ -189,17 +189,21 @@ def find_idle_openai_provisioned_deployments(
                     elif (
                         signal_scope == "per_deployment"
                         and age_days is not None
-                        and age_days >= int(idle_days * 0.75)
+                        and age_days >= math.ceil(idle_days * 0.75)
                     ):
+                        # 75–100% of idle_days: metric confirms zero requests but the
+                        # deployment hasn't fully cleared the observation window yet.
+                        # Surface as MEDIUM rather than skipping — early waste is still
+                        # waste, but we avoid HIGH until the full window is satisfied.
+                        # ceil ensures "75%" is never rounded down (e.g. idle_days=7
+                        # gives ceil(5.25)=6, so age=5 is correctly excluded).
                         confidence = ConfidenceLevel.MEDIUM
                     elif signal_scope == "per_deployment" and age_days is None:
                         confidence = ConfidenceLevel.MEDIUM
-                    elif signal_scope == "account_level":
-                        confidence = (
-                            ConfidenceLevel.MEDIUM
-                        )  # confirmed idle at account, not deployment
                     else:
-                        continue  # not confident enough
+                        # age_days < ceil(75% of idle_days): too early to be confident.
+                        # Prefer false negatives over false positives here.
+                        continue
 
                     monthly_cost = ptu_capacity * _PTU_MONTHLY_COST_USD if ptu_capacity else None
 
@@ -213,8 +217,8 @@ def find_idle_openai_provisioned_deployments(
 
                     signals = [
                         (
-                            f"No Azure Monitor data available — deployment age ({age_days} days) "
-                            f"exceeds {idle_days * 2} days with no prior activity recorded"
+                            f"No Azure Monitor metric data available; deployment age ({age_days} days) "
+                            f"exceeds {idle_days * 2} days"
                             if signal_scope == "age_only"
                             else f"Zero API requests for {effective_window} days "
                             f"(Azure Monitor: {idle_metric}, scope: {signal_scope.replace('_', ' ')})"
@@ -243,6 +247,19 @@ def find_idle_openai_provisioned_deployments(
                         time_window=f"{effective_window} days",
                     )
 
+                    _confidence_reasons = {
+                        "age_only": "no_metric_data_deployment_age_only",
+                        "per_deployment": (
+                            "per_deployment_metric_zero_age_confirmed"
+                            if age_days is not None and age_days >= idle_days
+                            else (
+                                "per_deployment_metric_zero_age_partial"
+                                if age_days is not None
+                                else "per_deployment_metric_zero_age_unknown"
+                            )
+                        ),
+                    }
+
                     details = {
                         "account_name": account.name,
                         "deployment_name": deployment.name,
@@ -251,6 +268,7 @@ def find_idle_openai_provisioned_deployments(
                         "location": location_raw,
                         "idle_days_threshold": idle_days,
                         "idle_signal_scope": signal_scope,
+                        "confidence_reason": _confidence_reasons.get(signal_scope, signal_scope),
                     }
                     if model_name:
                         details["model"] = model_name
@@ -341,13 +359,19 @@ def _check_requests(
 
     Returns:
         ("per_deployment", metric_name) — deployment-level zero confirmed
-        ("account_level", metric_name) — account-level zero confirmed (dimension unsupported)
         ("active", None)               — deployment or account has traffic (do not flag)
         ("no_data", None)              — metrics API responded but returned no timeseries
-                                         for any metric (unsupported region/account);
-                                         age-only fallback may apply in the caller
+                                         for any metric. Can mean: metric unsupported in
+                                         this region, dimension filter unsupported, or
+                                         ingestion lag. Age-only fallback may apply in
+                                         the caller for deployments >= 2× idle_days.
         None                           — all metric calls failed with transient errors;
                                          conservative skip (do not flag)
+
+    Account-level aggregation is intentionally NOT used as an idle signal. A zero
+    account-level total only confirms all deployments on the account emitting that
+    metric are idle — deployments that do not emit the metric are invisible to it,
+    making it an unsafe basis for a finding.
 
     Auth errors (403/AuthorizationFailed) are re-raised as PermissionError so the
     caller can surface them as a skipped-rule signal rather than silent no-findings.
@@ -372,36 +396,27 @@ def _check_requests(
             )
             had_successful_call = True
             has_timeseries = False
+            seen_datapoints = 0
             for metric in response.value:
                 for ts in metric.timeseries:
                     has_timeseries = True
                     for point in ts.data:
-                        if point.total is not None and point.total > 0:
-                            return ("active", None)  # deployment has traffic
-            if has_timeseries:
-                return ("per_deployment", metric_name)  # timeseries returned, all zero
+                        if point.total is not None:
+                            seen_datapoints += 1
+                            if point.total > 0:
+                                return ("active", None)  # deployment has traffic
+            # Require at least one explicit data point: an all-None timeseries means
+            # Azure returned the metric structure but ingested no measurements
+            # (ingestion gap or very new deployment). Treat as no_data rather than
+            # idle to avoid false positives from empty metric shells.
+            if has_timeseries and seen_datapoints > 0:
+                return ("per_deployment", metric_name)  # timeseries with explicit zeros confirmed
 
-            # No timeseries — dimension filter likely unsupported; try account-level
-            response_acct = monitor_client.metrics.list(
-                account_id,
-                metricnames=metric_name,
-                timespan=timespan,
-                interval="P1D",
-                aggregation="Total",
-            )
-            acct_has_timeseries = False
-            for metric in response_acct.value:
-                for ts in metric.timeseries:
-                    acct_has_timeseries = True
-                    for point in ts.data:
-                        if point.total is not None and point.total > 0:
-                            return (
-                                "active",
-                                None,
-                            )  # account has traffic — could be this deployment
-            if acct_has_timeseries:
-                return ("account_level", metric_name)  # all zero at account level
-            # No timeseries at account level either — metric unsupported, try next
+            # No per-deployment timeseries — dimension filter unsupported for this
+            # deployment. Do NOT fall back to account-level aggregation: a zero
+            # account total only covers deployments that emit this metric; deployments
+            # that do not emit it are invisible and would be falsely flagged as idle.
+            # Fall through to try the next metric instead.
 
         except Exception as e:
             msg = str(e)
