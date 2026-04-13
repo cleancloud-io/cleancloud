@@ -885,7 +885,7 @@ Multiply by `desiredModelUnits` for total monthly idle cost.
 - `bedrock:ListProvisionedModelThroughputs`
 - `cloudwatch:GetMetricStatistics`
 
-> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
 
 ---
 
