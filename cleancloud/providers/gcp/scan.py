@@ -1,3 +1,4 @@
+from functools import partial
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError, as_completed
@@ -74,6 +75,13 @@ GCP_RULES: List[Callable] = list(GCP_RULE_MAP.values())
 GCP_AI_RULES: List[Callable] = list(GCP_RULE_MAP_AI.values())
 
 
+def _rule_label(rule: Callable) -> str:
+    current = rule
+    while isinstance(current, partial):
+        current = current.func
+    return getattr(current, "RULE_ID", getattr(current, "__name__", repr(current)))
+
+
 def _run_rule_with_retry(
     rule: Callable,
     project_id: str,
@@ -92,7 +100,7 @@ def _run_rule_with_retry(
             if attempt < _MAX_RETRIES - 1:
                 wait = (2**attempt) + random.uniform(0, 1)
                 click.echo(
-                    f"  Retrying {rule.__name__} "
+                    f"  Retrying {_rule_label(rule)} "
                     f"(attempt {attempt + 2}/{_MAX_RETRIES}, wait {wait}s) ..."
                 )
                 time.sleep(min(wait, 60))
@@ -269,7 +277,7 @@ def _scan_gcp_project(
 
         for future in as_completed(futures):
             rule = futures[future]
-            rule_id = getattr(rule, "RULE_ID", rule.__name__)
+            rule_id = _rule_label(rule)
             try:
                 rule_findings = future.result(timeout=120)
                 for f in rule_findings:
