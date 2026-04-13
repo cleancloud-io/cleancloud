@@ -4,6 +4,9 @@ import boto3
 import pytest
 
 from cleancloud.core.finding import Finding
+from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+    find_idle_bedrock_provisioned_throughputs,
+)
 from cleancloud.providers.aws.rules.ec2_gpu_idle import find_idle_gpu_instances
 from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
@@ -16,6 +19,7 @@ _AWS_AI_RULE_IDS = {
     "aws.sagemaker.endpoint.idle",
     "aws.sagemaker.notebook.idle",
     "aws.ec2.gpu.idle",
+    "aws.bedrock.provisioned_throughput.idle",
 }
 
 
@@ -29,11 +33,15 @@ def test_aws_ai_rules_run_without_error():
         find_idle_sagemaker_endpoints,
         find_idle_sagemaker_notebooks,
         find_idle_gpu_instances,
+        find_idle_bedrock_provisioned_throughputs,
     ]
 
     all_results = []
     for rule in rules:
-        rule_results = rule(session, region)
+        try:
+            rule_results = rule(session, region)
+        except PermissionError:
+            continue
         assert isinstance(
             rule_results, list
         ), f"{rule.__name__} returned {type(rule_results)} instead of list"
@@ -90,3 +98,28 @@ def test_sagemaker_notebook_idle_returns_list_of_findings():
         assert f.estimated_monthly_cost_usd >= 0
         assert f.confidence.value in ("high", "medium")
         assert f.risk.value in ("high", "medium")
+
+
+@pytest.mark.e2e
+@pytest.mark.aws
+def test_bedrock_provisioned_throughput_idle_returns_list_of_findings():
+    """Smoke test: rule runs without error and returns typed findings."""
+    session = boto3.Session()
+    try:
+        findings = find_idle_bedrock_provisioned_throughputs(session, "us-east-1")
+    except PermissionError as e:
+        pytest.skip(f"Missing IAM permissions: {e}")
+
+    assert isinstance(findings, list)
+    for f in findings:
+        assert isinstance(f, Finding)
+        assert f.rule_id == "aws.bedrock.provisioned_throughput.idle"
+        assert f.resource_type == "aws.bedrock.provisioned_throughput"
+        assert f.provider == "aws"
+        assert f.resource_id
+        assert f.region == "us-east-1"
+        assert f.detected_at and isinstance(f.detected_at, datetime)
+        assert f.confidence.value in ("high", "medium")
+        assert f.risk.value in ("critical", "high")
+        assert "desired_model_units" in f.details
+        assert "commitment_duration" in f.details

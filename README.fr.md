@@ -194,7 +194,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 - **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints SageMaker et notebooks, clusters AML Compute et instances ML, endpoints Vertex AI et instances Workbench — facturés 500–23 000 $/mois par ressource en silence. Ressources GPU flaggées risque HIGH. Les outils natifs montrent la facture — CleanCloud indique quoi supprimer. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **38 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **39 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
@@ -271,6 +271,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 
 | Ressource | Coût inactif |
 |---|---|
+| Bedrock Provisioned Throughput | 600 – 7 300+ $ / MU / mois |
 | Endpoint SageMaker (GPU) | 500 – 23 000 $ / mois |
 | Instance Notebook SageMaker (GPU) | 500 – 23 000+ $ / mois |
 | Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
@@ -282,7 +283,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 CleanCloud détecte les endpoints à zéro invocation / zéro prédiction et les instances de notebook inactives sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
 
 ```bash
-cleancloud scan --provider aws --category ai          # endpoints + notebooks SageMaker
+cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks SageMaker + EC2 GPU
 cleancloud scan --provider azure --category ai        # clusters AML + instances ML + PTUs OpenAI
 cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench
 cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
@@ -531,7 +532,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
 - Gouvernance : ressources sans tags, security groups inutilisés
-- IA/ML *(opt-in : `--category ai`)* : endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois) ; instances Notebook SageMaker sans activité depuis 14+ jours — notebooks GPU flaggés risque HIGH ($500–$23K+/mois)
+- IA/ML *(opt-in : `--category ai`)* : Bedrock Provisioned Throughput (Model Units) inactifs avec zéro invocations depuis 7+ jours — facturés 600–7 300+$/MU/mois quel que soit le trafic ; endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois) ; instances Notebook SageMaker sans activité depuis 14+ jours — notebooks GPU flaggés risque HIGH ($500–$23K+/mois)
 
 **Azure :**
 - Compute : VMs arrêtées (non désallouées) (HIGH)

@@ -706,6 +706,16 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("cloudwatch:GetMetricStatistics", str(e)))
         warn(f"cloudwatch:GetMetricStatistics - {e}")
 
+    # --- bedrock:ListProvisionedModelThroughputs (aws.bedrock.provisioned_throughput.idle) ---
+    try:
+        bedrock = session.client("bedrock", region_name=region)
+        bedrock.list_provisioned_model_throughputs(maxResults=1)
+        permissions_tested.append("bedrock:ListProvisionedModelThroughputs")
+        success("bedrock:ListProvisionedModelThroughputs")
+    except Exception as e:
+        permissions_failed.append(("bedrock:ListProvisionedModelThroughputs", str(e)))
+        warn(f"bedrock:ListProvisionedModelThroughputs - {e}")
+
     # --- ec2:DescribeInstances (aws.ec2.gpu.idle) ---
     try:
         ec2 = session.client("ec2", region_name=region)
