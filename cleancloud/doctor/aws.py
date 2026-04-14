@@ -730,7 +730,9 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         else:
             # No qualifying InService app exists in this account/region — describe_app
             # cannot be exercised, so the permission remains untested.
-            info("sagemaker:DescribeApp - not tested (no InService KernelGateway/JupyterLab/CodeEditor app found to probe)")
+            info(
+                "sagemaker:DescribeApp - not tested (no InService KernelGateway/JupyterLab/CodeEditor app found to probe)"
+            )
     except Exception as e:
         permissions_failed.append(("sagemaker:DescribeApp", str(e)))
         warn(f"sagemaker:DescribeApp - {e}")
