@@ -22,6 +22,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "StudioAppReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:ListApps",
+        "sagemaker:DescribeApp"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "EC2GPUReadOnly",
       "Effect": "Allow",
       "Action": [

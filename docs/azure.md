@@ -27,7 +27,7 @@ az ad app federated-credential create \
     "audiences": ["api://AzureADTokenExchange"]
   }'
 
-# 3. Assign Reader role
+# 3. Assign Reader role (covers the default hygiene scan path)
 az role assignment create \
   --assignee <APP_ID> \
   --role "Reader" \
@@ -125,6 +125,8 @@ Go to your repo → Settings → Secrets and variables → Actions → New repos
 
 No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
 
+> To also enable AI/ML rules (`cleancloud scan --provider azure --category ai`), assign the additional AI role described in [RBAC Permissions](#rbac-permissions).
+
 #### Validate Your Setup
 
 Once credentials are configured, verify everything works:
@@ -151,6 +153,12 @@ jobs:
         run: |
           pip install 'cleancloud[azure]'
           cleancloud doctor --provider azure
+```
+
+For AI/ML scans, also run:
+
+```bash
+cleancloud doctor --provider azure --category ai
 ```
 
 For the complete production workflow with enforcement flags, scheduling, and artifact upload: **[CI/CD guide →](ci.md)**
@@ -220,9 +228,9 @@ CleanCloud automatically uses your active Azure CLI session.
 
 ## RBAC Permissions
 
-### Reader Role (Recommended)
+### Reader Role (Recommended for default hygiene scans)
 
-Built-in Reader role provides all required permissions:
+Built-in Reader role provides all required hygiene permissions:
 
 ```bash
 az role assignment create \
@@ -267,6 +275,12 @@ az role assignment create \
 > Reader does not grant `Microsoft.MachineLearningServices` or `Microsoft.CognitiveServices` access. Assign `CleanCloudAIReadOnly` (see [Custom Role](#custom-role-optional-least-privilege)) or built-in roles such as **AzureML Data Scientist** and **Cognitive Services Reader** in addition to Reader.
 >
 > Rules that require missing permissions are skipped gracefully — hygiene rules continue to run unaffected. Run `cleancloud doctor --provider azure --category ai` to validate.
+
+To scan AI/ML resources after granting those permissions:
+
+```bash
+cleancloud scan --provider azure --category ai
+```
 
 **What Reader does NOT allow:**
 
@@ -404,11 +418,17 @@ cleancloud scan --provider azure --region westeurope
 
 ## Validate Setup
 
+Use the doctor command for the category you plan to scan:
+
 ```bash
+# Default hygiene scan
 cleancloud doctor --provider azure
+
+# AI/ML scan
+cleancloud doctor --provider azure --category ai
 ```
 
-**What it checks:**
+**What the default doctor checks:**
 
 - Azure credentials are valid
 - Authentication method (OIDC, Service Principal, Azure CLI, Managed Identity)
@@ -416,7 +436,7 @@ cleancloud doctor --provider azure
 - CI/CD readiness and compliance compatibility
 - Token acquisition and expiry
 - Accessible subscriptions
-- Required RBAC permissions
+- Subscription-level access consistent with the default hygiene scan path
 
 **Example output:**
 
@@ -468,6 +488,8 @@ Subscriptions: 2 accessible
 [OK] AZURE ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================
 ```
+
+**What the AI doctor adds:** Azure Machine Learning workspace and compute read checks, Azure OpenAI/Cognitive Services account and deployment read checks, and `Microsoft.Insights/metrics/read` validation for AI rules. Run it before `cleancloud scan --provider azure --category ai`.
 
 ---
 

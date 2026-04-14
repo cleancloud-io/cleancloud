@@ -14,12 +14,16 @@ from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
 from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
+from cleancloud.providers.aws.rules.sagemaker_studio_app_idle import (
+    find_idle_sagemaker_studio_apps,
+)
 
 _AWS_AI_RULE_IDS = {
     "aws.sagemaker.endpoint.idle",
     "aws.sagemaker.notebook.idle",
     "aws.ec2.gpu.idle",
     "aws.bedrock.provisioned_throughput.idle",
+    "aws.sagemaker.studio_app.idle",
 }
 
 
@@ -34,6 +38,7 @@ def test_aws_ai_rules_run_without_error():
         find_idle_sagemaker_notebooks,
         find_idle_gpu_instances,
         find_idle_bedrock_provisioned_throughputs,
+        find_idle_sagemaker_studio_apps,
     ]
 
     all_results = []
@@ -123,3 +128,31 @@ def test_bedrock_provisioned_throughput_idle_returns_list_of_findings():
         assert f.risk.value in ("critical", "high")
         assert "desired_model_units" in f.details
         assert "commitment_duration" in f.details
+
+
+@pytest.mark.e2e
+@pytest.mark.aws
+def test_sagemaker_studio_app_idle_returns_list_of_findings():
+    """Smoke test: rule runs without error and returns typed findings."""
+    session = boto3.Session()
+    try:
+        findings = find_idle_sagemaker_studio_apps(session, "us-east-1")
+    except PermissionError as e:
+        pytest.skip(f"Missing IAM permissions: {e}")
+
+    assert isinstance(findings, list)
+    for f in findings:
+        assert isinstance(f, Finding)
+        assert f.rule_id == "aws.sagemaker.studio_app.idle"
+        assert f.resource_type == "aws.sagemaker.studio_app"
+        assert f.provider == "aws"
+        assert f.resource_id
+        assert f.region == "us-east-1"
+        assert f.detected_at and isinstance(f.detected_at, datetime)
+        assert f.confidence.value in ("high", "medium")
+        assert f.risk.value in ("critical", "high", "medium")
+        assert "domain_id" in f.details
+        assert "app_type" in f.details
+        assert f.details["app_type"] in ("KernelGateway", "JupyterLab", "CodeEditor")
+        assert "waste_score" in f.details
+        assert "cost_basis" in f.details

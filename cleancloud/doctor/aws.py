@@ -688,6 +688,55 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("sagemaker:DescribeNotebookInstance", str(e)))
         warn(f"sagemaker:DescribeNotebookInstance - {e}")
 
+    # --- sagemaker:ListApps (aws.sagemaker.studio_app.idle) ---
+    try:
+        sagemaker.list_apps(MaxResults=1)
+        permissions_tested.append("sagemaker:ListApps")
+        success("sagemaker:ListApps")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListApps", str(e)))
+        warn(f"sagemaker:ListApps - {e}")
+
+    try:
+        # Paginate through all apps to find the first qualifying one — checking only
+        # the first page can leave describe_app untested in accounts with many apps.
+        _target_app = None
+        _paginator = sagemaker.get_paginator("list_apps")
+        for _page in _paginator.paginate(PaginationConfig={"PageSize": 20}):
+            for _a in _page.get("Apps", []):
+                if _a.get("Status") == "InService" and _a.get("AppType") in (
+                    "KernelGateway",
+                    "JupyterLab",
+                    "CodeEditor",
+                ):
+                    _target_app = _a
+                    break
+            if _target_app:
+                break
+
+        if _target_app:
+            describe_kwargs = {
+                "DomainId": _target_app["DomainId"],
+                "AppType": _target_app["AppType"],
+                "AppName": _target_app["AppName"],
+            }
+            if _target_app.get("SpaceName"):
+                describe_kwargs["SpaceName"] = _target_app["SpaceName"]
+            elif _target_app.get("UserProfileName"):
+                describe_kwargs["UserProfileName"] = _target_app["UserProfileName"]
+            sagemaker.describe_app(**describe_kwargs)
+            permissions_tested.append("sagemaker:DescribeApp")
+            success("sagemaker:DescribeApp")
+        else:
+            # No qualifying InService app exists in this account/region — describe_app
+            # cannot be exercised, so the permission remains untested.
+            info(
+                "sagemaker:DescribeApp - not tested (no InService KernelGateway/JupyterLab/CodeEditor app found to probe)"
+            )
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeApp", str(e)))
+        warn(f"sagemaker:DescribeApp - {e}")
+
     try:
         cloudwatch = session.client("cloudwatch", region_name=region)
         now = datetime.now(timezone.utc)

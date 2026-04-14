@@ -13,7 +13,7 @@
 | Single-project scan | `roles/compute.viewer` + `roles/cloudsql.viewer` + `roles/monitoring.viewer` on the target project |
 | Multi-project / org-wide scan | Same 3 roles + `roles/browser` — bound at the **organization or folder level** (covers all projects automatically) |
 | Project enumeration (`--all-projects`) | `roles/browser` at org or folder level |
-| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` + `roles/notebooks.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai) |
+| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` + `roles/notebooks.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai-and-workbench) |
 
 All roles are read-only. No create, delete, or modify permissions — ever.
 
@@ -27,7 +27,7 @@ All roles are read-only. No create, delete, or modify permissions — ever.
 | Scan all accessible projects | `cleancloud scan --provider gcp --all-projects` |
 | Scan all projects, higher concurrency | `cleancloud scan --provider gcp --all-projects --concurrency 8` |
 | Filter by region | `cleancloud scan --provider gcp --all-projects --region us-central1` |
-| AI/ML scan (Vertex AI) | `cleancloud scan --provider gcp --category ai --all-projects` |
+| AI/ML scan (Vertex AI + Workbench) | `cleancloud scan --provider gcp --category ai --all-projects` |
 | Hygiene + AI together | `cleancloud scan --provider gcp --category all --all-projects` |
 | Fail build on HIGH findings | Add `--fail-on-confidence HIGH` to any scan command |
 | Fail build if waste ≥ $X/month | Add `--fail-on-cost 500` to any scan command |
@@ -506,7 +506,7 @@ CleanCloud requires **read-only** IAM permissions only. No write access is neede
 | `compute.snapshots.list` | `gcp.compute.snapshot.old` | `roles/compute.viewer` |
 | `cloudsql.instances.list` | `gcp.sql.instance.idle` | `roles/cloudsql.viewer` |
 | `monitoring.timeSeries.list` | `gcp.sql.instance.idle`, `gcp.vertex.endpoint.idle` | `roles/monitoring.viewer` |
-| `resourcemanager.projects.get` | project enumeration (`--all-projects`) | `roles/browser` |
+| `resourcemanager.projects.get`, `resourcemanager.projects.list` | project access validation and project enumeration (`--all-projects`) | `roles/browser` |
 
 ### Graceful Degradation
 
@@ -520,9 +520,9 @@ This means you can run CleanCloud with only the permissions you have — it repo
 
 ---
 
-## AI/ML Scanning (Vertex AI)
+## AI/ML Scanning (Vertex AI and Workbench)
 
-Detect idle Vertex AI resources — online prediction endpoints keeping dedicated compute alive with zero traffic, and Workbench instances left running after a project ends. GPU-backed resources (T4, V100, A100, L4, H100) cost $300–$8K/month and are the highest-cost idle resource type in most GCP AI workloads.
+Detect idle GCP AI resources — Vertex AI online prediction endpoints keeping dedicated compute alive with zero traffic, and Vertex AI Workbench instances left running after a project ends. GPU-backed resources (T4, V100, A100, L4, H100) cost $300–$8K/month and are the highest-cost idle resource type in most GCP AI workloads.
 
 AI scanning is **opt-in** — it requires an extra role and runs separately from hygiene scanning.
 
@@ -573,7 +573,10 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
   --role="roles/notebooks.viewer"
 ```
 
-The full role definitions are in [`security/gcp/ai-readonly-roles.json`](../security/gcp/ai-readonly-roles.json).
+The full predefined-role mappings are in:
+
+- [`security/gcp/hygiene-readonly-roles.json`](../security/gcp/hygiene-readonly-roles.json)
+- [`security/gcp/ai-readonly-roles.json`](../security/gcp/ai-readonly-roles.json)
 
 ### Enable Required APIs
 

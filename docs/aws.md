@@ -46,15 +46,16 @@ If `doctor` reports missing permissions, see [IAM Policy](#iam-policy-minimum-re
 
 ### Permissions
 
-> ✔ Only 19 read-only permissions
+> ✔ Read-only IAM policies, split by scan category
 > ✔ No write, delete, or tagging access
 > ✔ Safe for production accounts — CleanCloud cannot mutate your cloud
 
 | Scenario | What you need |
 |---|---|
-| Single-account scan | [19 read-only permissions](#iam-policy-minimum-required-permissions) |
-| Multi-account — spoke accounts | Same 19 permissions (no changes needed) |
-| Multi-account — hub account | Same 19 + `sts:AssumeRole` on spoke roles |
+| Single-account scan (default hygiene) | `base-readonly.json` + `hygiene-readonly.json` |
+| Single-account scan (`--category ai`) | `base-readonly.json` + `ai-readonly.json` |
+| Multi-account — spoke accounts | Same category policy set as the scan you run |
+| Multi-account — hub account | Same category policy set + `sts:AssumeRole` on spoke roles |
 | `--org` auto-discovery (hub only) | Above + `organizations:ListAccounts` |
 
 ---
@@ -70,7 +71,8 @@ If `doctor` reports missing permissions, see [IAM Policy](#iam-policy-minimum-re
 | Scan entire AWS Organization | `cleancloud scan --provider aws --org --all-regions` |
 | Fail build on HIGH findings | Add `--fail-on-confidence HIGH` to any scan command |
 | Fail build if waste ≥ $X/month | Add `--fail-on-cost 500` to any scan command |
-| Check permissions (single account) | `cleancloud doctor --provider aws` |
+| Check permissions (default hygiene) | `cleancloud doctor --provider aws` |
+| Check AI/ML permissions | `cleancloud doctor --provider aws --category ai` |
 | Check permissions + multi-account roles | `cleancloud doctor --provider aws --multi-account .cleancloud/accounts.yaml` |
 
 ---
@@ -307,11 +309,11 @@ For the complete production workflow with enforcement flags, scheduling, and art
 > |------|----------|---------------|
 > | `base-readonly.json` | `sts:GetCallerIdentity`, `cloudwatch:GetMetricStatistics` | **Always — every scan, every category** |
 > | `hygiene-readonly.json` | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
-> | `ai-readonly.json` | Bedrock Provisioned Throughput, SageMaker, EC2 GPU instances, CloudWatch metrics | `--category ai` |
+> | `ai-readonly.json` | Bedrock Provisioned Throughput, SageMaker endpoints/notebooks/Studio apps, EC2 GPU instances, CloudWatch metrics | `--category ai` |
 >
-> `base-readonly.json` must be attached alongside any category file. It provides `cloudwatch:GetMetricStatistics` (used by the NAT gateway, RDS, and ELB idle rules) and `sts:GetCallerIdentity` (used at startup to verify credentials). A role with only `hygiene-readonly.json` attached will have CloudWatch metric calls fail silently on hygiene rules. AI rules behave differently — they surface a `PermissionError` and are reported in the skipped rules section rather than failing silently.
+> `base-readonly.json` must be attached alongside any category file. It provides `sts:GetCallerIdentity` (used at startup and by `doctor` to verify credentials) and shared CloudWatch metric access. Attach `hygiene-readonly.json` for the default scan path, and `ai-readonly.json` for `--category ai`.
 
-Attach this policy to your IAM role or user (combined view — for the split files see above):
+Attach this policy to your IAM role or user for the default hygiene scan path (combined view of `base-readonly.json` + `hygiene-readonly.json`; for the split files see above):
 
 ```json
 {
@@ -338,8 +340,7 @@ Attach this policy to your IAM role or user (combined view — for the split fil
       "Effect": "Allow",
       "Action": [
         "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeTargetGroups",
-        "elasticloadbalancing:DescribeTargetHealth"
+        "elasticloadbalancing:DescribeTargetGroups"
       ],
       "Resource": "*"
     },
@@ -385,6 +386,8 @@ Attach this policy to your IAM role or user (combined view — for the split fil
 - No `Delete*`, `Create*`, or `Tag*` permissions
 - Safe for production accounts
 - Compatible with security-reviewed pipelines
+
+For AI/ML scans, also attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json). It adds permissions for Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Studio apps (`sagemaker:ListApps`, `sagemaker:DescribeApp`), EC2 GPU instances, and `cloudwatch:ListMetrics` for GPU metric discovery.
 
 ---
 
@@ -813,19 +816,23 @@ cleancloud scan --provider aws --region invalid-xyz
 
 ## Validate Setup
 
-Use the `doctor` command to verify credentials and permissions:
+Use the `doctor` command for the category you plan to scan:
 
 ```bash
+# Default hygiene scan
 cleancloud doctor --provider aws --region us-east-1
+
+# AI/ML scan
+cleancloud doctor --provider aws --category ai --region us-east-1
 ```
 
-**What it checks:**
+**What the default doctor checks:**
 - AWS credentials are valid
 - Authentication method (OIDC, Instance Profile, ECS Task Role, AssumeRole, CLI Profile, Environment Variables)
 - Security grade (EXCELLENT/GOOD/ACCEPTABLE/POOR)
 - CI/CD readiness and compliance compatibility
 - Account ID, User ID, and ARN
-- All 19 required read-only permissions
+- The default base + hygiene read-only permissions used by `cleancloud scan --provider aws`
 
 **Example output:**
 ```
@@ -878,23 +885,23 @@ Step 4: Read-Only Permission Validation
 [OK] rds:DescribeDBSnapshots
 [OK] elasticloadbalancing:DescribeLoadBalancers
 [OK] elasticloadbalancing:DescribeTargetGroups
-[OK] elasticloadbalancing:DescribeTargetHealth
 [OK] logs:DescribeLogGroups
 [OK] cloudwatch:GetMetricStatistics
 [OK] s3:ListAllMyBuckets
 [OK] s3:GetBucketTagging
-[OK] sts:GetCallerIdentity
 
 ======================================================================
 VALIDATION SUMMARY
 ======================================================================
 Authentication: OIDC (AssumeRoleWithWebIdentity)
 Security Grade: EXCELLENT
-Permissions Tested: 19/19 passed
+Permissions Tested: 17/17 passed
 
 [OK] AWS ENVIRONMENT READY FOR CLEANCLOUD
 ======================================================================
 ```
+
+**What the AI doctor adds:** Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Studio apps, EC2 GPU inventory, and the CloudWatch permissions those AI rules need. Run it before `cleancloud scan --provider aws --category ai`.
 
 ---
 

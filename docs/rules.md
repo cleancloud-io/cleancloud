@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 39 rules implemented by CleanCloud (30 hygiene + 9 AI/ML).
+Complete reference for all 40 rules implemented by CleanCloud (30 hygiene + 10 AI/ML).
 
 ---
 
@@ -54,6 +54,7 @@ Every finding includes a confidence level:
 | `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances InService with no activity 14+ days *(opt-in: `--category ai`)* |
 | `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances (p/g/trn/inf/dl families) running with <5% GPU or <10% CPU utilisation over 7 days *(opt-in: `--category ai`)* |
 | `aws.bedrock.provisioned_throughput.idle` | AI/ML | Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills per MU per hour regardless of traffic *(opt-in: `--category ai`)* |
+| `aws.sagemaker.studio_app.idle` | AI/ML | SageMaker Studio KernelGateway/JupyterLab/CodeEditor apps with no user activity for 7+ days *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -884,6 +885,58 @@ Multiply by `desiredModelUnits` for total monthly idle cost.
 **Required permissions:**
 - `bedrock:ListProvisionedModelThroughputs`
 - `cloudwatch:GetMetricStatistics`
+
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
+
+---
+
+#### Idle SageMaker Studio Apps
+
+**Rule ID:** `aws.sagemaker.studio_app.idle`
+
+**Category:** `ai`
+
+**What it detects:** SageMaker Studio apps (`KernelGateway`, `JupyterLab`, `CodeEditor`) in `InService` state with no user activity for 7+ days (default, configurable). These app types attach to compute instances and bill at full instance rates — unlike `JupyterServer` (a low-cost domain-managed infra app, excluded). GPU-backed Studio apps cost $500–$23K+/month while InService, regardless of whether the user is actively working.
+
+**Detection signal:** `LastUserActivityTimestamp` from `sagemaker:DescribeApp`. If absent (app was created but never used), `CreationTime` from the list response is used as a conservative fallback — a never-used app is idle from birth.
+
+**Confidence:**
+- **HIGH:** `idle_since_days ≥ idle_days` AND `age_days ≥ idle_days`
+- **MEDIUM:** `idle_since_days ≥ ceil(75% of idle_days)` AND `age_days ≥ ceil(75% of idle_days)`
+
+**Risk:**
+- **CRITICAL:** GPU/accelerator instance AND `idle_ratio ≥ 2.0` (idle for 2× the threshold)
+- **HIGH:** GPU/accelerator instance (`idle_ratio < 2.0`)
+- **MEDIUM:** CPU instance
+
+GPU families: `ml.g4dn`, `ml.g5`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, `ml.trn1`, `ml.inf1`, `ml.inf2`
+
+**Why this matters:**
+- Studio apps remain `InService` (and billing) until explicitly deleted — there is no auto-stop by default
+- KernelGateway, JupyterLab, and CodeEditor apps each launch a separate compute instance per user session or space
+- Teams frequently leave apps running after finishing a sprint, switching to a new space, or abandoning a project
+- GPU-backed apps ($500–$23K+/month) left idle for weeks are a common source of AI/ML waste
+
+**Estimated monthly cost (on-demand, us-east-1):**
+
+| Instance type | Monthly cost |
+|---|---|
+| ml.t3.medium | ~$42 |
+| ml.m5.xlarge | ~$188 |
+| ml.g4dn.xlarge | ~$531 |
+| ml.g5.xlarge | ~$600 |
+| ml.p3.2xlarge | ~$2,754 |
+| ml.p4d.24xlarge | ~$23,596 |
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `7` | Days of no user activity before flagging |
+
+**Required permissions:**
+- `sagemaker:ListApps`
+- `sagemaker:DescribeApp`
 
 > **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
 
