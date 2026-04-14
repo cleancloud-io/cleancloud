@@ -92,6 +92,10 @@ rules:
   #   params:
   #     idle_days: 14           # default: 7 (days of zero invocations before flagging)
 
+  # aws.sagemaker.studio_app.idle:
+  #   params:
+  #     idle_days: 14           # default: 7 (days of no user activity before flagging)
+
   # azure.openai.provisioned_deployment.idle:
   #   params:
   #     idle_days: 14           # default: 7 (days of zero requests before flagging)

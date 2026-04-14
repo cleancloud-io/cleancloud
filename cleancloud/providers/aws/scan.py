@@ -33,6 +33,9 @@ from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
 from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
+from cleancloud.providers.aws.rules.sagemaker_studio_app_idle import (
+    find_idle_sagemaker_studio_apps,
+)
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -60,6 +63,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
     "aws.ec2.gpu.idle": find_idle_gpu_instances,
     "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
+    "aws.sagemaker.studio_app.idle": find_idle_sagemaker_studio_apps,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
@@ -259,6 +263,9 @@ def _region_has_cleancloud_resources(
                     return True, None
                 notebooks = sagemaker.list_notebook_instances(MaxResults=1)
                 if notebooks.get("NotebookInstances"):
+                    return True, None
+                apps = sagemaker.list_apps(MaxResults=1)
+                if apps.get("Apps"):
                     return True, None
             except Exception:
                 pass  # no SageMaker perms or service not available in region — skip

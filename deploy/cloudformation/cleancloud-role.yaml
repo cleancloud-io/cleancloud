@@ -28,7 +28,7 @@ Parameters:
     Default: "false"
     AllowedValues: ["true", "false"]
     Description: >
-      Set to true to attach the AI/ML policy (Bedrock Provisioned Throughput, SageMaker idle endpoint and notebook detection, EC2 GPU).
+      Set to true to attach the AI/ML policy (Bedrock Provisioned Throughput, SageMaker endpoints/notebooks/Studio apps, EC2 GPU).
       Required for: cleancloud scan --category ai
       See: security/aws/ai-readonly.json
 
@@ -130,6 +130,8 @@ Resources:
               - sagemaker:DescribeEndpointConfig
               - sagemaker:ListNotebookInstances
               - sagemaker:DescribeNotebookInstance
+              - sagemaker:ListApps
+              - sagemaker:DescribeApp
             Resource: "*"
           - Sid: EC2GPUReadOnly
             Effect: Allow
