@@ -118,7 +118,7 @@ def test_bedrock_provisioned_throughput_idle_returns_list_of_findings():
     try:
         findings = find_idle_bedrock_provisioned_throughputs(session, "us-east-1")
     except PermissionError as e:
-        pytest.skip(f"Missing IAM permissions: {e}")
+        pytest.fail(f"Missing IAM permissions: {e}")
 
     assert isinstance(findings, list)
     for f in findings:
@@ -143,7 +143,7 @@ def test_sagemaker_studio_app_idle_returns_list_of_findings():
     try:
         findings = find_idle_sagemaker_studio_apps(session, "us-east-1")
     except PermissionError as e:
-        pytest.skip(f"Missing IAM permissions: {e}")
+        pytest.fail(f"Missing IAM permissions: {e}")
 
     assert isinstance(findings, list)
     for f in findings:
@@ -171,7 +171,7 @@ def test_sagemaker_training_job_long_running_returns_list_of_findings():
     try:
         findings = find_long_running_sagemaker_training_jobs(session, "us-east-1")
     except PermissionError as e:
-        pytest.skip(f"Missing IAM permissions: {e}")
+        pytest.fail(f"Missing IAM permissions: {e}")
 
     assert isinstance(findings, list)
     for f in findings:
