@@ -55,6 +55,7 @@ Every finding includes a confidence level:
 | `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances (p/g/trn/inf/dl families) running with <5% GPU or <10% CPU utilisation over 7 days *(opt-in: `--category ai`)* |
 | `aws.bedrock.provisioned_throughput.idle` | AI/ML | Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills per MU per hour regardless of traffic *(opt-in: `--category ai`)* |
 | `aws.sagemaker.studio_app.idle` | AI/ML | SageMaker Studio KernelGateway/JupyterLab/CodeEditor apps with no user activity for 7+ days *(opt-in: `--category ai`)* |
+| `aws.sagemaker.training_job.long_running` | AI/ML | SageMaker training jobs InProgress beyond the threshold (default 24h); GPU early warning at 75% of threshold — hung or runaway jobs on GPU instances cost $28–$98+/hr *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -937,6 +938,70 @@ GPU families: `ml.g4dn`, `ml.g5`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`
 **Required permissions:**
 - `sagemaker:ListApps`
 - `sagemaker:DescribeApp`
+
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
+
+---
+
+#### Long-Running SageMaker Training Jobs
+
+**Rule ID:** `aws.sagemaker.training_job.long_running`
+
+**Category:** `ai`
+
+**What it detects:** SageMaker training jobs in `InProgress` state that have been running longer than expected. The default threshold is 24 hours, but GPU/accelerator jobs raise an early warning at 75% of the threshold (18h at defaults) because GPU burn rates make runaway detection time-sensitive. Most training jobs complete in minutes to a few hours. A job still running well past the threshold is likely hung, stalled, or runaway — waiting on data, deadlocked in distributed training, caught in an OOM loop, or simply forgotten after a project was cancelled.
+
+GPU-backed training is especially costly: a hung `ml.p3.16xlarge` runs at ~$28/hour; `ml.p4d.24xlarge` at ~$33/hour; `ml.p5.48xlarge` at ~$98/hour. Distributed jobs multiply cost linearly. Heterogeneous clusters (`ResourceConfig.InstanceGroups`) are handled correctly — cost and GPU detection are aggregated per group rather than inferred from the primary instance type.
+
+**Detection signal:** `ListTrainingJobs(StatusEquals=InProgress)` + `CreationTime`. Duration = `now − CreationTime`. `DescribeTrainingJob` is called for each long-running job to retrieve instance type, count, `SecondaryStatus`, `StoppingCondition`, `EnableManagedSpotTraining`, and `ResourceConfig.InstanceGroups` (heterogeneous clusters).
+
+**Cost reported:** Accrued cost so far (`duration_hours × total_hourly_rate`), not a monthly projection. Cost grows until the job is stopped. `estimated_monthly_cost_usd` is intentionally omitted — training jobs are transient expenses, not recurring monthly charges, so populating that field would corrupt monthly savings totals.
+
+**Confidence:**
+- **HIGH (deterministic):** Wall-clock duration exceeds the job's own configured stopping limit:
+  - On-demand jobs: `MaxRuntimeInSeconds` exceeded — SageMaker should have stopped the job; it has not
+  - Managed spot jobs: `MaxWaitTimeInSeconds` exceeded — the wall-clock limit for spot; `MaxRuntimeInSeconds` counts only active compute time (excluding wait) and is not a wall-clock signal for spot
+- **HIGH:** `duration ≥ long_running_hours × 3` — clearly excessive for almost any single training run
+- **HIGH:** `SecondaryStatus` is a stuck-early state (`Starting`, `LaunchingMLInstances`, `PreparingTrainingStack`, `Downloading`, `DownloadingTrainingImage`) at or beyond the threshold — job is not making any training progress
+- **MEDIUM:** `duration ≥ long_running_hours` — worth reviewing; could be legitimate large-scale training
+- **MEDIUM (early warning):** GPU/accelerator job at 75–100% of threshold — emitted before the threshold is crossed because GPU burn rates make early detection worthwhile; not emitted for CPU instances below threshold
+
+**Risk:**
+- **CRITICAL:** GPU/accelerator instance AND HIGH confidence (applies to all three HIGH paths: stop-limit exceeded, 3× threshold, and stuck-early at threshold)
+- **HIGH:** GPU/accelerator instance AND MEDIUM confidence (including early-warning GPU jobs below threshold); OR non-GPU instance AND HIGH confidence
+- **MEDIUM:** Non-GPU instance AND MEDIUM confidence
+
+GPU/accelerator families: `ml.g4dn`, `ml.g5`, `ml.g6`, `ml.g6e`, `ml.g7`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, `ml.p5en`, `ml.p6`, `ml.trn1`, `ml.trn2`, `ml.inf1`, `ml.inf2`
+
+**Managed spot training:** `EnableManagedSpotTraining=true` changes the effective wall-clock stopping limit. `MaxRuntimeInSeconds` counts only active compute time (not spot wait time) and is not a reliable wall-clock signal. For spot jobs the rule uses `MaxWaitTimeInSeconds` as the stopping limit; the summary and signals explicitly label which limit was exceeded.
+
+**Heterogeneous clusters:** When `ResourceConfig.InstanceGroups` is present, cost, instance count, and GPU detection are aggregated across all groups. GPU detection uses the instance family (`_GPU_FAMILIES`) per group — not the total burn rate — so a large CPU-only cluster is never misclassified as GPU, and a cluster with even one cheap GPU group is correctly flagged.
+
+**Why this matters:**
+- Hung distributed training (e.g., a stalled AllReduce) keeps all worker instances running and billing with zero progress
+- OOM loops (job repeatedly crashes and restarts within the same run) can run indefinitely
+- Training jobs are not automatically stopped — they run until completion, failure, or manual intervention
+- A single runaway `ml.p5.48xlarge` job accumulates ~$2,360/day
+
+**Estimated hourly cost per instance (on-demand, us-east-1):**
+
+| Instance type | Hourly cost | Daily cost (1 instance) |
+|---|---|---|
+| ml.g4dn.xlarge | ~$0.74 | ~$18 |
+| ml.g5.12xlarge | ~$7.54 | ~$181 |
+| ml.p3.16xlarge | ~$28.15 | ~$676 |
+| ml.p4d.24xlarge | ~$32.77 | ~$787 |
+| ml.p5.48xlarge | ~$98.32 | ~$2,360 |
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `long_running_hours` | `24` | Hours before a training job is considered long-running |
+
+**Required permissions:**
+- `sagemaker:ListTrainingJobs`
+- `sagemaker:DescribeTrainingJob`
 
 > **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
 

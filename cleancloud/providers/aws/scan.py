@@ -36,6 +36,9 @@ from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
 from cleancloud.providers.aws.rules.sagemaker_studio_app_idle import (
     find_idle_sagemaker_studio_apps,
 )
+from cleancloud.providers.aws.rules.sagemaker_training_job_long_running import (
+    find_long_running_sagemaker_training_jobs,
+)
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -64,6 +67,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.ec2.gpu.idle": find_idle_gpu_instances,
     "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
     "aws.sagemaker.studio_app.idle": find_idle_sagemaker_studio_apps,
+    "aws.sagemaker.training_job.long_running": find_long_running_sagemaker_training_jobs,
 }
 
 AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
