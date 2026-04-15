@@ -132,6 +132,8 @@ Resources:
               - sagemaker:DescribeNotebookInstance
               - sagemaker:ListApps
               - sagemaker:DescribeApp
+              - sagemaker:ListTrainingJobs
+              - sagemaker:DescribeTrainingJob
             Resource: "*"
           - Sid: EC2GPUReadOnly
             Effect: Allow

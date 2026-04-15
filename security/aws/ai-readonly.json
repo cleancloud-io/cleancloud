@@ -31,6 +31,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "TrainingJobReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:ListTrainingJobs",
+        "sagemaker:DescribeTrainingJob"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "EC2GPUReadOnly",
       "Effect": "Allow",
       "Action": [

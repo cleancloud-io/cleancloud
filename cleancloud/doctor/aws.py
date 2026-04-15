@@ -737,6 +737,39 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("sagemaker:DescribeApp", str(e)))
         warn(f"sagemaker:DescribeApp - {e}")
 
+    # --- sagemaker:ListTrainingJobs + sagemaker:DescribeTrainingJob (aws.sagemaker.training_job.long_running) ---
+    try:
+        sagemaker.list_training_jobs(MaxResults=1, StatusEquals="InProgress")
+        permissions_tested.append("sagemaker:ListTrainingJobs")
+        success("sagemaker:ListTrainingJobs")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListTrainingJobs", str(e)))
+        warn(f"sagemaker:ListTrainingJobs - {e}")
+
+    try:
+        _tj_paginator = sagemaker.get_paginator("list_training_jobs")
+        _target_job = None
+        for _tj_page in _tj_paginator.paginate(
+            StatusEquals="InProgress", PaginationConfig={"PageSize": 20}
+        ):
+            for _tj in _tj_page.get("TrainingJobSummaries", []):
+                _target_job = _tj
+                break
+            if _target_job:
+                break
+
+        if _target_job:
+            sagemaker.describe_training_job(TrainingJobName=_target_job["TrainingJobName"])
+            permissions_tested.append("sagemaker:DescribeTrainingJob")
+            success("sagemaker:DescribeTrainingJob")
+        else:
+            info(
+                "sagemaker:DescribeTrainingJob - not tested (no InProgress training job found to probe)"
+            )
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeTrainingJob", str(e)))
+        warn(f"sagemaker:DescribeTrainingJob - {e}")
+
     try:
         cloudwatch = session.client("cloudwatch", region_name=region)
         now = datetime.now(timezone.utc)
