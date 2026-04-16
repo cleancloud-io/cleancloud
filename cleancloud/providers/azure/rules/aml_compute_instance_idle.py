@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
+# Azure SDK (top-level imports for CI fail-fast)
 from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
 
 from cleancloud.core.confidence import ConfidenceLevel
@@ -58,7 +59,7 @@ def find_idle_aml_compute_instances(
     subscription_id: str,
     credential,
     region_filter: str = None,
-    client: Optional[AzureMachineLearningWorkspaces] = None,
+    client: Optional[Any] = None,
     idle_days: int = 14,
 ) -> List[Finding]:
     """
@@ -104,9 +105,9 @@ def find_idle_aml_compute_instances(
 
     idle_days = max(idle_days, 1)
 
+    # Instantiate Azure SDK client (top-level imports ensure CI fails fast if SDKs missing)
     ml_client = client or AzureMachineLearningWorkspaces(
-        credential=credential,
-        subscription_id=subscription_id,
+        credential=credential, subscription_id=subscription_id
     )
 
     def _norm(s: str) -> str:
@@ -123,7 +124,9 @@ def find_idle_aml_compute_instances(
                 continue
 
             try:
-                for compute in ml_client.compute.list(rg, workspace.name):
+                for compute in ml_client.machine_learning_compute.list_by_workspace(
+                    rg, workspace.name
+                ):
                     compute_obj = compute.properties
                     if (
                         not compute_obj

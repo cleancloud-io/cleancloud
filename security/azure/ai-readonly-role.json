@@ -10,8 +10,12 @@
       "Actions": [
         "Microsoft.MachineLearningServices/workspaces/read",
         "Microsoft.MachineLearningServices/workspaces/computes/read",
+        "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read",
+        "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read",
         "Microsoft.CognitiveServices/accounts/read",
-        "Microsoft.CognitiveServices/accounts/deployments/read"
+        "Microsoft.CognitiveServices/accounts/deployments/read",
+        "Microsoft.Search/searchServices/read",
+        "Microsoft.Insights/metrics/read"
       ],
       "NotActions": [],
       "DataActions": [],

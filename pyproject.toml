@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleancloud"
-version = "1.16.0"
+version = "1.17.0"
 description = "Read-only cloud hygiene for AWS, Azure, and GCP. Multi-account org scanning, CI/CD enforcement, and deterministic cost modeling. No agents, no telemetry."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -55,7 +55,8 @@ azure = [
     "azure-mgmt-containerregistry>=10.0.0",
     "azure-mgmt-cognitiveservices>=13.5.0",
     "azure-mgmt-machinelearningservices>=1.0.0",
-    "six",  # undeclared dep of azure-mgmt-machinelearningservices 1.0.0
+    "azure-ai-ml>=1.0.0",
+    "azure-mgmt-search>=9.0.0",
     "azure-core>=1.38.0",
 ]
 gcp = [
@@ -81,7 +82,8 @@ all = [
     "azure-mgmt-containerregistry>=10.0.0",
     "azure-mgmt-cognitiveservices>=13.5.0",
     "azure-mgmt-machinelearningservices>=1.0.0",
-    "six",  # undeclared dep of azure-mgmt-machinelearningservices 1.0.0
+    "azure-ai-ml>=1.0.0",
+    "azure-mgmt-search>=9.0.0",
     "azure-core>=1.38.0",
     # gcp
     "google-auth>=2.20.0",

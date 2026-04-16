@@ -3,10 +3,12 @@ from datetime import datetime
 import pytest
 
 from cleancloud.core.finding import Finding
+from cleancloud.providers.azure.rules.ai_search_idle import find_idle_ai_search_services
 from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
 from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
     find_idle_aml_compute_instances,
 )
+from cleancloud.providers.azure.rules.ml_online_endpoint_idle import find_idle_ml_online_endpoints
 from cleancloud.providers.azure.rules.openai_provisioned_idle import (
     find_idle_openai_provisioned_deployments,
 )
@@ -29,13 +31,24 @@ def test_azure_ai_rules_run_without_error():
         find_idle_aml_compute,
         find_idle_aml_compute_instances,
         find_idle_openai_provisioned_deployments,
+        find_idle_ml_online_endpoints,
+        find_idle_ai_search_services,
     ]
 
     all_results = []
     for rule in rules:
-        rule_results = rule(
-            subscription_id=sub_id, credential=credential, region_filter=region_filter
-        )
+        try:
+            rule_results = rule(
+                subscription_id=sub_id, credential=credential, region_filter=region_filter
+            )
+        except PermissionError as exc:
+            pytest.fail(
+                f"{rule.__name__} raised PermissionError — missing IAM permissions or "
+                f"credentials not configured for CI: {exc}"
+            )
+        except Exception as exc:
+            pytest.fail(f"{rule.__name__} raised unexpected exception: {type(exc).__name__}: {exc}")
+
         assert isinstance(
             rule_results, list
         ), f"{rule.__name__} returned {type(rule_results)} instead of list"

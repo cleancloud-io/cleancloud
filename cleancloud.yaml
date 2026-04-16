@@ -96,6 +96,14 @@ rules:
   #   params:
   #     idle_days: 14           # default: 7 (days of no user activity before flagging)
 
+  # azure.ml.online_endpoint.idle:
+  #   params:
+  #     idle_days: 14           # default: 7 (days of zero scoring requests before flagging)
+
+  # azure.ai_search.idle:
+  #   params:
+  #     idle_days: 60           # default: 30 (days of zero queries before flagging)
+
   # azure.openai.provisioned_deployment.idle:
   #   params:
   #     idle_days: 14           # default: 7 (days of zero requests before flagging)

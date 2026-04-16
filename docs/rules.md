@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 40 rules implemented by CleanCloud (30 hygiene + 10 AI/ML).
+Complete reference for all 42 rules implemented by CleanCloud (30 hygiene + 12 AI/ML).
 
 ---
 
@@ -75,6 +75,8 @@ Every finding includes a confidence level:
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no control-plane activity 14+ days *(opt-in: `--category ai`)* |
+| `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints in Succeeded provisioning state with zero scoring requests for 7+ days *(opt-in: `--category ai`)* |
+| `azure.ai_search.idle` | AI/ML | Azure AI Search services (Standard tier+) with zero search queries for 30+ days *(opt-in: `--category ai`)* |
 | `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero API requests for 7+ days *(opt-in: `--category ai`)* (default, configurable) |
 
 **GCP:**
@@ -1133,6 +1135,105 @@ Queries Azure Monitor `AzureOpenAIRequests` (falling back to `ProcessedPromptTok
 - `Microsoft.Insights/metrics/read`
 
 > **Not run by default.** Run with `cleancloud scan --provider azure --category ai` (or `--category all`). Add the permissions above to your custom read-only role.
+
+---
+
+#### Idle Azure ML Online Endpoints
+
+**Rule ID:** `azure.ml.online_endpoint.idle`
+
+**Category:** `ai`
+
+**What it detects:** Azure ML managed online endpoints in `Succeeded` provisioning state with zero scoring requests for 7+ days (default, configurable). These endpoints bill per-instance based on minimum replica count regardless of traffic — a GPU-backed endpoint with no scoring requests is paying for capacity delivering zero value.
+
+**Detection signal:** Queries Azure Monitor `RequestCount` (falling back to `ModelEndpointRequests`) with an `EndpointName` dimension filter to isolate per-endpoint traffic. If the dimension is unsupported, falls back to workspace-level totals. Age-only fallback applies when metric data is unavailable and endpoint age ≥ 2× idle window (MEDIUM confidence).
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `7` | Days of zero scoring requests before flagging |
+
+**Confidence:**
+- **HIGH:** Per-endpoint metric confirms zero requests AND endpoint age ≥ `idle_days`
+- **MEDIUM:** Zero requests confirmed but age < `idle_days`; OR metric data unavailable and age ≥ 2× `idle_days`
+
+**Risk:**
+- **CRITICAL:** GPU/accelerator instance AND `idle_ratio ≥ 2.0` (idle for 2× the threshold)
+- **HIGH:** GPU/accelerator instance (`Standard_NC*`, `Standard_ND*`, `Standard_NV*`, T4/A100 families)
+- **MEDIUM:** CPU-backed instance
+
+**Why this matters:**
+- Managed online endpoints bill per minimum replica continuously while in Succeeded state — even with zero traffic
+- GPU-backed endpoints cost $200–$2,600+/month at single minimum replica
+- Experiment and PoC endpoints are commonly abandoned after demos without being deleted or scaled to zero
+- Unlike batch endpoints, managed online endpoints have no auto-scale-to-zero by default
+
+**Estimated monthly cost:**
+- `Standard_NC6` (K80 GPU) — ~$657/month per replica
+- `Standard_NC6s_v2` — ~$900/month per replica
+- `Standard_NC12` — ~$1,300/month per replica
+- CPU-backed (fallback) — ~$200/month per replica
+
+**Required permissions:**
+- `Microsoft.MachineLearningServices/workspaces/read`
+- `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read`
+- `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read`
+- `Microsoft.Insights/metrics/read`
+
+> **Not run by default.** Run with `cleancloud scan --provider azure --category ai`. Attach `security/azure/ai-readonly-role.json` to your service principal to enable this rule.
+
+---
+
+#### Idle Azure AI Search Services
+
+**Rule ID:** `azure.ai_search.idle`
+
+**Category:** `ai`
+
+**What it detects:** Azure AI Search services on Standard tier or above with zero search queries over a 30-day window (default, configurable). Cost is computed per SKU × replica count × partition count — a Standard3 service with 3 replicas and 2 partitions idles at ~$6,282/month.
+
+**Detection signal:** Queries Azure Monitor `SearchQueriesPerSecond` (Average), falling back to `TotalSearchRequestCount` (Sum). Service-level metrics only — no per-index dimension filtering needed. Age-only fallback applies when metric data is unavailable and service age ≥ 2× idle window (MEDIUM confidence).
+
+**Watched SKUs:** `standard`, `standard2`, `standard3`, `storage_optimized_l1`, `storage_optimized_l2` — Basic tier is excluded (low cost, no signal).
+
+**Configurable parameters:**
+
+| Parameter | Default | Description |
+|---|---|---|
+| `idle_days` | `30` | Days of zero queries before flagging |
+
+**Confidence:**
+- **HIGH:** Zero average `SearchQueriesPerSecond` for the full idle window AND service age ≥ `idle_days`
+- **MEDIUM:** Zero confirmed but age < `idle_days`; OR metric data unavailable and age ≥ 2× `idle_days`
+
+**Risk:**
+- **HIGH:** Estimated monthly cost ≥ $1,000 (e.g. Standard2+ or multi-replica/partition Standard)
+- **MEDIUM:** All other cases
+
+**Why this matters:**
+- AI Search services bill continuously by SKU × replicas × partitions regardless of query volume
+- A Standard service with 1 replica and 1 partition costs ~$261/month idle — scale up to 2 replicas and the bill doubles
+- Services are commonly left running after a project ends, a search index is replaced, or a PoC is abandoned
+- Standard3 High-Density (HD) with 12 partitions can idle at ~$12,564/month
+
+**Estimated monthly cost per replica per partition:**
+
+| SKU | Monthly cost |
+|---|---|
+| Standard | $261 |
+| Standard2 | $523 |
+| Standard3 | $1,047 |
+| Storage Optimized L1 | $2,014 |
+| Storage Optimized L2 | $4,028 |
+
+Multiply by `replica_count × partition_count` for total monthly idle cost.
+
+**Required permissions:**
+- `Microsoft.Search/searchServices/read`
+- `Microsoft.Insights/metrics/read`
+
+> **Not run by default.** Run with `cleancloud scan --provider azure --category ai`. Attach `security/azure/ai-readonly-role.json` to your service principal to enable this rule.
 
 ---
 

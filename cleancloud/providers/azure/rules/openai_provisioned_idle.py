@@ -1,7 +1,8 @@
 import math
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
+# Azure SDK (top-level imports for CI fail-fast)
 from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
 from azure.mgmt.monitor import MonitorManagementClient
 
@@ -45,8 +46,8 @@ def find_idle_openai_provisioned_deployments(
     subscription_id: str,
     credential,
     region_filter: str = None,
-    client: Optional[CognitiveServicesManagementClient] = None,
-    monitor_client: Optional[MonitorManagementClient] = None,
+    client: Optional[Any] = None,
+    monitor_client: Optional[Any] = None,
     idle_days: int = 7,
 ) -> List[Finding]:
     """
@@ -97,12 +98,10 @@ def find_idle_openai_provisioned_deployments(
     idle_days = max(idle_days, 3)
 
     cs_client = client or CognitiveServicesManagementClient(
-        credential=credential,
-        subscription_id=subscription_id,
+        credential=credential, subscription_id=subscription_id
     )
     mon_client = monitor_client or MonitorManagementClient(
-        credential=credential,
-        subscription_id=subscription_id,
+        credential=credential, subscription_id=subscription_id
     )
 
     def _norm(s: str) -> str:
@@ -350,7 +349,7 @@ def find_idle_openai_provisioned_deployments(
 
 
 def _check_requests(
-    monitor_client: MonitorManagementClient,
+    monitor_client: Any,
     account_id: str,
     deployment_name: str,
     days: int,
