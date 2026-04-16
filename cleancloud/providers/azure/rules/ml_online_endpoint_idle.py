@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 
 # Azure SDK (top-level imports for CI fail-fast)
 from azure.ai.ml import MLClient
+from azure.core.exceptions import HttpResponseError
 from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
 from azure.mgmt.monitor import MonitorManagementClient
 
@@ -29,6 +30,8 @@ _VM_SKU_COSTS = {
     "Standard_NC12": 1300.0,
     "Standard_NC24": 2600.0,
 }
+# Case-insensitive lookup: Azure SDK may return mixed-case SKU names.
+_VM_SKU_COSTS_LOWER: dict = {k.lower(): v for k, v in _VM_SKU_COSTS.items()}
 
 _GPU_FAMILIES = (
     "standard_nc",
@@ -151,7 +154,10 @@ def find_idle_ml_online_endpoints(
                             continue
                     elif signal_scope == "workspace_level":
                         # Pass-2 signal: zero traffic at workspace level — endpoint likely idle
-                        # but cannot be confirmed per-endpoint; keep at LOW confidence.
+                        # but cannot be confirmed per-endpoint; require age >= idle_days before
+                        # emitting even a LOW-confidence finding to reduce false positives.
+                        if age_days is None or age_days < idle_days:
+                            continue
                         confidence = ConfidenceLevel.LOW
                     elif (
                         signal_scope == "per_endpoint"
@@ -172,7 +178,8 @@ def find_idle_ml_online_endpoints(
 
                     # Deployment details via online_deployments.list (azure-ai-ml)
                     instance_type = None
-                    min_instance_count = None
+                    total_instances = 0
+                    had_instance_data = False
                     is_gpu = False
                     deployment_count = 0
                     try:
@@ -184,7 +191,12 @@ def find_idle_ml_online_endpoints(
                                 or getattr(getattr(d, "properties", None), "instanceType", None)
                             )
                             if it:
-                                instance_type = it
+                                instance_type = instance_type or it  # keep first non-None
+                                it_norm = it.lower()
+                                if any(
+                                    it_norm.startswith(f) or f in it_norm for f in _GPU_FAMILIES
+                                ):
+                                    is_gpu = True
                             scale = getattr(d, "scale_settings", None)
                             # Use explicit is-not-None checks: 0 is a valid (scale-to-zero) count
                             _candidates = [
@@ -199,47 +211,57 @@ def find_idle_ml_online_endpoints(
                             ]
                             cnt = next((v for v in _candidates if v is not None), None)
                             if cnt is not None:
-                                min_instance_count = max(min_instance_count or 0, int(cnt))
+                                had_instance_data = True
+                                total_instances += int(cnt)
                     except Exception:
                         pass
 
                     # Scale-to-zero endpoints have no running instances and no cost
-                    if min_instance_count is not None and min_instance_count == 0:
+                    if had_instance_data and total_instances == 0:
                         continue
-
-                    if instance_type:
-                        it_norm = instance_type.lower()
-                        is_gpu = any(it_norm.startswith(f) for f in _GPU_FAMILIES)
 
                     # Cost lookup — only emit a cost when we have a known SKU price;
                     # guessing an unknown SKU's cost erodes trust in the findings.
                     monthly_cost = None
-                    if instance_type and min_instance_count:
-                        base = _VM_SKU_COSTS.get(instance_type)
+                    if instance_type and total_instances:
+                        base = _VM_SKU_COSTS_LOWER.get(instance_type.lower())
                         if base is not None:
-                            monthly_cost = base * min_instance_count
+                            monthly_cost = base * total_instances
 
                     idle_ratio = (
                         (age_days / idle_days) if (age_days is not None and idle_days) else None
                     )
 
-                    # Risk
-                    if is_gpu and idle_ratio is not None and idle_ratio >= 2.0:
+                    # Risk — CRITICAL only on strong per-endpoint signal; LOW-confidence
+                    # signals (workspace_level, age_only) must not escalate beyond HIGH.
+                    if (
+                        is_gpu
+                        and signal_scope == "per_endpoint"
+                        and idle_ratio is not None
+                        and idle_ratio >= 2.0
+                    ):
                         risk = RiskLevel.CRITICAL
                     elif is_gpu:
                         risk = RiskLevel.HIGH
                     else:
                         risk = RiskLevel.MEDIUM
 
-                    signals = [
-                        (
+                    if signal_scope == "age_only":
+                        primary_signal = (
                             f"No Azure Monitor metric data available; endpoint age ({age_days} days) "
                             f"exceeds {idle_days * 2} days"
-                            if signal_scope == "age_only"
-                            else f"Zero scoring requests for {effective_window} days (Azure Monitor: {idle_metric}, scope: {signal_scope})"
-                        ),
-                        f"Provisioning state: {prov}",
-                    ]
+                        )
+                    elif signal_scope == "workspace_level":
+                        primary_signal = (
+                            f"No observable endpoint-level traffic; workspace metrics show zero "
+                            f"activity for {effective_window} days (Azure Monitor: {idle_metric})"
+                        )
+                    else:
+                        primary_signal = (
+                            f"Zero scoring requests for {effective_window} days "
+                            f"(Azure Monitor: {idle_metric})"
+                        )
+                    signals = [primary_signal, f"Provisioning state: {prov}"]
                     if age_days is not None:
                         signals.append(f"Endpoint age: {age_days} days")
                     if monthly_cost:
@@ -260,7 +282,7 @@ def find_idle_ml_online_endpoints(
                         "workspace_name": ws.name,
                         "resource_group": rg,
                         "instance_type": instance_type,
-                        "min_instance_count": min_instance_count,
+                        "min_instance_count": total_instances,
                         "deployment_count": deployment_count,
                         "is_gpu": is_gpu,
                         "age_days": age_days,
@@ -268,7 +290,9 @@ def find_idle_ml_online_endpoints(
                         "idle_signal_scope": signal_scope,
                         "estimated_monthly_cost": monthly_cost,
                         "cost_source": (
-                            "heuristic_sku_table" if (instance_type in _VM_SKU_COSTS) else "unknown"
+                            "heuristic_sku_table"
+                            if (instance_type and instance_type.lower() in _VM_SKU_COSTS_LOWER)
+                            else "unknown"
                         ),
                     }
 
@@ -305,9 +329,8 @@ def find_idle_ml_online_endpoints(
 
     except PermissionError:
         raise
-    except Exception as e:
-        msg = str(e)
-        if "AuthorizationFailed" in msg or "Forbidden" in msg or "403" in msg:
+    except HttpResponseError as e:
+        if e.status_code in (401, 403):
             raise PermissionError(
                 "Missing required permissions: Microsoft.MachineLearningServices/workspaces/read, "
                 "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read, "
@@ -335,14 +358,16 @@ def _check_requests(
 
     for metric_name in _REQUEST_METRICS:
         try:
-            # Pass 1: filter by EndpointName dimension
+            # Pass 1: filter by EndpointName dimension.
+            # OData single-quote escaping: replace ' with '' per OData spec.
+            safe_name = endpoint_name.replace("'", "''")
             response = monitor_client.metrics.list(
                 workspace_id,
                 metricnames=metric_name,
                 timespan=timespan,
-                interval="P1D",
+                interval="PT24H",
                 aggregation="Total",
-                filter=f"EndpointName eq '{endpoint_name}'",
+                filter=f"EndpointName eq '{safe_name}'",
             )
             had_successful_call = True
             has_timeseries = False
@@ -364,7 +389,7 @@ def _check_requests(
                 workspace_id,
                 metricnames=metric_name,
                 timespan=timespan,
-                interval="P1D",
+                interval="PT24H",
                 aggregation="Total",
             )
             seen2 = 0
@@ -380,12 +405,13 @@ def _check_requests(
 
         except PermissionError:
             raise
-        except Exception as e:
-            msg = str(e)
-            if "AuthorizationFailed" in msg or "Forbidden" in msg or "403" in msg:
+        except HttpResponseError as e:
+            if e.status_code in (401, 403):
                 raise PermissionError(
                     "Missing required permissions: Microsoft.Insights/metrics/read"
                 ) from e
+            continue
+        except Exception:
             continue
 
     return ("no_data", None) if had_successful_call else None

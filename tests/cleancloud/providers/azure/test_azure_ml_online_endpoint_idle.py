@@ -1,9 +1,18 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+from azure.core.exceptions import HttpResponseError
 
 from cleancloud.providers.azure.rules.ml_online_endpoint_idle import find_idle_ml_online_endpoints
+
+
+def _http_error(status_code: int) -> HttpResponseError:
+    resp = Mock()
+    resp.status_code = status_code
+    return HttpResponseError(response=resp)
+
 
 _SUB = "sub-123"
 _WS_RG = "rg-ml"
@@ -292,19 +301,13 @@ def test_medium_confidence_unknown_age():
 
 
 def test_workspace_level_signal_low_confidence():
-    """Pass-2 (no EndpointName filter) zero traffic → workspace_level signal → LOW confidence."""
+    """Pass-2 (no EndpointName filter) zero traffic + age >= idle_days → LOW confidence."""
     ws = _make_workspace()
-    ep = _make_endpoint(age_days=30)
-
-    call_log = []
+    ep = _make_endpoint(age_days=30)  # 30 >= 7
 
     def _mock_metrics(*args, **kwargs):
-        has_filter = "filter" in kwargs
-        call_log.append(has_filter)
-        if has_filter:
-            # Pass 1: has EndpointName filter — return no timeseries (dimension not emitted)
+        if "filter" in kwargs:
             return _make_total_metric_response(0.0, has_timeseries=False)
-        # Pass 2: no filter — return enough zero datapoints to satisfy coverage
         return _make_total_metric_response(0.0, has_timeseries=True, count=31)
 
     ml, mon = _make_clients(ws, [ep], metric_fn=_mock_metrics)
@@ -314,6 +317,38 @@ def test_workspace_level_signal_low_confidence():
     assert len(findings) == 1
     assert findings[0].confidence.value == "low"
     assert findings[0].details["idle_signal_scope"] == "workspace_level"
+
+
+def test_workspace_level_young_endpoint_skipped():
+    """Pass-2 zero traffic but age < idle_days → not enough signal → skipped."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=6)  # 6 < 7
+
+    def _mock_metrics(*args, **kwargs):
+        if "filter" in kwargs:
+            return _make_total_metric_response(0.0, has_timeseries=False)
+        return _make_total_metric_response(0.0, has_timeseries=True, count=31)
+
+    ml, mon = _make_clients(ws, [ep], metric_fn=_mock_metrics)
+    assert _call(ml, mon) == []
+
+
+def test_gpu_detected_on_any_deployment():
+    """GPU classification must fire if any deployment has a GPU instance type."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=30)
+    deps = [
+        _make_deployment(instance_type="Standard_DS3_v2", min_instances=2),  # CPU first
+        _make_deployment(instance_type="Standard_NC6", min_instances=1),  # GPU second
+    ]
+    ml, mon = _make_clients(ws, [ep], deployments_by_ep={"ep1": deps})
+
+    findings = _call(ml, mon)
+
+    assert len(findings) == 1
+    assert findings[0].details["is_gpu"] is True
+    assert findings[0].details["instance_type"] == "Standard_DS3_v2"  # first kept
+    assert findings[0].details["min_instance_count"] == 3  # 2 + 1
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +448,25 @@ def test_gpu_critical_when_idle_ratio_ge_2():
     assert findings[0].risk.value == "critical"
 
 
+def test_gpu_critical_requires_per_endpoint_signal():
+    """GPU + age_only (LOW confidence) must NOT escalate to CRITICAL — only HIGH."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=20)  # 20 >= 2*7=14 → age_only; idle_ratio=20/7>2
+    dep = _make_deployment(instance_type="Standard_NC6", min_instances=1)
+    ml, mon = _make_clients(
+        ws,
+        [ep],
+        deployments_by_ep={"ep1": [dep]},
+        metric_response=_make_total_metric_response(0.0, has_timeseries=False),
+    )
+
+    findings = _call(ml, mon, idle_days=7)
+
+    assert len(findings) == 1
+    assert findings[0].details["idle_signal_scope"] == "age_only"
+    assert findings[0].risk.value == "high"  # not critical
+
+
 def test_gpu_detection_case_insensitive():
     """GPU family check must be case-insensitive (Azure SDK returns mixed case)."""
     ws = _make_workspace()
@@ -460,6 +514,19 @@ def test_known_sku_cost_applied():
     assert findings[0].details["min_instance_count"] == 2
 
 
+def test_known_sku_lowercase_still_matches():
+    """SKU names returned in lowercase by the SDK must still resolve to a cost."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=30)
+    dep = _make_deployment(instance_type="standard_nc6", min_instances=1)  # lowercase
+    ml, mon = _make_clients(ws, [ep], deployments_by_ep={"ep1": [dep]})
+
+    findings = _call(ml, mon)
+
+    assert findings[0].estimated_monthly_cost_usd == 657.0
+    assert findings[0].details["cost_source"] == "heuristic_sku_table"
+
+
 def test_unknown_sku_no_cost():
     """Unknown VM size → no cost estimate, cost_source='unknown'."""
     ws = _make_workspace()
@@ -486,8 +553,8 @@ def test_no_deployments_no_cost():
     assert findings[0].details["is_gpu"] is False
 
 
-def test_multiple_deployments_max_replicas_used():
-    """With multiple deployments, the highest min_instance_count is used."""
+def test_multiple_deployments_instances_summed():
+    """With multiple deployments, instance counts are summed for billing accuracy."""
     ws = _make_workspace()
     ep = _make_endpoint(age_days=30)
     deps = [
@@ -498,8 +565,8 @@ def test_multiple_deployments_max_replicas_used():
 
     findings = _call(ml, mon)
 
-    assert findings[0].details["min_instance_count"] == 3
-    assert findings[0].estimated_monthly_cost_usd == 657.0 * 3
+    assert findings[0].details["min_instance_count"] == 4  # 1 + 3
+    assert findings[0].estimated_monthly_cost_usd == 657.0 * 4
 
 
 def test_deployment_list_failure_still_produces_finding():
@@ -632,18 +699,87 @@ def test_active_on_second_metric_skips_endpoint():
     assert _call(ml, mon) == []
 
 
+def test_endpoint_name_with_single_quote_escaped_in_filter():
+    """Endpoint names containing ' must be escaped as '' in the OData filter."""
+    ws = _make_workspace()
+    ep = _make_endpoint(name="test's-endpoint", age_days=30)
+
+    captured_filters = []
+
+    def _mock_metrics(*args, **kwargs):
+        f = kwargs.get("filter", "")
+        if f:
+            captured_filters.append(f)
+        return _make_total_metric_response(0.0)
+
+    ml, mon = _make_clients(ws, [ep], metric_fn=_mock_metrics)
+    _call(ml, mon)
+
+    assert captured_filters, "Expected at least one filtered metric call"
+    assert "test''s-endpoint" in captured_filters[0]
+    assert "test's-endpoint" not in captured_filters[0]
+
+
+def test_partial_datapoints_below_coverage_threshold_falls_to_pass2():
+    """Pass-1 with fewer datapoints than coverage_threshold falls through to pass 2."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=30)
+
+    # idle_days=7 → threshold=max(int(7*0.7),3)=4; give pass-1 only 2 datapoints
+    pass1_calls = []
+
+    def _mock_metrics(*args, **kwargs):
+        has_filter = "filter" in kwargs
+        if has_filter:
+            pass1_calls.append(True)
+            # Only 2 datapoints — below threshold of 4
+            return _make_total_metric_response(0.0, has_timeseries=True, count=2)
+        # Pass 2: enough datapoints → workspace_level
+        return _make_total_metric_response(0.0, has_timeseries=True, count=31)
+
+    ml, mon = _make_clients(ws, [ep], metric_fn=_mock_metrics)
+    findings = _call(ml, mon, idle_days=7)
+
+    assert pass1_calls, "Pass 1 must have been called"
+    assert len(findings) == 1
+    # Falls through pass-1 (insufficient coverage) → workspace_level signal
+    assert findings[0].details["idle_signal_scope"] == "workspace_level"
+    assert findings[0].confidence.value == "low"
+
+
+def test_pass1_sufficient_coverage_returns_per_endpoint():
+    """Pass-1 with enough datapoints returns per_endpoint signal (no pass-2 needed)."""
+    ws = _make_workspace()
+    ep = _make_endpoint(age_days=30)
+
+    pass2_calls = []
+
+    def _mock_metrics(*args, **kwargs):
+        if "filter" not in kwargs:
+            pass2_calls.append(True)
+        # 31 datapoints — well above coverage threshold for any idle_days
+        return _make_total_metric_response(0.0, has_timeseries=True, count=31)
+
+    ml, mon = _make_clients(ws, [ep], metric_fn=_mock_metrics)
+    findings = _call(ml, mon, idle_days=7)
+
+    assert len(findings) == 1
+    assert findings[0].details["idle_signal_scope"] == "per_endpoint"
+    assert not pass2_calls, "Pass 2 must NOT be called when pass 1 has sufficient coverage"
+
+
 # ---------------------------------------------------------------------------
 # Monitor auth and transient errors
 # ---------------------------------------------------------------------------
 
 
 def test_monitor_403_raises_permission_error():
-    """403/AuthorizationFailed from monitor must surface as PermissionError."""
+    """HTTP 403 from monitor must surface as PermissionError."""
     ws = _make_workspace()
     ep = _make_endpoint(age_days=30)
 
     def raise_403(*a, **kw):
-        raise Exception("403 Forbidden")
+        raise _http_error(403)
 
     ml, mon = _make_clients(ws, [ep], metric_fn=raise_403)
 
@@ -653,14 +789,15 @@ def test_monitor_403_raises_permission_error():
     assert "Microsoft.Insights/metrics/read" in str(exc_info.value)
 
 
-def test_monitor_authorization_failed_raises_permission_error():
+def test_monitor_401_raises_permission_error():
+    """HTTP 401 from monitor must surface as PermissionError."""
     ws = _make_workspace()
     ep = _make_endpoint(age_days=30)
 
-    def raise_auth(*a, **kw):
-        raise Exception("AuthorizationFailed: insufficient permissions")
+    def raise_401(*a, **kw):
+        raise _http_error(401)
 
-    ml, mon = _make_clients(ws, [ep], metric_fn=raise_auth)
+    ml, mon = _make_clients(ws, [ep], metric_fn=raise_401)
 
     with pytest.raises(PermissionError):
         _call(ml, mon)
@@ -715,10 +852,10 @@ def test_endpoint_list_transient_error_skips_workspace_preserves_others():
 
 
 def test_workspace_auth_error_raises_permission_error():
-    """AuthorizationFailed on workspace-level op must raise PermissionError."""
+    """HTTP 403 on workspace listing must raise PermissionError."""
 
     def _raise_auth():
-        raise Exception("AuthorizationFailed: workspaces/read missing")
+        raise _http_error(403)
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=_raise_auth),

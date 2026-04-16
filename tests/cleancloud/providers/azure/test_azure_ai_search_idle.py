@@ -370,7 +370,9 @@ def test_high_risk_from_partitions():
 
 def test_critical_risk_for_very_high_cost():
     """storage_optimized_l2 × 1 × 1 = $4028 >= $3000 → CRITICAL risk."""
-    svc = _make_service(sku_name="storage_optimized_l2", replica_count=1, partition_count=1, age_days=30)
+    svc = _make_service(
+        sku_name="storage_optimized_l2", replica_count=1, partition_count=1, age_days=30
+    )
     sc, mon = _make_clients(svc)
     findings = _call(sc, mon)
     assert findings[0].risk.value == "critical"
@@ -379,7 +381,9 @@ def test_critical_risk_for_very_high_cost():
 
 def test_critical_risk_threshold_boundary():
     """storage_optimized_l1 × 2 × 1 = $4028 >= $3000 → CRITICAL."""
-    svc = _make_service(sku_name="storage_optimized_l1", replica_count=2, partition_count=1, age_days=30)
+    svc = _make_service(
+        sku_name="storage_optimized_l1", replica_count=2, partition_count=1, age_days=30
+    )
     sc, mon = _make_clients(svc)
     findings = _call(sc, mon)
     assert findings[0].risk.value == "critical"
