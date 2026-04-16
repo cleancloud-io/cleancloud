@@ -127,6 +127,44 @@ No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
 
 > To also enable AI/ML rules (`cleancloud scan --provider azure --category ai`), assign the additional AI role described in [RBAC Permissions](#rbac-permissions).
 
+## AI/ML rules (opt-in)
+
+CleanCloud includes additional AI/ML waste detectors that run only when you pass `--category ai` (or `--category all`). Two new Azure rules were added:
+
+- `azure.ml.online_endpoint.idle` — Detects Azure ML managed online endpoints in `Succeeded` provisioning state that have received zero scoring requests for 7+ days. These endpoints bill per-instance (minimum replica count) regardless of traffic; signals are confirmed via per-endpoint Azure Monitor metrics (RequestCount, fallback ModelEndpointRequests). Age-only fallback applies only when metric data is unavailable and endpoint age >= 2× idle window (MEDIUM confidence).
+
+- `azure.ai_search.idle` — Detects Azure AI Search services on Standard tier or above with effectively zero search queries (SearchQueriesPerSecond average == 0) over a 30-day window. Cost is computed per SKU × replicas × partitions. If metrics are unavailable, age-only fallback (age >= 2× idle window) yields MEDIUM confidence.
+
+Permissions required for AI/ML scans
+
+The following actions are required by the AI/ML rules (add these to a custom role such as `security/azure/ai-readonly-role.json`):
+
+- Microsoft.MachineLearningServices/workspaces/read
+- Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read
+- Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read
+- Microsoft.CognitiveServices/accounts/read
+- Microsoft.CognitiveServices/accounts/deployments/read
+- Microsoft.Search/searchServices/read
+- Microsoft.Insights/metrics/read
+
+Assign the ready-to-use AI role (one-time per subscription):
+
+```bash
+az role definition create --role-definition security/azure/ai-readonly-role.json
+az role assignment create --assignee <APP_ID> --role "CleanCloudAIReadOnly" --scope /subscriptions/<SUBSCRIPTION_ID>
+```
+
+Validate AI permissions with the doctor:
+
+```bash
+pip install 'cleancloud[azure]'
+cleancloud doctor --provider azure --category ai
+```
+
+This doctor run checks `Microsoft.MachineLearningServices` (workspaces, computes, online endpoints), `Microsoft.Search` (searchServices), and `Microsoft.Insights/metrics/read` and reports any missing permissions as skipped rules or warnings.
+
+
+
 #### Validate Your Setup
 
 Once credentials are configured, verify everything works:
@@ -269,6 +307,9 @@ az role assignment create \
 |---|---|
 | `Microsoft.MachineLearningServices/workspaces/read` | Idle AML compute clusters, idle AML Compute Instances |
 | `Microsoft.MachineLearningServices/workspaces/computes/read` | Idle AML compute clusters, idle AML Compute Instances |
+| `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read` | Managed Azure ML Online Endpoints (endpoint metadata) |
+| `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read` | Online endpoint deployments (instance SKUs and replica counts) |
+| `Microsoft.Search/searchServices/read` | Azure AI Search services (service inventory, replicas/partitions) |
 | `Microsoft.CognitiveServices/accounts/read` | Idle Azure OpenAI provisioned deployments (PTUs) |
 | `Microsoft.CognitiveServices/accounts/deployments/read` | Idle Azure OpenAI provisioned deployments (PTUs) |
 

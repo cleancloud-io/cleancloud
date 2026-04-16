@@ -60,7 +60,7 @@ def _make_empty_metric_response() -> SimpleNamespace:
 def _make_clients(workspace, computes, metric_response):
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [workspace]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: computes),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: computes),
     )
     monitor_client = SimpleNamespace(metrics=SimpleNamespace(list=lambda *a, **kw: metric_response))
     return ml_client, monitor_client
@@ -489,7 +489,7 @@ def test_monitor_failure_treated_as_active():
     compute = _make_compute(age_days=30)
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: [compute]),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: [compute]),
     )
     mon_client = SimpleNamespace(metrics=SimpleNamespace(list=_raise))
 
@@ -571,7 +571,7 @@ def test_fallback_to_nodecount_when_active_nodes_unavailable():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: [compute]),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: [compute]),
     )
     mon_client = SimpleNamespace(metrics=SimpleNamespace(list=_mock_metrics_list))
 
@@ -606,7 +606,7 @@ def test_dimension_filter_fallback_to_unfiltered():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: [compute]),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: [compute]),
     )
     mon_client = SimpleNamespace(metrics=SimpleNamespace(list=_mock_metrics_list))
 
@@ -641,7 +641,7 @@ def test_unfiltered_active_workspace_causes_skip():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: [compute]),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: [compute]),
     )
     mon_client = SimpleNamespace(metrics=SimpleNamespace(list=_mock_metrics_list))
 
@@ -739,7 +739,7 @@ def test_compute_list_auth_error_raises_permission_error():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=_compute_list),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=_compute_list),
     )
     mon_client = SimpleNamespace()
 
@@ -771,7 +771,7 @@ def test_compute_list_transient_error_skips_workspace_preserves_findings():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws_good, ws_bad]),
-        compute=SimpleNamespace(list=_compute_list),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=_compute_list),
     )
     mon_client = SimpleNamespace(
         metrics=SimpleNamespace(list=lambda *a, **kw: _make_metric_response(0.0))

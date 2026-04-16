@@ -240,8 +240,12 @@ def run_azure_doctor() -> None:
         info("  AI/ML rules (opt-in via --category ai):")
         info("    - Microsoft.MachineLearningServices/workspaces/read")
         info("    - Microsoft.MachineLearningServices/workspaces/computes/read")
+        info("    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read")
+        info("    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read")
         info("    - Microsoft.CognitiveServices/accounts/read")
         info("    - Microsoft.CognitiveServices/accounts/deployments/read")
+        info("    - Microsoft.Search/searchServices/read")
+        info("    - Microsoft.Insights/metrics/read")
         info("")
         info("Copy the ready-to-use RBAC setup from:")
         info("  docs/azure.md  (Workload Identity + Reader role assignment)")
@@ -309,8 +313,12 @@ def run_azure_doctor() -> None:
     info("  AI/ML rules (opt-in via --category ai):")
     info("    - Microsoft.MachineLearningServices/workspaces/read")
     info("    - Microsoft.MachineLearningServices/workspaces/computes/read")
+    info("    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read")
+    info("    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read")
     info("    - Microsoft.CognitiveServices/accounts/read")
     info("    - Microsoft.CognitiveServices/accounts/deployments/read")
+    info("    - Microsoft.Search/searchServices/read")
+    info("    - Microsoft.Insights/metrics/read")
 
     # Summary
     info("")
@@ -408,6 +416,28 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
             "(permission may still be present)"
         )
 
+    # Check: Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read (list endpoints)
+    if workspaces:
+        try:
+            ws = workspaces[0]
+            rg = ws.id.split("/")[ws.id.lower().split("/").index("resourcegroups") + 1]
+            # Attempt to list online endpoints to validate permission
+            list(ml_client.online_endpoints.list(rg, ws.name))
+            permissions_tested.append(
+                "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read"
+            )
+            success("Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read")
+        except Exception as e:
+            permissions_failed.append(
+                ("Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read", str(e))
+            )
+            warn(f"Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read — {e}")
+    else:
+        info(
+            "  Skipping onlineEndpoints/read check — no workspaces found to test against "
+            "(permission may still be present)"
+        )
+
     # Check: Microsoft.CognitiveServices/accounts/read (for Azure OpenAI provisioned deployments)
     try:
         from azure.mgmt.cognitiveservices import CognitiveServicesManagementClient
@@ -445,6 +475,18 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
     except Exception as e:
         permissions_failed.append(("Microsoft.CognitiveServices/accounts/read", str(e)))
         warn(f"Microsoft.CognitiveServices/accounts/read — {e}")
+
+    # Check: Microsoft.Search/searchServices/read (AI Search services)
+    try:
+        from azure.mgmt.search import SearchManagementClient
+
+        search_client = SearchManagementClient(credential=credential, subscription_id=test_sub)
+        svcs = list(search_client.services.list_by_subscription())
+        permissions_tested.append("Microsoft.Search/searchServices/read")
+        success(f"Microsoft.Search/searchServices/read ({len(svcs)} service(s) found)")
+    except Exception as e:
+        permissions_failed.append(("Microsoft.Search/searchServices/read", str(e)))
+        warn(f"Microsoft.Search/searchServices/read — {e}")
 
     # Check: Microsoft.Insights/metrics/read (already required by hygiene rules)
     try:

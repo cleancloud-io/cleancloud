@@ -79,7 +79,7 @@ def _make_instance(
 def _make_client(workspace, instances):
     return SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [workspace]),
-        compute=SimpleNamespace(list=lambda rg, ws_name: instances),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=lambda rg, ws_name: instances),
     )
 
 
@@ -785,7 +785,7 @@ def test_compute_list_auth_error_raises_permission_error():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws]),
-        compute=SimpleNamespace(list=_compute_list),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=_compute_list),
     )
 
     with pytest.raises(PermissionError) as exc_info:
@@ -813,7 +813,7 @@ def test_compute_list_error_skips_workspace_preserves_findings():
 
     ml_client = SimpleNamespace(
         workspaces=SimpleNamespace(list_by_subscription=lambda: [ws_good, ws_bad]),
-        compute=SimpleNamespace(list=_compute_list),
+        machine_learning_compute=SimpleNamespace(list_by_workspace=_compute_list),
     )
 
     findings = find_idle_aml_compute_instances(

@@ -50,8 +50,8 @@ def test_aws_ai_rules_run_without_error():
     for rule in rules:
         try:
             rule_results = rule(session, region)
-        except PermissionError:
-            continue
+        except PermissionError as e:
+            pytest.fail(f"Missing IAM permissions for {rule.__name__}: {e}")
         assert isinstance(
             rule_results, list
         ), f"{rule.__name__} returned {type(rule_results)} instead of list"

@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
+# Azure SDK (top-level imports for CI fail-fast)
 from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
 from azure.mgmt.monitor import MonitorManagementClient
 
@@ -54,8 +55,8 @@ def find_idle_aml_compute(
     subscription_id: str,
     credential,
     region_filter: str = None,
-    client: Optional[AzureMachineLearningWorkspaces] = None,
-    monitor_client: Optional[MonitorManagementClient] = None,
+    client: Optional[Any] = None,
+    monitor_client: Optional[Any] = None,
     idle_days: int = 14,
 ) -> List[Finding]:
     """
@@ -90,13 +91,12 @@ def find_idle_aml_compute(
 
     idle_days = max(idle_days, 3)  # effective_window < 3 skips all clusters; clamp to match
 
+    # Instantiate Azure SDK clients (top-level imports ensure CI fails fast if SDKs missing)
     ml_client = client or AzureMachineLearningWorkspaces(
-        credential=credential,
-        subscription_id=subscription_id,
+        credential=credential, subscription_id=subscription_id
     )
     mon_client = monitor_client or MonitorManagementClient(
-        credential=credential,
-        subscription_id=subscription_id,
+        credential=credential, subscription_id=subscription_id
     )
 
     def _norm(s: str) -> str:
@@ -114,7 +114,9 @@ def find_idle_aml_compute(
                 continue
 
             try:
-                for compute in ml_client.compute.list(rg, workspace.name):
+                for compute in ml_client.machine_learning_compute.list_by_workspace(
+                    rg, workspace.name
+                ):
                     compute_obj = compute.properties
                     if (
                         not compute_obj
@@ -289,7 +291,7 @@ def find_idle_aml_compute(
 
 
 def _check_active_nodes(
-    monitor_client: MonitorManagementClient,
+    monitor_client: Any,
     workspace_id: str,
     compute_name: str,
     days: int,
