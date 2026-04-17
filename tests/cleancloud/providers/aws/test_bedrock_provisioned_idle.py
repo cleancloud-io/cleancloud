@@ -401,7 +401,12 @@ def test_cloudwatch_auth_error_raises_permission_error():
     item = _make_provisioned(age_days=30)
     session, _, cloudwatch = _make_session([item])
     cloudwatch.get_metric_statistics.side_effect = ClientError(
-        {"Error": {"Code": "AccessDeniedException", "Message": "User is not authorized"}},
+        {
+            "Error": {
+                "Code": "AccessDeniedException",
+                "Message": "User is not authorized",
+            }
+        },
         "GetMetricStatistics",
     )
 
@@ -475,7 +480,12 @@ def test_bedrock_auth_error_raises_permission_error():
     bedrock = MagicMock()
     paginator = MagicMock()
     paginator.paginate.side_effect = ClientError(
-        {"Error": {"Code": "AccessDeniedException", "Message": "User is not authorized"}},
+        {
+            "Error": {
+                "Code": "AccessDeniedException",
+                "Message": "User is not authorized",
+            }
+        },
         "ListProvisionedModelThroughputs",
     )
     bedrock.get_paginator.return_value = paginator

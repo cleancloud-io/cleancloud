@@ -98,7 +98,10 @@ def _v1_instance(
         "_api_version": "v1",
     }
     if accel_type:
-        inst["acceleratorConfig"] = {"type": accel_type, "coreCount": str(accel_count or 1)}
+        inst["acceleratorConfig"] = {
+            "type": accel_type,
+            "coreCount": str(accel_count or 1),
+        }
     return inst
 
 
@@ -286,7 +289,9 @@ class TestFindIdleWorkbenchInstances:
         findings = self._run(
             [
                 _v2_instance(
-                    machine_type="n1-standard-4", accel_type="NVIDIA_TESLA_T4", accel_count=1
+                    machine_type="n1-standard-4",
+                    accel_type="NVIDIA_TESLA_T4",
+                    accel_count=1,
                 )
             ]
         )

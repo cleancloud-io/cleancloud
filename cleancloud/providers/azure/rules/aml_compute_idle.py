@@ -261,7 +261,7 @@ def find_idle_aml_compute(
                                 "idle_window_days": effective_window,
                                 "idle_days_threshold": idle_days,
                                 "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
-                                "cost_estimate_type": "mapped" if vm_size_key else "approximate",
+                                "cost_estimate_type": ("mapped" if vm_size_key else "approximate"),
                             },
                         )
                     )

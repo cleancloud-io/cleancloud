@@ -126,7 +126,10 @@ AWS_FINDINGS: List[Finding] = [
             "idle_threshold_days": 30,
         },
         evidence=Evidence(
-            signals_used=["CloudWatch DatabaseConnections avg < 1", "no recent snapshots"],
+            signals_used=[
+                "CloudWatch DatabaseConnections avg < 1",
+                "no recent snapshots",
+            ],
             signals_not_checked=[],
             time_window="30 days",
         ),

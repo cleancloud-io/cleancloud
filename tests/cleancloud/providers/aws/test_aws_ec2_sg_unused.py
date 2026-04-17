@@ -23,7 +23,7 @@ def _make_sg(
         "VpcId": vpc_id,
         "Description": description,
         "IpPermissions": inbound if inbound is not None else [],
-        "IpPermissionsEgress": outbound if outbound is not None else [{"IpProtocol": "-1"}],
+        "IpPermissionsEgress": (outbound if outbound is not None else [{"IpProtocol": "-1"}]),
         "Tags": tags or [],
     }
 

@@ -22,7 +22,12 @@ def mock_boto3_session(monkeypatch, mocker):
     ec2.get_paginator.return_value.paginate.return_value = [
         {
             "Volumes": [
-                {"VolumeId": "vol-1", "Tags": None, "AvailabilityZone": "us-east-1a", "Size": 10},
+                {
+                    "VolumeId": "vol-1",
+                    "Tags": None,
+                    "AvailabilityZone": "us-east-1a",
+                    "Size": 10,
+                },
                 {
                     "VolumeId": "vol-2",
                     "Tags": [{"Key": "Name", "Value": "prod"}],

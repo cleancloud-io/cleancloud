@@ -389,7 +389,7 @@ def find_idle_vertex_endpoints(
                 + (
                     " — effectively unused"
                     if requests_per_replica < 0.1
-                    else " — extremely low utilization" if requests_per_replica < 1.0 else ""
+                    else (" — extremely low utilization" if requests_per_replica < 1.0 else "")
                 ),
             ]
             if no_monitoring_data and not is_near_idle:
@@ -472,7 +472,7 @@ def find_idle_vertex_endpoints(
                         "no_monitoring_data": no_monitoring_data,
                         "waste_score": waste_score,
                         "requests_per_replica": round(requests_per_replica, 4),
-                        "pattern": "abandoned_experiment" if is_experiment_pattern else None,
+                        "pattern": ("abandoned_experiment" if is_experiment_pattern else None),
                         "cost_confidence": "estimate",
                         "cost_basis": "us-central1 baseline estimate",
                         "cost_variance": (

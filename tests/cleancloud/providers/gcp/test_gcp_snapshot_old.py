@@ -144,7 +144,10 @@ def test_cost_fallback_to_disk_size_gb(monkeypatch):
     _mock_client(
         [
             _make_snapshot(
-                "fallback-snap", disk_size_gb=100, storage_bytes=0, creation_timestamp=_ts(100)
+                "fallback-snap",
+                disk_size_gb=100,
+                storage_bytes=0,
+                creation_timestamp=_ts(100),
             )
         ],
         monkeypatch,
@@ -161,7 +164,10 @@ def test_zero_size_snapshot_no_cost(monkeypatch):
     _mock_client(
         [
             _make_snapshot(
-                "empty-snap", disk_size_gb=0, storage_bytes=0, creation_timestamp=_ts(100)
+                "empty-snap",
+                disk_size_gb=0,
+                storage_bytes=0,
+                creation_timestamp=_ts(100),
             )
         ],
         monkeypatch,

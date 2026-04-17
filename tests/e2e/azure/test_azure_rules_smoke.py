@@ -3,9 +3,13 @@ from datetime import datetime
 import pytest
 
 from cleancloud.core.finding import Finding
-from cleancloud.providers.azure.rules.app_gateway_no_backends import find_app_gateway_no_backends
+from cleancloud.providers.azure.rules.app_gateway_no_backends import (
+    find_app_gateway_no_backends,
+)
 from cleancloud.providers.azure.rules.app_service_idle import find_idle_app_services
-from cleancloud.providers.azure.rules.app_service_plan_empty import find_empty_app_service_plans
+from cleancloud.providers.azure.rules.app_service_plan_empty import (
+    find_empty_app_service_plans,
+)
 from cleancloud.providers.azure.rules.container_registry_unused import (
     find_unused_container_registries,
 )
@@ -13,7 +17,9 @@ from cleancloud.providers.azure.rules.disk_snapshots_old import find_old_snapsho
 from cleancloud.providers.azure.rules.lb_no_backends import find_lb_no_backends
 from cleancloud.providers.azure.rules.public_ip_unused import find_unused_public_ips
 from cleancloud.providers.azure.rules.sql_database_idle import find_idle_sql_databases
-from cleancloud.providers.azure.rules.unattached_managed_disks import find_unattached_managed_disks
+from cleancloud.providers.azure.rules.unattached_managed_disks import (
+    find_unattached_managed_disks,
+)
 from cleancloud.providers.azure.rules.untagged_resources import find_untagged_resources
 from cleancloud.providers.azure.rules.vm_stopped_not_deallocated import (
     find_stopped_not_deallocated_vms,

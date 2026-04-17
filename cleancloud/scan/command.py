@@ -33,7 +33,11 @@ from cleancloud.config.schema import (
 )
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.finding import Finding, SuppressedFinding
-from cleancloud.filtering.rules import apply_exceptions, apply_policy_filters, apply_rule_config
+from cleancloud.filtering.rules import (
+    apply_exceptions,
+    apply_policy_filters,
+    apply_rule_config,
+)
 from cleancloud.filtering.tags import (
     compile_rules,
     filter_findings_by_tags,
@@ -137,7 +141,9 @@ def _require_provider(provider: str) -> None:
     help="Cloud provider to scan (or set scan.provider in cleancloud.yaml)",
 )
 @click.option(
-    "--region", default=None, help="Specific region to scan (AWS region or Azure location)"
+    "--region",
+    default=None,
+    help="Specific region to scan (AWS region or Azure location)",
 )
 @click.option(
     "--all-regions",
@@ -677,7 +683,11 @@ def scan(
             summary["accounts_scanned"] = len(succeeded) + len(partial)
             if partial:
                 summary["accounts_partial"] = [
-                    {"id": r.account_id, "name": r.account_name, "regions_failed": r.regions_failed}
+                    {
+                        "id": r.account_id,
+                        "name": r.account_name,
+                        "regions_failed": r.regions_failed,
+                    }
                     for r in partial
                 ]
             if failed:
@@ -722,7 +732,11 @@ def scan(
             failed_subs = [r for r in azure_sub_results if r.status == "failed"]
             if failed_subs:
                 summary["subscriptions_failed"] = [
-                    {"id": r.subscription_id, "name": r.subscription_name, "error": r.error}
+                    {
+                        "id": r.subscription_id,
+                        "name": r.subscription_name,
+                        "error": r.error,
+                    }
                     for r in failed_subs
                 ]
             summary["per_subscription"] = [

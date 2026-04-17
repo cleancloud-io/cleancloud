@@ -8,7 +8,11 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
-SKIP_TIERS = {"Free", "Shared", "Dynamic"}  # Dynamic = Consumption/serverless, no idle cost
+SKIP_TIERS = {
+    "Free",
+    "Shared",
+    "Dynamic",
+}  # Dynamic = Consumption/serverless, no idle cost
 
 # Approximate monthly costs by tier (single instance)
 _TIER_COST_USD = {

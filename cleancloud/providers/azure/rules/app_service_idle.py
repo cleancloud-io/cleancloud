@@ -22,7 +22,11 @@ _TIER_COST_USD = {
     "IsolatedV2": 298.0,
 }
 
-_SKIP_TIERS = {"Free", "Shared", "Dynamic"}  # Dynamic = Consumption/serverless, no idle cost
+_SKIP_TIERS = {
+    "Free",
+    "Shared",
+    "Dynamic",
+}  # Dynamic = Consumption/serverless, no idle cost
 
 
 def _get_metric_sum(

@@ -76,7 +76,11 @@ def doctor(
         return
 
     run_doctor(
-        provider=provider, profile=profile, region=region, project=project, category=category
+        provider=provider,
+        profile=profile,
+        region=region,
+        project=project,
+        category=category,
     )
 
     try:

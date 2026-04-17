@@ -7,7 +7,12 @@ import google.auth.exceptions
 import google.auth.transport.requests
 import google.oauth2.credentials
 import google.oauth2.service_account
-from google.api_core.exceptions import Forbidden, NotFound, PermissionDenied, ResourceExhausted
+from google.api_core.exceptions import (
+    Forbidden,
+    NotFound,
+    PermissionDenied,
+    ResourceExhausted,
+)
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import compute_v1, monitoring_v3, resourcemanager_v3
 from google.protobuf import timestamp_pb2
@@ -83,7 +88,11 @@ def detect_gcp_auth_method_from_env() -> tuple[str, str, dict]:
                 "uses_key": False,
             }
         )
-        return "workload_identity", "GKE Workload Identity / Attached Service Account", metadata
+        return (
+            "workload_identity",
+            "GKE Workload Identity / Attached Service Account",
+            metadata,
+        )
 
     # gcloud ADC (local development)
     metadata.update(
@@ -734,6 +743,58 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
     else:
         info("notebooks.instances.list — skipped (no project specified)")
 
+    # --- aiplatform.customJobs.list / aiplatform.trainingPipelines.list ---
+    if probe_project_id:
+        try:
+            session = AuthorizedSession(credentials)
+            resp = session.get(
+                f"https://aiplatform.googleapis.com/v1"
+                f"/projects/{probe_project_id}/locations/us-central1/customJobs",
+                params={"pageSize": 1, "filter": "state=JOB_STATE_RUNNING"},
+            )
+            if resp.status_code == 403:
+                permissions_failed.append("aiplatform.customJobs.list")
+                warn(
+                    "aiplatform.customJobs.list — MISSING "
+                    "(rule: vertex_training_job_long_running will be skipped)"
+                )
+            elif resp.status_code == 404:
+                info(
+                    "aiplatform.customJobs.list — Vertex AI API not enabled in this project "
+                    "(enable via: gcloud services enable aiplatform.googleapis.com)"
+                )
+            else:
+                success("aiplatform.customJobs.list")
+        except Exception as e:
+            info(f"aiplatform.customJobs.list — check skipped ({type(e).__name__})")
+    else:
+        info("aiplatform.customJobs.list — skipped (no project specified)")
+
+    if probe_project_id:
+        try:
+            session = AuthorizedSession(credentials)
+            resp = session.get(
+                f"https://aiplatform.googleapis.com/v1"
+                f"/projects/{probe_project_id}/locations/us-central1/trainingPipelines",
+                params={"pageSize": 1, "filter": "state=PIPELINE_STATE_RUNNING"},
+            )
+            if resp.status_code == 403:
+                permissions_failed.append("aiplatform.trainingPipelines.list")
+                warn(
+                    "aiplatform.trainingPipelines.list — MISSING "
+                    "(rule: vertex_training_job_long_running will be skipped)"
+                )
+            elif resp.status_code == 404:
+                info(
+                    "aiplatform.trainingPipelines.list — Vertex AI API not enabled in this project"
+                )
+            else:
+                success("aiplatform.trainingPipelines.list")
+        except Exception as e:
+            info(f"aiplatform.trainingPipelines.list — check skipped ({type(e).__name__})")
+    else:
+        info("aiplatform.trainingPipelines.list — skipped (no project specified)")
+
     # -------------------------------------------------------------------------
     # Rule coverage summary
     # -------------------------------------------------------------------------
@@ -758,6 +819,19 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
         success("  ✓ gcp.vertex.workbench.idle         (enabled)")
     else:
         warn("  ✗ gcp.vertex.workbench.idle         (disabled: missing notebooks.instances.list)")
+
+    training_perms_missing = [
+        p
+        for p in ("aiplatform.customJobs.list", "aiplatform.trainingPipelines.list")
+        if p in permissions_failed
+    ]
+    if not training_perms_missing:
+        success("  ✓ gcp.vertex.training_job.long_running (enabled)")
+    else:
+        warn(
+            f"  ✗ gcp.vertex.training_job.long_running (disabled: missing "
+            f"{', '.join(training_perms_missing)})"
+        )
 
     # -------------------------------------------------------------------------
     # Remediation guidance

@@ -123,7 +123,8 @@ def find_stopped_vms(
                 ]
                 if days_stopped_actual is not None:
                     signals.insert(
-                        1, f"Stopped for {days_stopped_actual} days (since {stop_time_str})"
+                        1,
+                        f"Stopped for {days_stopped_actual} days (since {stop_time_str})",
                     )
                 else:
                     signals.insert(1, "Stop timestamp unavailable — confidence reduced to MEDIUM")
@@ -194,7 +195,7 @@ def find_stopped_vms(
                             time_window=f"{max_age_days} days",
                         ),
                         details=details,
-                        estimated_monthly_cost_usd=monthly_cost if monthly_cost > 0 else None,
+                        estimated_monthly_cost_usd=(monthly_cost if monthly_cost > 0 else None),
                     )
                 )
 

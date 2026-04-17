@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 42 rules implemented by CleanCloud (30 hygiene + 12 AI/ML).
+Complete reference for all 43 rules implemented by CleanCloud (30 hygiene + 13 AI/ML).
 
 ---
 
@@ -90,6 +90,7 @@ Every finding includes a confidence level:
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections for 14+ days |
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
 | `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances ACTIVE with no control-plane activity for 14+ days (`--category ai`) |
+| `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI CustomJobs and TrainingPipelines in RUNNING state beyond 24h threshold; GPU/TPU/expensive-CPU early warning at 90% of threshold — hung or runaway jobs on GPU-backed machines cost $4–$80+/hr per node *(opt-in: `--category ai`)* |
 
 ---
 
@@ -2102,6 +2103,88 @@ for instance in notebooks_api.list(project_id, location="-"):  # all locations
 
 **Required permissions:**
 - `notebooks.instances.list` (included in `roles/notebooks.viewer`)
+
+---
+
+#### Long-Running Vertex AI Training Jobs
+
+**Rule ID:** `gcp.vertex.training_job.long_running`
+
+**What it detects:** Vertex AI CustomJobs (state=`JOB_STATE_RUNNING`) and TrainingPipelines (state=`PIPELINE_STATE_RUNNING`) that have been running longer than expected. The default threshold is 24 hours. GPU/TPU accelerator jobs and expensive CPU clusters raise an early warning at 90% of the threshold (21.6h at defaults) because high burn rates make runaway detection time-sensitive.
+
+Most training jobs complete in minutes to a few hours. A job still running well past the threshold is likely hung, stalled, or runaway — waiting on data, deadlocked in distributed training, caught in an OOM loop, or simply forgotten after a project was cancelled.
+
+GPU-backed training is especially costly: an A100 40GB node (`a2-highgpu-1g`) runs at ~$4/hour; an H100 node (`a3-highgpu-8g`) with 8 GPUs runs at ~$80/hour. Distributed multi-worker jobs multiply cost linearly.
+
+**Confidence:**
+
+- **HIGH:** `duration ≥ long_running_hours × 3` — clearly runaway for almost any single training run
+- **MEDIUM:** `duration ≥ long_running_hours` — worth reviewing; could be legitimate large-scale training
+- **MEDIUM (early warning):** GPU/TPU accelerator job, or CPU cluster with burn rate above `expensive_hourly_threshold` (default $20/hr), at 90–100% of threshold — not emitted for cheap CPU-only jobs below threshold
+
+**Risk:**
+
+| Confidence | GPU/Accelerator | Risk |
+|---|---|---|
+| HIGH | Yes | CRITICAL |
+| HIGH | No or unknown | HIGH |
+| MEDIUM | Any | MEDIUM |
+
+**Why this matters:**
+- Vertex AI CustomJobs with GPU workers continue billing as long as they are in `JOB_STATE_RUNNING`
+- There is no automatic stop unless `timeout` is set in the job spec — jobs can run indefinitely if hung or if the stopping condition is never met
+- TrainingPipelines wrap CustomJobs and can also run indefinitely if the underlying job does not terminate
+
+**Detection logic:**
+```python
+# Queries both resource types across all locations via REST API
+for job in vertex_ai.customJobs(project, locations="-", filter='state="JOB_STATE_RUNNING"'):
+    duration = now - job.startTime  # fallback to createTime if absent
+    is_accelerator = has_gpu_or_tpu(job.workerPoolSpecs)
+    burn_rate = total_hourly_cost(job.workerPoolSpecs)
+    if duration < threshold * 0.9:
+        continue  # too young
+    if duration < threshold and not (is_accelerator or burn_rate > 20):
+        continue  # early-warning zone: skip cheap CPU-only jobs
+
+for pipeline in vertex_ai.trainingPipelines(project, locations="-", filter='state="PIPELINE_STATE_RUNNING"'):
+    ...  # same logic; hardware parsed from trainingTaskInputs when available
+```
+
+**Hardware detection:**
+- Accelerator classification uses `workerPoolSpecs[].machineSpec.acceleratorType` against a frozenset of known accelerator types (GPU families and TPU pod types), plus machine type prefixes that bundle accelerator cost (`a2-*`, `a3-*`, `a4-*`, `a4x-*`, `g2-*`, `g4-*`, `ct4-*`, `ct5*`, `ct6*`, `tpu*`)
+- TPU machines use `tpuTopology` (e.g. `"2x4"`) to derive the physical host count — `replicaCount` is always 1 in the Vertex AI API regardless of pod size
+- TrainingPipelines embed hardware in opaque `trainingTaskInputs` — when specs cannot be parsed, cost uses a duration-tiered placeholder (`>24h → $20/hr`, `6–24h → $5/hr`, `<6h → $1/hr`) and `is_accelerator` is `False` (unknown hardware does not imply GPU workload)
+- For bundled accelerator machines, co-scheduling is modeled: when `acceleratorCount` divides `machine_gpu_count` evenly, the machine cost is divided by `machine_gpu_count ÷ acceleratorCount` replicas per VM
+
+**Cost reported:**
+- Accrued cost so far: `duration_hours × hourly_burn_rate` (sum across all worker pools); stored raw in `details["accrued_cost_usd"]` and capped at $1M in display text
+- `estimated_monthly_cost_usd` is intentionally `None` — training jobs are transient, not recurring monthly expenses; populating that field would corrupt monthly savings totals
+- Pricing is a static estimate (us-central1, on-demand); `details["pricing_scope"] = "us-central1_reference"` and `details["pricing_note"]` indicate the reference region and whether the job's actual region may differ significantly
+- `details["pricing_confidence"]` is `"published"` when all prices come from GCP pricing pages, or `"partial_estimate"` for newer machine families (a3-megagpu, a4-*, g4-*, ct5p-*, ct6e-*, tpu7x-*) where rates are estimated
+
+**Cost estimates (per node, us-central1, on-demand):**
+
+| Machine Type | ~Hourly cost | Notes |
+|---|---|---|
+| `n1-standard-8` + T4 | ~$0.80/hr | GPU cost additive |
+| `n1-standard-8` + V100 | ~$2.27/hr | GPU cost additive |
+| `a2-highgpu-1g` (A100 40GB) | ~$4.02/hr | GPU bundled |
+| `a2-highgpu-8g` (8× A100 40GB) | ~$32.14/hr | GPU bundled |
+| `a3-highgpu-8g` (8× H100 80GB) | ~$80.00/hr | GPU bundled [est] |
+| `g2-standard-8` (L4) | ~$1.45/hr | GPU bundled |
+| `ct5lp-hightpu-8t` (8× TPU v5e) | ~$9.60/hr | TPU bundled |
+
+**What it does not check:**
+- Intentional long-running distributed training (LLM pre-training, large fine-tunes)
+- Checkpoint saving — job may be making progress without visible status updates
+- Committed use discounts — actual cost may be significantly lower than on-demand estimate
+- Preemptible/Spot workers — cost and interruption semantics differ
+- Co-scheduling for g2-standard-32 — GPU count is ambiguous in GCP docs; that machine type uses full-price-per-replica as a conservative fallback
+
+**Required permissions:**
+- `aiplatform.customJobs.list` (included in `roles/aiplatform.viewer`)
+- `aiplatform.trainingPipelines.list` (included in `roles/aiplatform.viewer`)
 
 ---
 

@@ -117,7 +117,10 @@ def test_summary_shows_per_account_breakdown():
     finding = _make_finding(account_id="111111111111", account_name="prod", cost=500.0)
     results = [
         AccountScanResult(
-            account_id="111111111111", account_name="prod", status="success", findings=[finding]
+            account_id="111111111111",
+            account_name="prod",
+            status="success",
+            findings=[finding],
         ),
     ]
     summary = _base_summary([finding])

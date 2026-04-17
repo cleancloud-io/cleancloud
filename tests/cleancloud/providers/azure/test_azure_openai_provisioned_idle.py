@@ -99,7 +99,10 @@ def test_idle_provisioned_deployment_detected():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -122,7 +125,10 @@ def test_global_provisioned_sku_detected():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -137,7 +143,10 @@ def test_datazone_provisioned_sku_detected():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -153,7 +162,10 @@ def test_active_deployment_skipped():
     )
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -166,7 +178,10 @@ def test_standard_sku_skipped():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -179,7 +194,10 @@ def test_non_openai_account_kind_skipped():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -192,7 +210,10 @@ def test_aiservices_kind_detected():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -205,7 +226,10 @@ def test_young_deployment_skipped():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -217,7 +241,10 @@ def test_no_deployments_returns_empty():
     cs_client, mon_client = _make_clients(account, [])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -235,7 +262,10 @@ def test_high_confidence_per_deployment_old_enough():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings[0].confidence.value == "high"
@@ -250,7 +280,10 @@ def test_medium_confidence_per_deployment_borderline_age():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -265,7 +298,10 @@ def test_below_75pct_age_skipped():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -278,7 +314,10 @@ def test_age_5_with_idle_days_7_skipped():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -291,7 +330,10 @@ def test_medium_confidence_when_age_unknown():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -310,7 +352,10 @@ def test_high_risk_for_large_ptu_allocation():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings[0].risk.value == "high"
@@ -323,7 +368,10 @@ def test_medium_risk_for_small_ptu_allocation():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings[0].risk.value == "medium"
@@ -341,7 +389,10 @@ def test_cost_scales_with_ptu_capacity():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings[0].estimated_monthly_cost_usd == 100 * 1_460.0
@@ -354,7 +405,10 @@ def test_zero_ptu_capacity_no_cost_estimate():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -379,7 +433,10 @@ def test_per_deployment_dimension_filter_used():
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -402,7 +459,10 @@ def test_no_per_deployment_timeseries_falls_back_to_no_data():
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     # Finding produced via age-only fallback, not account-level
@@ -424,7 +484,10 @@ def test_no_per_deployment_timeseries_young_deployment_skipped():
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -448,7 +511,10 @@ def test_fallback_to_processed_prompt_tokens():
     cs_client, mon_client = _make_clients(account, [dep], metric_fn=_mock_metrics)
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -462,11 +528,16 @@ def test_no_timeseries_young_deployment_skipped():
     account = _make_account()
     dep = _make_deployment(age_days=10)  # 10 < 2×7=14 — age-only fallback does not apply
     cs_client, mon_client = _make_clients(
-        account, [dep], metric_response=_make_total_metric_response(has_timeseries=False)
+        account,
+        [dep],
+        metric_response=_make_total_metric_response(has_timeseries=False),
     )
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -477,11 +548,16 @@ def test_no_timeseries_old_deployment_age_only_medium():
     account = _make_account()
     dep = _make_deployment(age_days=30)  # 30 >= 2×7=14 — age-only fallback applies
     cs_client, mon_client = _make_clients(
-        account, [dep], metric_response=_make_total_metric_response(has_timeseries=False)
+        account,
+        [dep],
+        metric_response=_make_total_metric_response(has_timeseries=False),
     )
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -503,7 +579,10 @@ def test_effective_window_capped_to_age():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     # age=6 >= ceil(7*0.75)=6 → MEDIUM; effective_window=min(7,6)=6
@@ -588,7 +667,10 @@ def test_monitor_transient_failure_skipped():
     mon_client = SimpleNamespace(metrics=SimpleNamespace(list=_raise))
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert findings == []
@@ -610,7 +692,10 @@ def test_monitor_auth_failure_raises_permission_error():
 
     with pytest.raises(PermissionError) as exc_info:
         find_idle_openai_provisioned_deployments(
-            subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+            subscription_id=_SUB,
+            credential=None,
+            client=cs_client,
+            monitor_client=mon_client,
         )
 
     assert "Microsoft.Insights/metrics/read" in str(exc_info.value)
@@ -627,7 +712,10 @@ def test_permission_error_raised_on_auth_failure():
 
     with pytest.raises(PermissionError) as exc_info:
         find_idle_openai_provisioned_deployments(
-            subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+            subscription_id=_SUB,
+            credential=None,
+            client=cs_client,
+            monitor_client=mon_client,
         )
 
     assert "Microsoft.CognitiveServices/accounts/read" in str(exc_info.value)
@@ -648,7 +736,10 @@ def test_account_auth_error_raises_permission_error():
 
     with pytest.raises(PermissionError) as exc_info:
         find_idle_openai_provisioned_deployments(
-            subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+            subscription_id=_SUB,
+            credential=None,
+            client=cs_client,
+            monitor_client=mon_client,
         )
 
     assert "Microsoft.CognitiveServices/accounts/deployments/read" in str(exc_info.value)
@@ -677,7 +768,10 @@ def test_transient_account_error_skipped_preserves_other_findings():
     )
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -697,7 +791,10 @@ def test_idle_signal_metric_name_in_evidence():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     signal_text = " ".join(findings[0].evidence.signals_used)
@@ -711,7 +808,10 @@ def test_cost_warning_in_evidence_signals():
     cs_client, mon_client = _make_clients(account, [dep])
 
     findings = find_idle_openai_provisioned_deployments(
-        subscription_id=_SUB, credential=None, client=cs_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=cs_client,
+        monitor_client=mon_client,
     )
 
     signal_text = " ".join(findings[0].evidence.signals_used)

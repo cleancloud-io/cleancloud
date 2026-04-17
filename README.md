@@ -194,7 +194,7 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 - **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints and notebooks, AML compute clusters and instances, Azure ML online endpoints and AI Search services, Vertex AI endpoints and Workbench instances — silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
 - **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
-- **42 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
+- **43 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
 - **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
 - **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
 - **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
@@ -289,7 +289,7 @@ CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook
 ```bash
 cleancloud scan --provider aws --category ai          # Bedrock PTUs + SageMaker endpoints + notebooks + Studio apps + training jobs + idle GPU EC2
 cleancloud scan --provider azure --category ai        # AML compute + ML instances + online endpoints + AI Search + OpenAI PTUs
-cleancloud scan --provider gcp --category ai          # Vertex AI endpoints + Workbench
+cleancloud scan --provider gcp --category ai          # Vertex AI endpoints + Workbench + training jobs
 cleancloud scan --provider aws --category all         # hygiene + AI/ML together
 ```
 
@@ -527,7 +527,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 
 ## What CleanCloud Detects
 
-42 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+43 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
@@ -551,7 +551,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Storage: unattached Persistent Disks (HIGH), old snapshots 90+ days
 - Network: unused reserved static IPs — regional and global (HIGH)
 - Platform: idle Cloud SQL instances with zero connections 14+ days (HIGH)
-- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month); idle Workbench instances (v1 + v2) with no control-plane activity 14+ days — GPU instances flagged HIGH/CRITICAL ($449–$8K+/month)
+- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month); idle Workbench instances (v1 + v2) with no control-plane activity 14+ days — GPU instances flagged HIGH/CRITICAL ($449–$8K+/month); long-running Vertex AI training jobs (CustomJobs + TrainingPipelines) beyond 24h threshold — GPU early warning at 75% of threshold, CRITICAL risk for GPU jobs at 3× threshold ($4–$80+/hr per GPU node)
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 

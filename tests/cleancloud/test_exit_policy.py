@@ -155,7 +155,10 @@ def test_all_three_flags_confidence_triggers():
     # All three flags set — confidence triggers first
     assert (
         determine_exit_code(
-            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=999.0
+            results,
+            fail_on_findings=False,
+            fail_on_confidence="HIGH",
+            fail_on_cost=999.0,
         )
         == 2
     )
@@ -168,7 +171,10 @@ def test_all_three_flags_findings_triggers():
     # All three flags set — fail_on_findings triggers first
     assert (
         determine_exit_code(
-            results, fail_on_findings=True, fail_on_confidence="HIGH", fail_on_cost=999.0
+            results,
+            fail_on_findings=True,
+            fail_on_confidence="HIGH",
+            fail_on_cost=999.0,
         )
         == 2
     )
@@ -181,7 +187,10 @@ def test_all_three_flags_cost_triggers():
     # All three flags set — only cost exceeds threshold
     assert (
         determine_exit_code(
-            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=100.0
+            results,
+            fail_on_findings=False,
+            fail_on_confidence="HIGH",
+            fail_on_cost=100.0,
         )
         == 2
     )
@@ -194,7 +203,10 @@ def test_all_three_flags_all_pass():
     # All three flags set — none trigger
     assert (
         determine_exit_code(
-            results, fail_on_findings=False, fail_on_confidence="HIGH", fail_on_cost=100.0
+            results,
+            fail_on_findings=False,
+            fail_on_confidence="HIGH",
+            fail_on_cost=100.0,
         )
         == 0
     )
