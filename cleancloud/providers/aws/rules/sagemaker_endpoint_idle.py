@@ -124,9 +124,13 @@ def find_idle_sagemaker_endpoints(
                     continue
 
                 # Describe endpoint — get cost, GPU flag, variant info
-                monthly_cost, is_gpu, variant_count, total_instances, primary_instance_type = (
-                    _describe_endpoint(sagemaker, endpoint_name)
-                )
+                (
+                    monthly_cost,
+                    is_gpu,
+                    variant_count,
+                    total_instances,
+                    primary_instance_type,
+                ) = _describe_endpoint(sagemaker, endpoint_name)
 
                 # Skip scaled-to-zero endpoints — no running instances, no compute cost
                 if total_instances == 0:
@@ -325,7 +329,13 @@ def _describe_endpoint(
             if itype and any(itype.startswith(fam) for fam in _GPU_FAMILIES):
                 is_gpu = True
 
-        return total_monthly_cost, is_gpu, len(variants), total_instances, primary_instance_type
+        return (
+            total_monthly_cost,
+            is_gpu,
+            len(variants),
+            total_instances,
+            primary_instance_type,
+        )
 
     except ClientError:
         # Unknown state — return zero instances so the endpoint is skipped rather

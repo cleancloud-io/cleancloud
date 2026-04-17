@@ -166,7 +166,7 @@ def find_old_snapshots(
                         time_window=f"{max_age_days} days",
                     ),
                     details=details,
-                    estimated_monthly_cost_usd=monthly_cost if monthly_cost > 0 else None,
+                    estimated_monthly_cost_usd=(monthly_cost if monthly_cost > 0 else None),
                 )
             )
 

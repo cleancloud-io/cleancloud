@@ -290,7 +290,11 @@ def _check_invocations(cloudwatch, provisioned_arn: str, model_arn: str, days: i
             return any(dp.get("Sum", 0) > 0 for dp in datapoints)
         except ClientError as e:
             code = e.response["Error"]["Code"]
-            if code in ("UnauthorizedOperation", "AccessDenied", "AccessDeniedException"):
+            if code in (
+                "UnauthorizedOperation",
+                "AccessDenied",
+                "AccessDeniedException",
+            ):
                 raise PermissionError(
                     "Missing required IAM permissions: cloudwatch:GetMetricStatistics"
                 ) from e

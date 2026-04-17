@@ -99,7 +99,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
-    "black>=23.0.0",
+    "black>=26.3.1,<27",
 ]
 
 [project.urls]

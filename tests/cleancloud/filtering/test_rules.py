@@ -9,7 +9,11 @@ from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
-from cleancloud.filtering.rules import apply_exceptions, apply_policy_filters, apply_rule_config
+from cleancloud.filtering.rules import (
+    apply_exceptions,
+    apply_policy_filters,
+    apply_rule_config,
+)
 
 _EVIDENCE = Evidence(signals_used=["test"], signals_not_checked=[])
 
@@ -96,7 +100,10 @@ def test_multiple_rules_skipped():
     r1, r2, r3 = _make_rule(), _make_rule(), _make_rule()
     rule_map = {"rule.a": r1, "rule.b": r2, "rule.c": r3}
     cfg = load_config(
-        {"version": 1, "rules": {"rule.a": {"enabled": False}, "rule.c": {"enabled": False}}}
+        {
+            "version": 1,
+            "rules": {"rule.a": {"enabled": False}, "rule.c": {"enabled": False}},
+        }
     )
     active, skipped = apply_rule_config([r1, r2, r3], rule_map, cfg)
     assert active == [r2]
@@ -615,7 +622,11 @@ def test_exception_region_matches_correct_region():
         {
             "version": 1,
             "exceptions": [
-                {"rule_id": "aws.ebs.unattached", "resource_id": "vol-*", "region": "us-east-1"}
+                {
+                    "rule_id": "aws.ebs.unattached",
+                    "resource_id": "vol-*",
+                    "region": "us-east-1",
+                }
             ],
         }
     )
@@ -630,7 +641,11 @@ def test_exception_region_skips_different_region():
         {
             "version": 1,
             "exceptions": [
-                {"rule_id": "aws.ebs.unattached", "resource_id": "vol-*", "region": "us-east-1"}
+                {
+                    "rule_id": "aws.ebs.unattached",
+                    "resource_id": "vol-*",
+                    "region": "us-east-1",
+                }
             ],
         }
     )

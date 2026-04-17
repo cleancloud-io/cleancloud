@@ -60,7 +60,12 @@ def assume_role(
         except botocore.exceptions.ClientError as e:
             code = e.response["Error"]["Code"]
             # Non-retryable: bad config or explicit denial
-            if code in ("AccessDenied", "NoSuchEntity", "ValidationError", "InvalidParameter"):
+            if code in (
+                "AccessDenied",
+                "NoSuchEntity",
+                "ValidationError",
+                "InvalidParameter",
+            ):
                 raise
             # Retryable: throttling or transient AWS errors
             last_error = e

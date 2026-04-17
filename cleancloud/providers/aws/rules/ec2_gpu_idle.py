@@ -319,7 +319,7 @@ def find_idle_gpu_instances(
                                 "instance_id": instance_id,
                                 "instance_type": instance_type,
                                 "name": name_tag,
-                                "age_days": age_days if age_days is not None else "unknown",
+                                "age_days": (age_days if age_days is not None else "unknown"),
                                 "idle_days_threshold": idle_days,
                                 "idle_ratio": idle_ratio,
                                 "idle_signal": idle_signal,

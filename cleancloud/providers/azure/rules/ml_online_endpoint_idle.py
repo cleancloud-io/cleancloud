@@ -100,7 +100,8 @@ def find_idle_ml_online_endpoints(
             if not rg and getattr(ws, "id", None):
                 parts = ws.id.split("/")
                 rg_idx = next(
-                    (i for i, p in enumerate(parts) if p.lower() == "resourcegroups"), None
+                    (i for i, p in enumerate(parts) if p.lower() == "resourcegroups"),
+                    None,
                 )
                 rg = parts[rg_idx + 1] if rg_idx is not None and rg_idx + 1 < len(parts) else None
             if not rg:
@@ -206,8 +207,16 @@ def find_idle_ml_online_endpoints(
                                     else None
                                 ),
                                 getattr(d, "instance_count", None),
-                                getattr(scale, "min_replicas", None) if scale is not None else None,
-                                getattr(getattr(d, "properties", None), "minReplicaCount", None),
+                                (
+                                    getattr(scale, "min_replicas", None)
+                                    if scale is not None
+                                    else None
+                                ),
+                                getattr(
+                                    getattr(d, "properties", None),
+                                    "minReplicaCount",
+                                    None,
+                                ),
                             ]
                             cnt = next((v for v in _candidates if v is not None), None)
                             if cnt is not None:

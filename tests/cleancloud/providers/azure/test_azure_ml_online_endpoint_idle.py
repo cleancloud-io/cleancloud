@@ -5,7 +5,9 @@ from unittest.mock import Mock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
-from cleancloud.providers.azure.rules.ml_online_endpoint_idle import find_idle_ml_online_endpoints
+from cleancloud.providers.azure.rules.ml_online_endpoint_idle import (
+    find_idle_ml_online_endpoints,
+)
 
 
 def _http_error(status_code: int) -> HttpResponseError:
@@ -586,7 +588,10 @@ def test_deployment_list_failure_still_produces_finding():
     )
 
     findings = find_idle_ml_online_endpoints(
-        subscription_id=_SUB, credential=None, client=ml_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=ml_client,
+        monitor_client=mon_client,
     )
 
     # Finding still produced, just without cost details
@@ -844,7 +849,10 @@ def test_endpoint_list_transient_error_skips_workspace_preserves_others():
     )
 
     findings = find_idle_ml_online_endpoints(
-        subscription_id=_SUB, credential=None, client=ml_client, monitor_client=mon_client
+        subscription_id=_SUB,
+        credential=None,
+        client=ml_client,
+        monitor_client=mon_client,
     )
 
     assert len(findings) == 1
@@ -864,7 +872,10 @@ def test_workspace_auth_error_raises_permission_error():
 
     with pytest.raises(PermissionError) as exc_info:
         find_idle_ml_online_endpoints(
-            subscription_id=_SUB, credential=None, client=ml_client, monitor_client=mon_client
+            subscription_id=_SUB,
+            credential=None,
+            client=ml_client,
+            monitor_client=mon_client,
         )
 
     assert "Microsoft.MachineLearningServices/workspaces/read" in str(exc_info.value)

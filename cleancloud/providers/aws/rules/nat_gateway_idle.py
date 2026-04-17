@@ -140,7 +140,7 @@ def find_idle_nat_gateways(
                             "name": name_tag,
                             "state": state,
                             "age_days": age_days,
-                            "create_time": create_time.isoformat() if create_time else None,
+                            "create_time": (create_time.isoformat() if create_time else None),
                             "vpc_id": vpc_id,
                             "subnet_id": subnet_id,
                             "elastic_ips": eip_info,

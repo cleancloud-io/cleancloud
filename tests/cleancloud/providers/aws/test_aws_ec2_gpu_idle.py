@@ -253,7 +253,9 @@ class TestFindIdleGpuInstances:
 
     def test_non_gpu_instance_skipped(self):
         findings = _run(
-            [_make_instance(instance_type="m5.4xlarge")], gpu_util=0.0, has_gpu_metric=True
+            [_make_instance(instance_type="m5.4xlarge")],
+            gpu_util=0.0,
+            has_gpu_metric=True,
         )
         assert findings == []
 
@@ -288,7 +290,9 @@ class TestFindIdleGpuInstances:
 
     def test_cost_estimate_in_finding(self):
         findings = _run(
-            [_make_instance(instance_type="p3.2xlarge")], gpu_util=0.0, has_gpu_metric=True
+            [_make_instance(instance_type="p3.2xlarge")],
+            gpu_util=0.0,
+            has_gpu_metric=True,
         )
         assert len(findings) == 1
         assert findings[0].estimated_monthly_cost_usd == _MONTHLY_COST["p3.2xlarge"]
@@ -296,7 +300,9 @@ class TestFindIdleGpuInstances:
     def test_unknown_instance_type_uses_default_cost(self):
         # p3.custom matches the p3. GPU family prefix but is not in the cost table
         findings = _run(
-            [_make_instance(instance_type="p3.custom")], gpu_util=0.0, has_gpu_metric=True
+            [_make_instance(instance_type="p3.custom")],
+            gpu_util=0.0,
+            has_gpu_metric=True,
         )
         assert len(findings) == 1
         assert findings[0].estimated_monthly_cost_usd == _DEFAULT_MONTHLY_COST

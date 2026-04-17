@@ -8,7 +8,11 @@ import click
 from cleancloud.config.accounts import MultiAccountConfig
 from cleancloud.doctor.common import fail, info, success, warn
 from cleancloud.policy.exit_policy import EXIT_ERROR
-from cleancloud.providers.aws.session import BOTO_CONFIG, assume_role, create_aws_session
+from cleancloud.providers.aws.session import (
+    BOTO_CONFIG,
+    assume_role,
+    create_aws_session,
+)
 from cleancloud.providers.aws.validate import KNOWN_AWS_REGIONS
 
 
@@ -154,7 +158,11 @@ def detect_aws_auth_method(session) -> tuple[str, str, dict]:
         # Unknown/other
         else:
             metadata.update(
-                {"recommended": False, "ci_cd_ready": False, "security_grade": "unknown"}
+                {
+                    "recommended": False,
+                    "ci_cd_ready": False,
+                    "security_grade": "unknown",
+                }
             )
             return "unknown", f"Other ({provider_name})", metadata
 
@@ -802,7 +810,8 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
     try:
         ec2 = session.client("ec2", region_name=region)
         ec2.describe_instances(
-            MaxResults=5, Filters=[{"Name": "instance-state-name", "Values": ["running"]}]
+            MaxResults=5,
+            Filters=[{"Name": "instance-state-name", "Values": ["running"]}],
         )
         permissions_tested.append("ec2:DescribeInstances")
         success("ec2:DescribeInstances")

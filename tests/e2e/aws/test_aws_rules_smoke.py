@@ -5,12 +5,16 @@ import pytest
 
 from cleancloud.core.finding import Finding
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
-from cleancloud.providers.aws.rules.cloudwatch_inactive import find_inactive_cloudwatch_logs
+from cleancloud.providers.aws.rules.cloudwatch_inactive import (
+    find_inactive_cloudwatch_logs,
+)
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
 from cleancloud.providers.aws.rules.ec2_sg_unused import find_unused_security_groups
 from cleancloud.providers.aws.rules.ec2_stopped import find_stopped_ec2_instances
-from cleancloud.providers.aws.rules.elastic_ip_unattached import find_unattached_elastic_ips
+from cleancloud.providers.aws.rules.elastic_ip_unattached import (
+    find_unattached_elastic_ips,
+)
 from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways

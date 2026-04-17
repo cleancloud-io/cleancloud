@@ -26,7 +26,10 @@ def test_rules_enabled_true_is_default():
 
 def test_rules_min_cost():
     cfg = load_config(
-        {"version": 1, "rules": {"aws.rds.instance.idle": {"enabled": True, "min_cost": 100}}}
+        {
+            "version": 1,
+            "rules": {"aws.rds.instance.idle": {"enabled": True, "min_cost": 100}},
+        }
     )
     assert cfg.rules["aws.rds.instance.idle"].min_cost == 100.0
 
@@ -91,7 +94,10 @@ def test_exceptions_missing_resource_id_raises():
 def test_exceptions_not_a_list_raises():
     with pytest.raises(ValueError):
         load_config(
-            {"version": 1, "exceptions": {"rule_id": "aws.rds.instance.idle", "resource_id": "x"}}
+            {
+                "version": 1,
+                "exceptions": {"rule_id": "aws.rds.instance.idle", "resource_id": "x"},
+            }
         )
 
 
@@ -134,10 +140,17 @@ def test_all_sections_together():
     cfg = load_config(
         {
             "version": 1,
-            "tag_filtering": {"enabled": True, "ignore": [{"key": "env", "value": "prod"}]},
+            "tag_filtering": {
+                "enabled": True,
+                "ignore": [{"key": "env", "value": "prod"}],
+            },
             "rules": {"aws.ec2.ami.old": {"enabled": False}},
             "exceptions": [
-                {"rule_id": "aws.rds.instance.idle", "resource_id": "db-prod", "reason": "ok"}
+                {
+                    "rule_id": "aws.rds.instance.idle",
+                    "resource_id": "db-prod",
+                    "reason": "ok",
+                }
             ],
             "thresholds": {"fail_on_confidence": "MEDIUM", "fail_on_cost": 200},
         }

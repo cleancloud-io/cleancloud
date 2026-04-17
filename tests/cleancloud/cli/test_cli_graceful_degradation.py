@@ -32,7 +32,9 @@ def _fake_finding(resource_id="vol-1"):
     )
 
 
-def _fake_gcp_finding(resource_id="projects/my-project/zones/us-central1-a/disks/disk-1"):
+def _fake_gcp_finding(
+    resource_id="projects/my-project/zones/us-central1-a/disks/disk-1",
+):
     return Finding(
         provider="gcp",
         rule_id="gcp.compute.disk.unattached",

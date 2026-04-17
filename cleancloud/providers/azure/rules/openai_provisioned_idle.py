@@ -409,7 +409,10 @@ def _check_requests(
             # (ingestion gap or very new deployment). Treat as no_data rather than
             # idle to avoid false positives from empty metric shells.
             if has_timeseries and seen_datapoints > 0:
-                return ("per_deployment", metric_name)  # timeseries with explicit zeros confirmed
+                return (
+                    "per_deployment",
+                    metric_name,
+                )  # timeseries with explicit zeros confirmed
 
             # No per-deployment timeseries — dimension filter unsupported for this
             # deployment. Do NOT fall back to account-level aggregation: a zero

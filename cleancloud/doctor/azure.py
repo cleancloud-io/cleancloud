@@ -429,7 +429,10 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
             success("Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read")
         except Exception as e:
             permissions_failed.append(
-                ("Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read", str(e))
+                (
+                    "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read",
+                    str(e),
+                )
             )
             warn(f"Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read — {e}")
     else:

@@ -12,7 +12,11 @@ from cleancloud.providers.aws.scan import (
     _get_active_aws_regions,
     scan_aws_regions_with_session,
 )
-from cleancloud.providers.aws.session import BOTO_CONFIG, assume_role, create_aws_session
+from cleancloud.providers.aws.session import (
+    BOTO_CONFIG,
+    assume_role,
+    create_aws_session,
+)
 
 
 @dataclass

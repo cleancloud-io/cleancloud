@@ -8,7 +8,9 @@ from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_comp
 from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
     find_idle_aml_compute_instances,
 )
-from cleancloud.providers.azure.rules.ml_online_endpoint_idle import find_idle_ml_online_endpoints
+from cleancloud.providers.azure.rules.ml_online_endpoint_idle import (
+    find_idle_ml_online_endpoints,
+)
 from cleancloud.providers.azure.rules.openai_provisioned_idle import (
     find_idle_openai_provisioned_deployments,
 )
@@ -39,7 +41,9 @@ def test_azure_ai_rules_run_without_error():
     for rule in rules:
         try:
             rule_results = rule(
-                subscription_id=sub_id, credential=credential, region_filter=region_filter
+                subscription_id=sub_id,
+                credential=credential,
+                region_filter=region_filter,
             )
         except PermissionError as exc:
             pytest.fail(

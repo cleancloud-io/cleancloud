@@ -181,10 +181,16 @@ def test_scan_multiple_accounts_aggregates_findings(mock_create_session, mock_sc
     finding_b = _make_finding("vol-2")
     mock_scan_account.side_effect = [
         AccountScanResult(
-            account_id="111111111111", account_name="prod", findings=[finding_a], status="success"
+            account_id="111111111111",
+            account_name="prod",
+            findings=[finding_a],
+            status="success",
         ),
         AccountScanResult(
-            account_id="222222222222", account_name="dev", findings=[finding_b], status="success"
+            account_id="222222222222",
+            account_name="dev",
+            findings=[finding_b],
+            status="success",
         ),
     ]
 
@@ -221,7 +227,10 @@ def test_scan_multiple_accounts_one_failure_does_not_stop_others(
             error="AccessDenied: role not found",
         ),
         AccountScanResult(
-            account_id="222222222222", account_name="dev", findings=[finding], status="success"
+            account_id="222222222222",
+            account_name="dev",
+            findings=[finding],
+            status="success",
         ),
     ]
 
@@ -253,7 +262,11 @@ def test_discover_org_accounts_returns_active_only():
         {
             "Accounts": [
                 {"Id": "111111111111", "Name": "prod", "Status": "ACTIVE"},
-                {"Id": "222222222222", "Name": "suspended-account", "Status": "SUSPENDED"},
+                {
+                    "Id": "222222222222",
+                    "Name": "suspended-account",
+                    "Status": "SUSPENDED",
+                },
                 {"Id": "333333333333", "Name": "dev", "Status": "ACTIVE"},
             ]
         }

@@ -6,13 +6,16 @@
     {
       "role": "roles/aiplatform.viewer",
       "title": "Vertex AI Viewer",
-      "justification": "List and read Vertex AI Online Prediction endpoints to detect idle dedicated capacity",
+      "justification": "List and read Vertex AI Online Prediction endpoints, Custom Jobs, and Training Pipelines to detect idle or runaway workloads",
       "permissions_used": [
         "aiplatform.endpoints.list",
-        "aiplatform.endpoints.get"
+        "aiplatform.endpoints.get",
+        "aiplatform.customJobs.list",
+        "aiplatform.trainingPipelines.list"
       ],
       "rules_covered": [
-        "gcp.vertex.endpoint.idle"
+        "gcp.vertex.endpoint.idle",
+        "gcp.vertex.training_job.long_running"
       ]
     },
     {

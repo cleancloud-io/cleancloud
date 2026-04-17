@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cleancloud.providers.azure.rules.unattached_managed_disks import find_unattached_managed_disks
+from cleancloud.providers.azure.rules.unattached_managed_disks import (
+    find_unattached_managed_disks,
+)
 
 
 @pytest.fixture

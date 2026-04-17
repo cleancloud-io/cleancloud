@@ -1135,7 +1135,9 @@ def test_min_cost_constant_is_reasonable():
     """_MIN_MONTHLY_COST_USD is set and below the cheapest known machine type."""
     assert _MIN_MONTHLY_COST_USD > 0
     # All known machine types cost more than the filter threshold
-    from cleancloud.providers.gcp.rules.vertex_endpoint_idle import _MACHINE_MONTHLY_COST
+    from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
+        _MACHINE_MONTHLY_COST,
+    )
 
     assert all(cost >= _MIN_MONTHLY_COST_USD for cost in _MACHINE_MONTHLY_COST.values())
 

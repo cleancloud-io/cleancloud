@@ -200,7 +200,8 @@ def find_idle_ai_search_services(
             if svc.id:
                 _parts = svc.id.split("/")
                 _rg_idx = next(
-                    (i for i, p in enumerate(_parts) if p.lower() == "resourcegroups"), None
+                    (i for i, p in enumerate(_parts) if p.lower() == "resourcegroups"),
+                    None,
                 )
                 rg = (
                     _parts[_rg_idx + 1]

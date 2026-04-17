@@ -160,8 +160,10 @@ def _effective_rule_config(rule_id: str, cfg: CleanCloudConfig) -> RuleConfig:
     return RuleConfig(
         enabled=per_rule.enabled,
         params=per_rule.params,
-        min_cost=per_rule.min_cost if per_rule.min_cost is not None else defaults.min_cost,
-        confidence=per_rule.confidence if per_rule.confidence is not None else defaults.confidence,
+        min_cost=(per_rule.min_cost if per_rule.min_cost is not None else defaults.min_cost),
+        confidence=(
+            per_rule.confidence if per_rule.confidence is not None else defaults.confidence
+        ),
         override_risk_level=(
             per_rule.override_risk_level
             if per_rule.override_risk_level is not None

@@ -68,7 +68,14 @@ def demo(provider: Optional[str], category: str):
         region_mode = "all-regions"
     else:
         findings = ALL_FINDINGS
-        regions = ["us-east-1", "us-west-2", "eu-west-1", "eastus", "westeurope", "us-central1"]
+        regions = [
+            "us-east-1",
+            "us-west-2",
+            "eu-west-1",
+            "eastus",
+            "westeurope",
+            "us-central1",
+        ]
         region_mode = "all-regions"
 
     print_human(findings)

@@ -86,7 +86,10 @@ def test_ec2_gpu_idle_returns_list_of_findings():
         assert f.confidence.value in ("high", "medium")
         assert f.risk.value in ("critical", "high")
         assert f.details["gpu_metric_available"] in (True, False)
-        assert f.details["idle_signal"] in ("gpu_utilisation", "cpu_utilisation_fallback")
+        assert f.details["idle_signal"] in (
+            "gpu_utilisation",
+            "cpu_utilisation_fallback",
+        )
 
 
 @pytest.mark.e2e
