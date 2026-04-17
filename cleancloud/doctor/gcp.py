@@ -614,6 +614,9 @@ def run_gcp_doctor(project_id: Optional[str] = None) -> None:
 
     info("=" * 70)
     info("")
+    info("Tip: To also validate AI/ML permissions, run:")
+    info("  cleancloud doctor --provider gcp --category ai")
+    info("")
 
 
 def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
@@ -750,7 +753,7 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
             resp = session.get(
                 f"https://aiplatform.googleapis.com/v1"
                 f"/projects/{probe_project_id}/locations/us-central1/customJobs",
-                params={"pageSize": 1, "filter": "state=JOB_STATE_RUNNING"},
+                params={"pageSize": 1, "filter": 'state="JOB_STATE_RUNNING"'},
             )
             if resp.status_code == 403:
                 permissions_failed.append("aiplatform.customJobs.list")
@@ -776,7 +779,7 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
             resp = session.get(
                 f"https://aiplatform.googleapis.com/v1"
                 f"/projects/{probe_project_id}/locations/us-central1/trainingPipelines",
-                params={"pageSize": 1, "filter": "state=PIPELINE_STATE_RUNNING"},
+                params={"pageSize": 1, "filter": 'state="PIPELINE_STATE_RUNNING"'},
             )
             if resp.status_code == 403:
                 permissions_failed.append("aiplatform.trainingPipelines.list")
@@ -843,7 +846,14 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
         sa_hint = "SA_EMAIL@PROJECT.iam.gserviceaccount.com"
         proj_hint = probe_project_id or "PROJECT_ID"
         roles_needed = []
-        if "aiplatform.endpoints.list" in permissions_failed:
+        if any(
+            p in permissions_failed
+            for p in (
+                "aiplatform.endpoints.list",
+                "aiplatform.customJobs.list",
+                "aiplatform.trainingPipelines.list",
+            )
+        ):
             roles_needed.append("roles/aiplatform.viewer")
         if "notebooks.instances.list" in permissions_failed:
             roles_needed.append("roles/notebooks.viewer")
