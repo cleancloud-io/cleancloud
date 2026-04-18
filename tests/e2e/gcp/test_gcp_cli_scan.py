@@ -61,3 +61,8 @@ def test_cli_gcp_scan_json_output():
         assert "summary" in data
         assert "findings" in data
         assert isinstance(data["findings"], list)
+
+        rules_failed = data["summary"].get("rules_failed", 0)
+        assert (
+            rules_failed == 0
+        ), f"{rules_failed} rule(s) failed during scan — check CLI output above for details"

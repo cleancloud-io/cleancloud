@@ -11,23 +11,28 @@
         "aiplatform.endpoints.list",
         "aiplatform.endpoints.get",
         "aiplatform.customJobs.list",
-        "aiplatform.trainingPipelines.list"
+        "aiplatform.trainingPipelines.list",
+        "aiplatform.featurestores.list",
+        "aiplatform.featureOnlineStores.list"
       ],
       "rules_covered": [
         "gcp.vertex.endpoint.idle",
-        "gcp.vertex.training_job.long_running"
+        "gcp.vertex.training_job.long_running",
+        "gcp.vertex.featurestore.idle"
       ]
     },
     {
       "role": "roles/monitoring.viewer",
       "title": "Monitoring Viewer",
-      "justification": "Read Cloud Monitoring time-series metrics for Vertex AI prediction request counts",
+      "justification": "Read Cloud Monitoring time-series metrics for idle detection signals across all AI/ML rules (endpoint prediction counts, TPU duty cycle, Feature Store serving requests)",
       "note": "Already required for hygiene rules (Cloud SQL idle detection). No additional grant needed if hygiene roles are already bound.",
       "permissions_used": [
         "monitoring.timeSeries.list"
       ],
       "rules_covered": [
-        "gcp.vertex.endpoint.idle"
+        "gcp.vertex.endpoint.idle",
+        "gcp.tpu.idle",
+        "gcp.vertex.featurestore.idle"
       ]
     },
     {
@@ -39,6 +44,17 @@
       ],
       "rules_covered": [
         "gcp.vertex.workbench.idle"
+      ]
+    },
+    {
+      "role": "roles/tpu.viewer",
+      "title": "Cloud TPU Viewer",
+      "justification": "List and read Cloud TPU nodes across all zones to detect idle READY-state nodes incurring continuous compute charges",
+      "permissions_used": [
+        "tpu.nodes.list"
+      ],
+      "rules_covered": [
+        "gcp.tpu.idle"
       ]
     }
   ],

@@ -753,6 +753,9 @@ def scan(
             summary["total_rules"] = len(gcp_rules_to_run)
             summary["project_selection_mode"] = project_selection_mode
             summary["projects_scanned"] = projects_scanned
+            total_rules_failed = sum(r.rules_failed for r in gcp_project_results)
+            if total_rules_failed > 0:
+                summary["rules_failed"] = total_rules_failed
             failed_projects = [r for r in gcp_project_results if r.status == "failed"]
             if failed_projects:
                 summary["projects_failed"] = [

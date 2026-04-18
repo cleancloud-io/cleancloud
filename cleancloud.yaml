@@ -108,6 +108,14 @@ rules:
   #   params:
   #     idle_days: 14           # default: 7 (days of zero requests before flagging)
 
+  # gcp.tpu.idle:
+  #   params:
+  #     idle_days: 14           # default: 7 (days of low duty-cycle before flagging)
+
+  # gcp.vertex.featurestore.idle:
+  #   params:
+  #     idle_days: 60           # default: 30 (days of zero online serving requests before flagging)
+
 # ── Categories ───────────────────────────────────────────────────────────────
 # Override the default category without using the --category CLI flag.
 # Equivalent to: cleancloud scan --provider aws --category all

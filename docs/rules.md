@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-Complete reference for all 43 rules implemented by CleanCloud (30 hygiene + 13 AI/ML).
+Complete reference for all 45 rules implemented by CleanCloud (30 hygiene + 15 AI/ML).
 
 ---
 
@@ -91,6 +91,8 @@ Every finding includes a confidence level:
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI Online Prediction endpoints with dedicated capacity and zero predictions for 14+ days (`--category ai`) |
 | `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances ACTIVE with no control-plane activity for 14+ days (`--category ai`) |
 | `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI CustomJobs and TrainingPipelines in RUNNING state beyond 24h threshold; GPU/TPU/expensive-CPU early warning at 90% of threshold — hung or runaway jobs on GPU-backed machines cost $4–$80+/hr per node *(opt-in: `--category ai`)* |
+| `gcp.tpu.idle` | AI/ML | Cloud TPU nodes in READY state with near-zero utilization (`duty_cycle ≤ 2%`) for 7+ days — idle TPU v4 costs ~$12.88/hr, v5p can exceed $33/hr *(opt-in: `--category ai`)* |
+| `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Store online stores (legacy and new-gen) with zero ReadFeatureValues requests for 30+ days — Bigtable-backed stores bill ~$197/node/month regardless of utilization *(opt-in: `--category ai`)* |
 
 ---
 
@@ -2185,6 +2187,143 @@ for pipeline in vertex_ai.trainingPipelines(project, locations="-", filter='stat
 **Required permissions:**
 - `aiplatform.customJobs.list` (included in `roles/aiplatform.viewer`)
 - `aiplatform.trainingPipelines.list` (included in `roles/aiplatform.viewer`)
+
+---
+
+#### Idle Cloud TPU Nodes
+
+**Rule ID:** `gcp.tpu.idle`
+
+**What it detects:** Cloud TPU nodes in `READY` state with near-zero utilization for 7+ days. A READY TPU node incurs compute charges continuously, regardless of whether any workload is running. Forgotten TPU nodes left running after a training job completes are a common source of runaway cost.
+
+**Confidence:**
+
+- **HIGH:** Cloud Monitoring reports max `tpu.googleapis.com/node/accelerator/duty_cycle ≤ 2%` across all workers over the idle window (7 days by default) — the TPU was genuinely not executing any workload
+- **LOW:** Monitoring data unavailable; node exists for ≥ idle_days with no observed activity — existence duration is not a reliable idle proxy (node may still be in active use)
+
+**Risk:**
+
+| Confidence | Hourly cost | Risk |
+|---|---|---|
+| HIGH | ≥ $10/hr | CRITICAL |
+| HIGH | < $10/hr | HIGH |
+| LOW | Any | MEDIUM |
+
+**Why this matters:**
+- TPU nodes bill from the moment they reach READY state, regardless of utilization
+- Unlike GPU instances, Cloud TPU nodes have no automatic stop after a job completes — they must be explicitly deleted
+- An idle v4 node (4 chips, `2x2x1` topology) costs ~$12.88/hr; a v5p-8 costs ~$33.60/hr; a forgotten large pod runs up thousands per day
+
+**Detection logic:**
+```python
+# List all READY TPU nodes via Cloud TPU v2 REST API (locations/- wildcard)
+for node in tpu.projects.locations.nodes.list(project, location="-"):
+    if node.state != "READY":
+        continue
+    age = age_days(node.createTime)
+    if age < idle_days:
+        continue  # too young — enforce minimum observation window
+    # Check Cloud Monitoring for near-zero duty_cycle
+    duty_cycle = max_duty_cycle(node.id, window=idle_days)
+    if duty_cycle is not None:
+        idle = duty_cycle <= 0.02  # HIGH confidence
+    else:
+        idle = True  # LOW confidence — age-based heuristic, utilization unknown
+```
+
+**Cost estimates (us-central1, on-demand):**
+
+| TPU Type | Chips | ~Hourly cost | Notes |
+|---|---|---|---|
+| `v2-8` | 8 | $12.00/hr | $1.50/chip-hr, published |
+| `v3-8` | 8 | $17.60/hr | $2.20/chip-hr (device); v3 pod is $2.00/chip-hr |
+| `v4` (2x2x1) | 4 | $12.88/hr | $3.22/chip-hr, published |
+| `v4` (2x2x2) | 8 | $25.76/hr | $3.22/chip-hr, published |
+| `v5e` (litepod-4) | 4 | $4.80/hr | $1.20/chip-hr, published |
+| `v5e` (litepod-8) | 8 | $9.60/hr | $1.20/chip-hr, published |
+| `v5p-4` | 4 | $16.80/hr | $4.20/chip-hr, published |
+| `v5p-8` | 8 | $33.60/hr | $4.20/chip-hr, published |
+
+**What it does not check:**
+- Batch or scheduled jobs that run intermittently (the 7-day window may miss a recent burst)
+- Preemptible TPU nodes — may have been interrupted and not yet restarted intentionally
+- Committed use discounts — actual cost may be significantly lower
+- Nodes shared across teams where utilization is tracked externally
+
+**Required permissions:**
+- `tpu.nodes.list` (included in `roles/tpu.viewer`)
+- `monitoring.timeSeries.list` (included in `roles/monitoring.viewer`) — optional; falls back to age-based detection if absent
+
+---
+
+#### Idle Vertex AI Feature Store Online Stores
+
+**Rule ID:** `gcp.vertex.featurestore.idle`
+
+**What it detects:** Vertex AI Feature Store online stores — both legacy `featurestores` (with `fixedNodeCount > 0` or autoscaled via `scaling.minNodeCount`) and new-generation `featureOnlineStores` (Bigtable-backed or Optimized) — that have received zero online serving requests for 30+ days while remaining in STABLE state. Legacy featurestores and Bigtable-backed online stores incur continuous Bigtable compute charges; Optimized stores incur storage and query compute charges. Feature stores are frequently left running after a model or recommendation system is retired.
+
+**Confidence:**
+
+- **HIGH:** Cloud Monitoring confirms zero `online_serving/request_count` over the 30-day window — the store had no `ReadFeatureValues` (or equivalent) requests at all
+- **LOW:** Monitoring data unavailable; store has been in STABLE state for ≥ 30 days — heuristic: age only, request activity unknown
+
+**Risk:**
+
+| Confidence | Risk |
+|---|---|
+| HIGH | HIGH |
+| LOW | MEDIUM |
+
+**Why this matters:**
+- Legacy featurestores with `fixedNodeCount > 0` bill ~$0.27/node-hour (us-central1, SSD-backed Bigtable) continuously — a 1-node store costs ~$197/month, a 3-node HA store costs ~$591/month
+- New-generation featureOnlineStores (Bigtable-backed) have similar per-node costs via `autoScaling.minNodeCount`
+- Optimized (BigQuery-backed) featureOnlineStores have lower base cost but still incur storage and query charges
+- These stores are often provisioned during model development and forgotten after the serving layer is replaced
+
+**Detection logic:**
+```python
+# Legacy featurestores with online serving configured (fixed or autoscaled)
+for store in vertex_ai.featurestores(project, locations="-"):
+    config = store.onlineServingConfig
+    if config.fixedNodeCount == 0 and config.scaling.minNodeCount == 0:
+        continue  # no online serving cost
+    requests = monitoring.sum("featurestore/online_serving/request_count", window=30d)
+    if requests is not None:
+        if requests == 0:
+            flag()  # HIGH confidence
+    elif age_days >= 30:
+        flag()  # LOW confidence — age heuristic, request activity unknown
+
+# New featureOnlineStores (Bigtable or Optimized)
+for store in vertex_ai.featureOnlineStores(project, locations="-"):
+    requests = monitoring.sum("featureonlinestore/online_serving/request_count", window=30d)
+    if requests is not None:
+        if requests == 0:
+            flag()  # HIGH confidence
+    elif age_days >= 30:
+        flag()  # LOW confidence — age heuristic, request activity unknown
+```
+
+**Cost estimates (us-central1, on-demand):**
+
+| Store type | Config | ~Monthly cost |
+|---|---|---|
+| Legacy featurestore | 1 Bigtable node | ~$197/mo |
+| Legacy featurestore | 3 Bigtable nodes (HA) | ~$591/mo |
+| Feature Online Store | 1 Bigtable node (min) | ~$197/mo |
+| Feature Online Store | 3 Bigtable nodes (min) | ~$591/mo |
+| Feature Online Store | Optimized (BigQuery) | ~$100+/mo [est] |
+
+**What it does not check:**
+- Periodic or low-frequency batch workflows querying less often than the 30-day window
+- Feature stores used by scheduled pipelines (e.g. weekly batch inference)
+- Committed use discounts — actual cost may be lower
+- Stores intentionally kept warm for latency-sensitive cold-start mitigation
+
+**Required permissions:**
+- `aiplatform.featurestores.list` (included in `roles/aiplatform.viewer`)
+- `aiplatform.featureOnlineStores.list` (included in `roles/aiplatform.viewer`)
+- `monitoring.timeSeries.list` (included in `roles/monitoring.viewer`) — optional; falls back to age-based detection if absent
 
 ---
 
