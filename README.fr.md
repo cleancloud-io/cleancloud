@@ -194,7 +194,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 - **Détection du gaspillage IA/ML sur les 3 clouds :** points de terminaison SageMaker et notebooks, clusters AML Compute et instances ML, points de terminaison en ligne Azure ML et services Azure AI Search, points de terminaison Vertex AI et instances Workbench — facturés 500–23 000 $/mois par ressource en silence. Les ressources GPU sont signalées comme RISQUE ÉLEVÉ. Les outils natifs n'indiquent pas toujours quoi supprimer — CleanCloud le fait. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **43 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **45 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
@@ -283,13 +283,15 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Déploiement Azure OpenAI Provisionné (PTU) | 1 460+ $ / PTU / mois |
 | Endpoint Vertex AI Online Prediction (GPU) | 449 – 23 000+ $ / mois |
 | Instance Vertex AI Workbench (GPU) | 449 – 8 000+ $ / mois |
+| Nœud Cloud TPU (v4/v5p) | 188 – 750+ $ / jour |
+| Vertex AI Feature Store (Bigtable) | 197 – 591+ $ / mois |
 
 CleanCloud détecte les endpoints à zéro invocation / zéro prédiction et les instances de notebook inactives sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
 
 ```bash
 cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks + Studio apps SageMaker + training jobs SageMaker + EC2 GPU
 cleancloud scan --provider azure --category ai        # clusters AML + instances ML + endpoints en ligne + AI Search + instances ML + PTUs OpenAI
-cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench + training jobs
+cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench + training jobs + Cloud TPU + Feature Stores
 cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
 ```
 
@@ -527,7 +529,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 
 ## Ce que CleanCloud détecte
 
-43 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+45 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -551,7 +553,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
 - Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
 - Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
-- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois) ; instances Workbench sans activité depuis 14+ jours — instances GPU flaggées HIGH/CRITICAL ($449–$8K+/mois) ; training jobs Vertex AI (CustomJobs + TrainingPipelines) dépassant 24h — alerte précoce GPU à 75% du seuil, risque CRITICAL pour les jobs GPU à 3× le seuil ($4–$80+/h par nœud GPU)
+- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois) ; instances Workbench sans activité depuis 14+ jours — instances GPU flaggées HIGH/CRITICAL ($449–$8K+/mois) ; training jobs Vertex AI (CustomJobs + TrainingPipelines) dépassant 24h — alerte précoce GPU/TPU à 90% du seuil, risque CRITICAL pour les jobs GPU à 3× le seuil ($4–$80+/h par nœud GPU) ; nœuds Cloud TPU (v2–v6e) en état READY avec duty_cycle quasi-nul depuis 7+ jours — un v4 inactif coûte $12,88/h, un v5p-8 coûte $33,60/h ; Feature Stores Vertex AI avec zéro requête ReadFeatureValues depuis 30+ jours — les stores Bigtable facturent ~$197/nœud/mois quelle que soit l'activité
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 

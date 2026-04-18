@@ -798,6 +798,60 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
     else:
         info("aiplatform.trainingPipelines.list — skipped (no project specified)")
 
+    # --- tpu.nodes.list ---
+    if probe_project_id:
+        try:
+            session = AuthorizedSession(credentials)
+            resp = session.get(
+                f"https://tpu.googleapis.com/v2" f"/projects/{probe_project_id}/locations/-/nodes",
+                params={"pageSize": 1},
+            )
+            if resp.status_code == 403:
+                permissions_failed.append("tpu.nodes.list")
+                warn("tpu.nodes.list — MISSING " "(rule: gcp.tpu.idle will be skipped)")
+            elif resp.status_code == 404:
+                info(
+                    "tpu.nodes.list — Cloud TPU API not enabled in this project "
+                    "(enable via: gcloud services enable tpu.googleapis.com)"
+                )
+            else:
+                success("tpu.nodes.list")
+        except Exception as e:
+            info(f"tpu.nodes.list — check skipped ({type(e).__name__})")
+    else:
+        info("tpu.nodes.list — skipped (no project specified)")
+
+    # --- aiplatform.featurestores.list / aiplatform.featureOnlineStores.list ---
+    for resource, perm in (
+        ("featurestores", "aiplatform.featurestores.list"),
+        ("featureOnlineStores", "aiplatform.featureOnlineStores.list"),
+    ):
+        if probe_project_id:
+            try:
+                session = AuthorizedSession(credentials)
+                resp = session.get(
+                    f"https://aiplatform.googleapis.com/v1"
+                    f"/projects/{probe_project_id}/locations/us-central1/{resource}",
+                    params={"pageSize": 1},
+                )
+                if resp.status_code == 403:
+                    permissions_failed.append(perm)
+                    warn(
+                        f"{perm} — MISSING "
+                        f"(rule: gcp.vertex.featurestore.idle may be partially skipped)"
+                    )
+                elif resp.status_code == 404:
+                    info(
+                        f"{perm} — Vertex AI API not enabled in this project "
+                        f"(enable via: gcloud services enable aiplatform.googleapis.com)"
+                    )
+                else:
+                    success(f"{perm}")
+            except Exception as e:
+                info(f"{perm} — check skipped ({type(e).__name__})")
+        else:
+            info(f"{perm} — skipped (no project specified)")
+
     # -------------------------------------------------------------------------
     # Rule coverage summary
     # -------------------------------------------------------------------------
@@ -836,6 +890,40 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
             f"{', '.join(training_perms_missing)})"
         )
 
+    if "tpu.nodes.list" not in permissions_failed:
+        tpu_metric_note = (
+            "(partial: monitoring missing — age-based fallback active)"
+            if "monitoring.timeSeries.list" in permissions_failed
+            else "(enabled)"
+        )
+        if "monitoring.timeSeries.list" in permissions_failed:
+            warn(f"  ~ gcp.tpu.idle                         {tpu_metric_note}")
+        else:
+            success(f"  ✓ gcp.tpu.idle                         {tpu_metric_note}")
+    else:
+        warn("  ✗ gcp.tpu.idle                         (disabled: missing tpu.nodes.list)")
+
+    featurestore_perms_missing = [
+        p
+        for p in ("aiplatform.featurestores.list", "aiplatform.featureOnlineStores.list")
+        if p in permissions_failed
+    ]
+    if not featurestore_perms_missing:
+        fs_note = (
+            "(partial: monitoring missing — age-based fallback active)"
+            if "monitoring.timeSeries.list" in permissions_failed
+            else "(enabled)"
+        )
+        if "monitoring.timeSeries.list" in permissions_failed:
+            warn(f"  ~ gcp.vertex.featurestore.idle         {fs_note}")
+        else:
+            success(f"  ✓ gcp.vertex.featurestore.idle         {fs_note}")
+    else:
+        warn(
+            f"  ✗ gcp.vertex.featurestore.idle         (partial: missing "
+            f"{', '.join(featurestore_perms_missing)})"
+        )
+
     # -------------------------------------------------------------------------
     # Remediation guidance
     # -------------------------------------------------------------------------
@@ -852,11 +940,15 @@ def run_gcp_ai_doctor(project_id: Optional[str] = None) -> None:
                 "aiplatform.endpoints.list",
                 "aiplatform.customJobs.list",
                 "aiplatform.trainingPipelines.list",
+                "aiplatform.featurestores.list",
+                "aiplatform.featureOnlineStores.list",
             )
         ):
             roles_needed.append("roles/aiplatform.viewer")
         if "notebooks.instances.list" in permissions_failed:
             roles_needed.append("roles/notebooks.viewer")
+        if "tpu.nodes.list" in permissions_failed:
+            roles_needed.append("roles/tpu.viewer")
         for role in roles_needed:
             info(f"  gcloud projects add-iam-policy-binding {proj_hint} \\")
             info(f'    --member="serviceAccount:{sa_hint}" \\')

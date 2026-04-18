@@ -13,7 +13,7 @@
 | Single-project scan | `roles/compute.viewer` + `roles/cloudsql.viewer` + `roles/monitoring.viewer` on the target project |
 | Multi-project / org-wide scan | Same 3 roles + `roles/browser` — bound at the **organization or folder level** (covers all projects automatically) |
 | Project enumeration (`--all-projects`) | `roles/browser` at org or folder level |
-| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` + `roles/notebooks.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai-and-workbench) |
+| AI/ML scan (`--category ai`) | All of the above + `roles/aiplatform.viewer` + `roles/notebooks.viewer` + `roles/tpu.viewer` — see [AI/ML Scanning](#aiml-scanning-vertex-ai-workbench-and-tpu) |
 
 All roles are read-only. No create, delete, or modify permissions — ever.
 
@@ -505,7 +505,7 @@ CleanCloud requires **read-only** IAM permissions only. No write access is neede
 | `compute.globalAddresses.list` | `gcp.compute.ip.unused` | `roles/compute.viewer` |
 | `compute.snapshots.list` | `gcp.compute.snapshot.old` | `roles/compute.viewer` |
 | `cloudsql.instances.list` | `gcp.sql.instance.idle` | `roles/cloudsql.viewer` |
-| `monitoring.timeSeries.list` | `gcp.sql.instance.idle`, `gcp.vertex.endpoint.idle` | `roles/monitoring.viewer` |
+| `monitoring.timeSeries.list` | `gcp.sql.instance.idle`, `gcp.vertex.endpoint.idle`, `gcp.tpu.idle`, `gcp.vertex.featurestore.idle` | `roles/monitoring.viewer` |
 | `resourcemanager.projects.get`, `resourcemanager.projects.list` | project access validation and project enumeration (`--all-projects`) | `roles/browser` |
 
 ### Graceful Degradation
@@ -520,9 +520,9 @@ This means you can run CleanCloud with only the permissions you have — it repo
 
 ---
 
-## AI/ML Scanning (Vertex AI and Workbench)
+## AI/ML Scanning (Vertex AI, Workbench, and TPU)
 
-Detect idle GCP AI resources — Vertex AI online prediction endpoints keeping dedicated compute alive with zero traffic, and Vertex AI Workbench instances left running after a project ends. GPU-backed resources (T4, V100, A100, L4, H100) cost $300–$8K/month and are the highest-cost idle resource type in most GCP AI workloads.
+Detect idle GCP AI resources — Vertex AI endpoints, Workbench instances, long-running training jobs, Cloud TPU nodes, and Feature Store online stores. GPU-backed and TPU resources cost $197–$23K+/month and are the highest-cost idle resource type in most GCP AI workloads.
 
 AI scanning is **opt-in** — it requires an extra role and runs separately from hygiene scanning.
 
@@ -542,35 +542,32 @@ cleancloud scan --provider gcp --category all --all-projects
 
 ### Required Permissions
 
-Two additional roles beyond the hygiene roles:
+Three additional roles beyond the hygiene roles:
 
-| Role | What it grants | Rule |
+| Role | What it grants | Rules |
 |---|---|---|
-| `roles/aiplatform.viewer` | `aiplatform.endpoints.list` + `aiplatform.endpoints.get` | `gcp.vertex.endpoint.idle` |
+| `roles/aiplatform.viewer` | `aiplatform.endpoints.list`, `aiplatform.customJobs.list`, `aiplatform.trainingPipelines.list`, `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` | `gcp.vertex.endpoint.idle`, `gcp.vertex.training_job.long_running`, `gcp.vertex.featurestore.idle` |
 | `roles/notebooks.viewer` | `notebooks.instances.list` | `gcp.vertex.workbench.idle` |
+| `roles/tpu.viewer` | `tpu.nodes.list` | `gcp.tpu.idle` |
 
 `roles/monitoring.viewer` is already required for hygiene rules — no additional grant needed.
 
 **Grant at organization level** (covers all current and future projects):
 ```bash
-gcloud organizations add-iam-policy-binding "${ORG_ID}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/aiplatform.viewer"
-
-gcloud organizations add-iam-policy-binding "${ORG_ID}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/notebooks.viewer"
+for ROLE in roles/aiplatform.viewer roles/notebooks.viewer roles/tpu.viewer; do
+  gcloud organizations add-iam-policy-binding "${ORG_ID}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="${ROLE}"
+done
 ```
 
 **Grant at project level** (single project only):
 ```bash
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/aiplatform.viewer"
-
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${SA_EMAIL}" \
-  --role="roles/notebooks.viewer"
+for ROLE in roles/aiplatform.viewer roles/notebooks.viewer roles/tpu.viewer; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${SA_EMAIL}" \
+    --role="${ROLE}"
+done
 ```
 
 The full predefined-role mappings are in:
@@ -588,6 +585,11 @@ gcloud services enable aiplatform.googleapis.com --project="${PROJECT_ID}"
 **Notebooks** (for `gcp.vertex.workbench.idle`):
 ```bash
 gcloud services enable notebooks.googleapis.com --project="${PROJECT_ID}"
+```
+
+**Cloud TPU** (for `gcp.tpu.idle`):
+```bash
+gcloud services enable tpu.googleapis.com --project="${PROJECT_ID}"
 ```
 
 Projects with an API disabled return 0 findings for that rule (skipped automatically — not an error).
@@ -612,6 +614,26 @@ Projects with an API disabled return 0 findings for that rule (skipped automatic
 | Instance STOPPED | No — not incurring compute charges |
 | Instance younger than 7 days | No — too new to classify |
 
+**Cloud TPU (`gcp.tpu.idle`):**
+
+| Condition | Flagged |
+|---|---|
+| Node READY + duty cycle ≤ 2% over the last 7 days | Yes — HIGH confidence |
+| Node READY + no duty-cycle metric + created ≥ 7 days ago | Yes — LOW confidence (age fallback) |
+| Node in CREATING, DELETING, or STOPPED state | No — transient or stopped state |
+| Node younger than 7 days | No — too new to classify |
+| Node with duty cycle > 2% | No — actively used |
+
+**Vertex AI Feature Store (`gcp.vertex.featurestore.idle`):**
+
+| Condition | Flagged |
+|---|---|
+| Legacy featurestore with `fixedNodeCount > 0` or `scaling.minNodeCount > 0` + zero online serving requests for 30 days | Yes — HIGH confidence |
+| Legacy featurestore with `fixedNodeCount > 0` or `scaling.minNodeCount > 0` + no request metric + created ≥ 30 days ago | Yes — LOW confidence (age fallback) |
+| Feature Online Store (Bigtable or Optimized) + zero serving requests for 30 days | Yes — HIGH confidence |
+| Feature Online Store + no request metric + created ≥ 30 days ago | Yes — LOW confidence (age fallback) |
+| Legacy featurestore with both `fixedNodeCount == 0` and `scaling.minNodeCount == 0` | No — no online serving cost |
+| Any store younger than 30 days | No — too new to classify |
 
 ### Confidence and Risk
 
@@ -628,6 +650,19 @@ Projects with an API disabled return 0 findings for that rule (skipped automatic
 - **HIGH risk:** GPU-backed instance
 - **MEDIUM risk:** CPU-only instance
 
+**Cloud TPU:**
+- **HIGH confidence:** Duty-cycle metric available and ≤ 2% over the full 7-day window
+- **LOW confidence:** Duty-cycle metric unavailable — age fallback only (node exists ≥ 7 days with no observed activity; existence duration is not a reliable idle proxy)
+- **CRITICAL risk:** HIGH confidence + estimated hourly cost ≥ $10/hr (e.g. V4 or V5P with many chips)
+- **HIGH risk:** HIGH confidence + hourly cost < $10/hr
+- **MEDIUM risk:** LOW confidence (age-only fallback)
+
+**Feature Store:**
+- **HIGH confidence:** Request-count metric shows zero online serving requests over the full 30-day window
+- **LOW confidence:** Request-count metric unavailable — age fallback only (store created ≥ 30 days ago; heuristic: existence duration, request activity unknown)
+- **HIGH risk:** HIGH confidence finding
+- **MEDIUM risk:** LOW confidence finding (age fallback)
+
 ### Validate Before Running
 
 ```bash
@@ -637,6 +672,8 @@ cleancloud doctor --provider gcp --project <PROJECT_ID> --category ai
 Output confirms:
 - `aiplatform.endpoints.list` — required for endpoint scanning
 - `notebooks.instances.list` — required for workbench scanning
+- `tpu.nodes.list` — required for Cloud TPU scanning
+- `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` — required for Feature Store scanning
 - `monitoring.timeSeries.list` — required for idle detection metrics
 - Which projects have the required APIs enabled
 

@@ -16,9 +16,11 @@ from google.api_core.exceptions import (
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.gcp.rules.disk_unattached import find_unattached_disks
+from cleancloud.providers.gcp.rules.featurestore_idle import find_idle_featurestores
 from cleancloud.providers.gcp.rules.ip_unused import find_unused_static_ips
 from cleancloud.providers.gcp.rules.snapshot_old import find_old_snapshots
 from cleancloud.providers.gcp.rules.sql_instance_idle import find_idle_sql_instances
+from cleancloud.providers.gcp.rules.tpu_idle import find_idle_tpu_nodes
 from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
     find_idle_vertex_endpoints,
 )
@@ -76,6 +78,8 @@ GCP_RULE_MAP_AI: Dict[str, Callable] = {
     "gcp.vertex.endpoint.idle": find_idle_vertex_endpoints,
     "gcp.vertex.workbench.idle": find_idle_workbench_instances,
     "gcp.vertex.training_job.long_running": find_long_running_vertex_training_jobs,
+    "gcp.tpu.idle": find_idle_tpu_nodes,
+    "gcp.vertex.featurestore.idle": find_idle_featurestores,
 }
 
 GCP_RULES: List[Callable] = list(GCP_RULE_MAP.values())
@@ -325,7 +329,9 @@ def _scan_gcp_project(
                 )
             except Exception as e:
                 rules_failed += 1
-                click.echo(f"  Rule failed: {rule_id} ({project_name}) — {type(e).__name__}")
+                click.echo(
+                    f"  Rule failed: {rule_id} ({project_name}) — " f"{type(e).__name__}: {e}"
+                )
 
     if rules_succeeded == 0 and not skipped_rules and rules_failed > 0:
         raise RuntimeError(
