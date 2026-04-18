@@ -5,8 +5,8 @@ import pytest
 
 from cleancloud.core.finding import Finding
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
-from cleancloud.providers.aws.rules.cloudwatch_inactive import (
-    find_inactive_cloudwatch_logs,
+from cleancloud.providers.aws.rules.cloudwatch_logs_no_retention import (
+    find_cloudwatch_logs_no_retention,
 )
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
@@ -32,7 +32,7 @@ def test_aws_rules_run_without_error():
     rules = [
         find_unattached_ebs_volumes,
         find_old_ebs_snapshots,
-        find_inactive_cloudwatch_logs,
+        find_cloudwatch_logs_no_retention,
         find_unattached_elastic_ips,
         find_detached_enis,
         find_untagged_resources,

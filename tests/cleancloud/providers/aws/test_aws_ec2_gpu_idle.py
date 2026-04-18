@@ -106,7 +106,7 @@ def _make_session(instances, gpu_util=None, cpu_util=None, has_gpu_metric=False)
         }
     elif cpu_util is not None:
         cw.get_metric_statistics.return_value = {
-            "Datapoints": [{"Average": cpu_util, "Timestamp": NOW}]
+            "Datapoints": [{"Maximum": cpu_util, "Timestamp": NOW}]
         }
     else:
         cw.get_metric_statistics.return_value = {"Datapoints": []}
@@ -315,7 +315,7 @@ class TestFindIdleGpuInstances:
     def test_cpu_fallback_signal_in_signals_used(self):
         findings = _run([_make_instance()], cpu_util=5.0, has_gpu_metric=False)
         signals = findings[0].evidence.signals_used
-        assert any("NVIDIA CloudWatch agent not detected" in s for s in signals)
+        assert any("CWAgent nvidia_smi_utilization_gpu metric not found" in s for s in signals)
 
     def test_neuron_instance_uses_neuron_signal_text(self):
         findings = _run(
@@ -413,7 +413,7 @@ class TestFindIdleGpuInstances:
         ec2.get_paginator.return_value = paginator
         cw = MagicMock()
         cw.list_metrics.return_value = {"Metrics": []}
-        cw.get_metric_statistics.return_value = {"Datapoints": [{"Average": 3.0, "Timestamp": NOW}]}
+        cw.get_metric_statistics.return_value = {"Datapoints": [{"Maximum": 3.0, "Timestamp": NOW}]}
 
         def _client(service, **kwargs):
             return ec2 if service == "ec2" else cw

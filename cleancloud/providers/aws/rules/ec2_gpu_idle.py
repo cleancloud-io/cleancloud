@@ -24,6 +24,8 @@ _GPU_FAMILIES = (
     "p4d.",
     "p4de.",
     "p5.",
+    "p5en.",  # H100 + higher network bandwidth than p5
+    "p6.",  # NVIDIA B200 (Blackwell)
     "g4dn.",
     "g4ad.",
     "g5.",
@@ -208,6 +210,9 @@ def find_idle_gpu_instances(
 
                     instance_id = inst["InstanceId"]
                     tags = {t["Key"]: t["Value"] for t in inst.get("Tags", [])}
+                    # "spot" | "scheduled" | None (on-demand)
+                    instance_lifecycle = inst.get("InstanceLifecycle")
+                    purchasing_model = instance_lifecycle if instance_lifecycle else "on-demand"
                     launch_time = inst.get("LaunchTime")
 
                     age_days: Optional[int] = None
@@ -237,10 +242,20 @@ def find_idle_gpu_instances(
                         avg_cpu = _get_avg_cpu_utilisation(cloudwatch, instance_id, idle_days, now)
                         if avg_cpu is None or avg_cpu >= cpu_threshold:
                             continue
+                        # CPU fallback is a weak heuristic for GPU workloads:
+                        # accelerator utilisation is invisible to CPU metrics, so a GPU
+                        # instance running a compute-bound model can show near-zero CPU
+                        # while doing real work. Confidence is capped at MEDIUM to reflect
+                        # this limitation. Absence of the CWAgent GPU metric is NOT proof
+                        # that the GPU is idle — the agent may simply not be installed.
                         confidence = ConfidenceLevel.MEDIUM
                         idle_signal = "cpu_utilisation_fallback"
                         util_value = avg_cpu
-                        util_label = f"Avg CPU utilisation: {avg_cpu:.1f}% (threshold: {cpu_threshold}%, GPU metric unavailable)"
+                        util_label = (
+                            f"Peak daily CPU utilisation: {avg_cpu:.1f}% "
+                            f"(threshold: {cpu_threshold}%) — "
+                            f"heuristic only; GPU/accelerator utilisation not directly measured"
+                        )
 
                     monthly_cost = _MONTHLY_COST.get(instance_type, _DEFAULT_MONTHLY_COST)
                     idle_ratio = round(age_days / idle_days, 2) if (age_days and idle_days) else 0.0
@@ -255,6 +270,7 @@ def find_idle_gpu_instances(
                     signals = [
                         "Instance state: running",
                         f"Instance type: {instance_type} (GPU/accelerator family)",
+                        f"Purchasing model: {purchasing_model}",
                         util_label,
                     ]
                     if age_days is not None:
@@ -262,22 +278,27 @@ def find_idle_gpu_instances(
                     if not gpu_metrics:
                         if _is_neuron_instance(instance_type):
                             signals.append(
-                                "Neuron instance (Trainium/Inferentia) — no NVIDIA GPU metric "
-                                "available by design; CPU utilisation used as fallback signal; "
-                                "confidence capped at MEDIUM"
+                                "Neuron instance (Trainium/Inferentia) — NVIDIA GPU metric not "
+                                "applicable; CPU used as heuristic fallback; confidence MEDIUM. "
+                                "Neuron utilisation requires AWS Neuron SDK metrics."
                             )
                         else:
                             signals.append(
-                                "NVIDIA CloudWatch agent not detected — GPU metric unavailable; "
-                                "CPU utilisation used as fallback signal; confidence capped at MEDIUM"
+                                "CWAgent nvidia_smi_utilization_gpu metric not found — "
+                                "this may mean the CloudWatch agent is not installed, not that "
+                                "the GPU is idle. CPU used as heuristic fallback; confidence MEDIUM."
                             )
 
                     not_checked = [
-                        "GPU processes not visible without nvidia-smi or DCGM agent",
+                        "GPU/accelerator utilisation (not directly measurable without CWAgent)",
                         "Scheduled batch jobs that run outside the observation window",
                         "Planned future use",
-                        "Spot instance hibernation state",
                     ]
+                    if purchasing_model == "spot":
+                        not_checked.append(
+                            "Spot interruption history — Spot instances may appear idle "
+                            "between interruption and relaunch"
+                        )
 
                     evidence = Evidence(
                         signals_used=signals,
@@ -304,7 +325,7 @@ def find_idle_gpu_instances(
                                 f"{'GPU' if gpu_metrics else 'CPU'} utilisation below "
                                 f"{gpu_threshold if gpu_metrics else cpu_threshold}% "
                                 f"for {idle_days} days while running, incurring "
-                                f"continuous charges (~${monthly_cost:,.0f}/month)."
+                                f"continuous charges (~${monthly_cost:,.0f}/month us-east-1 estimate)."
                             ),
                             reason=(
                                 f"GPU EC2 instance has low "
@@ -324,11 +345,16 @@ def find_idle_gpu_instances(
                                 "idle_ratio": idle_ratio,
                                 "idle_signal": idle_signal,
                                 "utilisation_pct": round(util_value, 2),
+                                "purchasing_model": purchasing_model,
                                 "gpu_metric_available": bool(gpu_metrics),
+                                "gpu_metric_note": (
+                                    "agent-dependent (CWAgent nvidia_smi_utilization_gpu); "
+                                    "absence does not confirm GPU is idle"
+                                ),
                                 "gpu_threshold_pct": gpu_threshold,
                                 "cpu_threshold_pct": cpu_threshold,
                                 "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
-                                "cost_basis": "us-east-1 on-demand",
+                                "cost_basis": "us-east-1 on-demand (region-dependent estimate)",
                                 "tags": tags,
                             },
                         )
@@ -418,7 +444,12 @@ def _get_avg_cpu_utilisation(
     cloudwatch, instance_id: str, days: int, now: datetime
 ) -> Optional[float]:
     """
-    Return the average CPU utilisation over the window using AWS/EC2 CPUUtilization.
+    Return the peak CPU utilisation over the window using AWS/EC2 CPUUtilization.
+
+    Uses Maximum statistic per day and returns the highest daily peak. This avoids
+    flagging burst workloads where a short but significant CPU spike would be averaged
+    away — if the max CPU across any day is below threshold, the instance is truly idle.
+
     Returns None on error — caller treats None as "not idle" (safe default).
     """
     start = now - timedelta(days=days)
@@ -430,11 +461,11 @@ def _get_avg_cpu_utilisation(
             StartTime=start,
             EndTime=now,
             Period=86400,  # 1-day granularity
-            Statistics=["Average"],
+            Statistics=["Maximum"],
         )
         datapoints = resp.get("Datapoints", [])
         if not datapoints:
             return None
-        return sum(dp["Average"] for dp in datapoints) / len(datapoints)
+        return max(dp["Maximum"] for dp in datapoints)
     except ClientError:
         return None

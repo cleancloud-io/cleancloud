@@ -11,8 +11,8 @@ from cleancloud.providers.aws.rules.ami_old import find_old_amis
 from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
     find_idle_bedrock_provisioned_throughputs,
 )
-from cleancloud.providers.aws.rules.cloudwatch_inactive import (
-    find_inactive_cloudwatch_logs,
+from cleancloud.providers.aws.rules.cloudwatch_logs_no_retention import (
+    find_cloudwatch_logs_no_retention,
 )
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
@@ -48,7 +48,7 @@ from cleancloud.providers.aws.validate import validate_region_params
 AWS_RULE_MAP: Dict[str, Callable] = {
     "aws.ebs.unattached": find_unattached_ebs_volumes,
     "aws.ebs.snapshot.old": find_old_ebs_snapshots,
-    "aws.cloudwatch.logs.infinite_retention": find_inactive_cloudwatch_logs,
+    "aws.cloudwatch.logs.infinite_retention": find_cloudwatch_logs_no_retention,
     "aws.ec2.elastic_ip.unattached": find_unattached_elastic_ips,
     "aws.ec2.eni.detached": find_detached_enis,
     "aws.resource.untagged": find_aws_untagged_resources,

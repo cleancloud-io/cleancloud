@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
+from botocore.exceptions import ClientError
+
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 
 
@@ -107,12 +109,13 @@ def test_find_idle_nat_gateways(mock_boto3_session):
     finding = findings[0]
     assert finding.provider == "aws"
     assert finding.rule_id == "aws.ec2.nat_gateway.idle"
-    assert finding.confidence.value == "medium"
-    assert finding.risk.value == "medium"
+    # Zero traffic + no route table references → HIGH confidence and risk
+    assert finding.confidence.value == "high"
+    assert finding.risk.value == "high"
     assert finding.details["name"] == "idle-nat-gateway"
     assert finding.details["vpc_id"] == "vpc-123"
-    assert "~$32/month" in finding.details["estimated_monthly_cost"]
-    assert finding.estimated_monthly_cost_usd == 32.40
+    assert "~$32.85/month" in finding.details["estimated_monthly_cost"]
+    assert finding.estimated_monthly_cost_usd == 32.85
 
 
 def test_find_idle_nat_gateways_empty_account(mock_boto3_session):
@@ -250,3 +253,89 @@ def test_find_idle_nat_gateways_title_includes_threshold(mock_boto3_session):
     findings = find_idle_nat_gateways(mock_boto3_session, region, idle_days=7)
     assert len(findings) == 1
     assert "7+ Days" in findings[0].title
+
+
+def _make_nat_gw(nat_id, age_days=30):
+    now = datetime.now(timezone.utc)
+    return {
+        "NatGatewayId": nat_id,
+        "State": "available",
+        "CreateTime": now - timedelta(days=age_days),
+        "VpcId": "vpc-test",
+        "SubnetId": "subnet-test",
+        "NatGatewayAddresses": [],
+        "Tags": [],
+    }
+
+
+def test_metric_fetch_failure_produces_low_confidence_finding(mock_boto3_session):
+    """When CloudWatch metrics fail with a transient error, a LOW-confidence finding
+    is created with an 'unverified' title instead of being silently suppressed."""
+    region = "us-east-1"
+    ec2 = mock_boto3_session._ec2
+
+    paginator = ec2.get_paginator.return_value
+    paginator.paginate.return_value = [{"NatGateways": [_make_nat_gw("nat-fetch-fail")]}]
+
+    cloudwatch_mock = MagicMock()
+    mock_boto3_session.client.side_effect = lambda service, **kwargs: (
+        ec2 if service == "ec2" else cloudwatch_mock
+    )
+
+    error_response = {"Error": {"Code": "Throttling", "Message": "Rate exceeded"}}
+    cloudwatch_mock.get_metric_statistics.side_effect = ClientError(
+        error_response, "GetMetricStatistics"
+    )
+
+    findings = find_idle_nat_gateways(mock_boto3_session, region)
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.confidence.value == "low"
+    assert "Requires Traffic Verification" in f.title
+    assert "unverified" in f.reason.lower() or "could not be fetched" in f.reason.lower()
+    signals_not_checked = [s.lower() for s in f.evidence.signals_not_checked]
+    assert any("fetch failed" in s for s in signals_not_checked)
+
+
+def test_not_in_route_tables_signal(mock_boto3_session):
+    """When no route table references the NAT GW, the finding includes a signal noting it."""
+    region = "us-east-1"
+    ec2 = mock_boto3_session._ec2
+
+    paginator = ec2.get_paginator.return_value
+    paginator.paginate.return_value = [{"NatGateways": [_make_nat_gw("nat-no-routes")]}]
+
+    cloudwatch_mock = MagicMock()
+    mock_boto3_session.client.side_effect = lambda service, **kwargs: (
+        ec2 if service == "ec2" else cloudwatch_mock
+    )
+    cloudwatch_mock.get_metric_statistics.return_value = {"Datapoints": []}
+    ec2.describe_route_tables.return_value = {"RouteTables": []}
+
+    findings = find_idle_nat_gateways(mock_boto3_session, region)
+    assert len(findings) == 1
+    signals = findings[0].evidence.signals_used
+    assert any("not referenced by any vpc route table" in s.lower() for s in signals)
+    assert findings[0].details["in_route_tables"] is False
+
+
+def test_in_route_tables_signal(mock_boto3_session):
+    """When a route table references the NAT GW, the finding notes it (still idle by traffic)."""
+    region = "us-east-1"
+    ec2 = mock_boto3_session._ec2
+
+    paginator = ec2.get_paginator.return_value
+    paginator.paginate.return_value = [{"NatGateways": [_make_nat_gw("nat-has-routes")]}]
+
+    cloudwatch_mock = MagicMock()
+    mock_boto3_session.client.side_effect = lambda service, **kwargs: (
+        ec2 if service == "ec2" else cloudwatch_mock
+    )
+    cloudwatch_mock.get_metric_statistics.return_value = {"Datapoints": []}
+    ec2.describe_route_tables.return_value = {"RouteTables": [{"RouteTableId": "rtb-abc"}]}
+
+    findings = find_idle_nat_gateways(mock_boto3_session, region)
+    assert len(findings) == 1
+    signals = findings[0].evidence.signals_used
+    assert any("referenced by at least one vpc route table" in s.lower() for s in signals)
+    assert findings[0].details["in_route_tables"] is True
