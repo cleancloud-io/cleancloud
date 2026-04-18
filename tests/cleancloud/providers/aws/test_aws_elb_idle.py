@@ -111,7 +111,11 @@ def test_active_alb_skipped():
 
 
 def test_idle_nlb_detected_unhealthy_targets():
-    """Idle NLB with zero flows and only unhealthy targets should be HIGH confidence."""
+    """Idle NLB with zero flows and only unhealthy targets should be MEDIUM confidence.
+
+    Unhealthy targets are still *registered* targets — treating them as absent would
+    produce a false HIGH-confidence finding. has_targets=True → MEDIUM confidence.
+    """
     elbv2 = MagicMock()
     elb = MagicMock()
     cloudwatch = MagicMock()
@@ -136,9 +140,9 @@ def test_idle_nlb_detected_unhealthy_targets():
 
     nlb_findings = [f for f in findings if f.rule_id == "aws.elbv2.nlb.idle"]
     assert len(nlb_findings) == 1
-    # Only unhealthy targets + no traffic -> HIGH confidence
-    assert nlb_findings[0].confidence.value == "high"
-    assert nlb_findings[0].details["has_targets"] is False
+    # Unhealthy but registered targets → has_targets=True → MEDIUM confidence
+    assert nlb_findings[0].confidence.value == "medium"
+    assert nlb_findings[0].details["has_targets"] is True
 
 
 def test_idle_nlb_healthy_targets_medium_confidence():

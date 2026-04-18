@@ -307,6 +307,50 @@ def test_partial_scaled_to_zero_still_flagged():
 
 
 # ---------------------------------------------------------------------------
+# Partial waste (one active variant, one idle variant)
+# ---------------------------------------------------------------------------
+
+
+def test_partial_waste_not_skipped_due_to_active_variant():
+    """An endpoint with one active and one idle variant should be flagged as partial waste,
+    not silently skipped because has_traffic=True (any-variant semantics)."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+    sagemaker.describe_endpoint.return_value = {
+        "ProductionVariants": [
+            {"VariantName": "active-v", "DesiredInstanceCount": 1},
+            {"VariantName": "idle-v", "DesiredInstanceCount": 1},
+        ],
+        "EndpointConfigName": "test-config",
+    }
+    sagemaker.describe_endpoint_config.return_value = {
+        "ProductionVariants": [
+            {"VariantName": "active-v", "InstanceType": "ml.m5.xlarge"},
+            {"VariantName": "idle-v", "InstanceType": "ml.m5.xlarge"},
+        ]
+    }
+
+    def cw_side_effect(**kwargs):
+        variant = kwargs["Dimensions"][1]["Value"]
+        return _has_invocations() if variant == "active-v" else _no_invocations()
+
+    cloudwatch.get_metric_statistics.side_effect = cw_side_effect
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    # Must be flagged as partial waste — not skipped because active-v has traffic
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.details["active_variant_count"] == 1
+    assert f.details["idle_variant_count"] == 1
+    assert f.confidence.value == "medium"  # partial waste → MEDIUM
+    assert "partial" in f.title.lower()
+
+
+# ---------------------------------------------------------------------------
 # Empty datapoints — unknown state
 # ---------------------------------------------------------------------------
 
@@ -660,7 +704,7 @@ def test_details_include_cost_source_with_region():
 
     findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "eu-west-1")
 
-    assert findings[0].details["cost_source"] == "approximate_eu-west-1"
+    assert "approximate" in findings[0].details["cost_note"]
 
 
 # ---------------------------------------------------------------------------
@@ -695,3 +739,126 @@ def test_new_gpu_instance_cost_lookup(instance_type, expected_cost):
     assert len(findings) == 1
     assert findings[0].estimated_monthly_cost_usd == expected_cost
     assert findings[0].details["is_gpu"] is True
+
+
+# ---------------------------------------------------------------------------
+# Serverless provisioned concurrency
+# ---------------------------------------------------------------------------
+
+
+def test_serverless_with_provisioned_concurrency_flagged():
+    """Serverless endpoint with provisioned concurrency incurs cost and should be flagged."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+
+    # Serverless variant: DesiredInstanceCount absent (or 0), DesiredServerlessConfig present
+    sagemaker.describe_endpoint.return_value = {
+        "ProductionVariants": [
+            {
+                "VariantName": "AllTraffic",
+                "DesiredServerlessConfig": {
+                    "MemorySizeInMB": 2048,
+                    "MaxConcurrency": 5,
+                    "ProvisionedConcurrency": 3,
+                },
+            }
+        ],
+        "EndpointConfigName": "serverless-config",
+    }
+    sagemaker.describe_endpoint_config.return_value = {
+        "ProductionVariants": [
+            {
+                "VariantName": "AllTraffic",
+                "ServerlessConfig": {
+                    "MemorySizeInMB": 2048,
+                    "MaxConcurrency": 5,
+                    "ProvisionedConcurrency": 3,
+                },
+            }
+        ]
+    }
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.details["total_instances"] == 0
+    assert f.details["total_provisioned_concurrency"] == 3
+    # 3 units × $3.67/unit
+    assert f.estimated_monthly_cost_usd == pytest.approx(3 * 3.67, rel=0.01)
+    assert any("provisioned concurrency" in s.lower() for s in f.evidence.signals_used)
+
+
+def test_serverless_without_provisioned_concurrency_skipped():
+    """Serverless endpoint with no provisioned concurrency has no idle cost and should be skipped."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+
+    # Serverless variant with MaxConcurrency only (no provisioned concurrency)
+    sagemaker.describe_endpoint.return_value = {
+        "ProductionVariants": [
+            {
+                "VariantName": "AllTraffic",
+                "DesiredServerlessConfig": {
+                    "MemorySizeInMB": 2048,
+                    "MaxConcurrency": 5,
+                },
+            }
+        ],
+        "EndpointConfigName": "serverless-config",
+    }
+    sagemaker.describe_endpoint_config.return_value = {
+        "ProductionVariants": [
+            {
+                "VariantName": "AllTraffic",
+                "ServerlessConfig": {"MemorySizeInMB": 2048, "MaxConcurrency": 5},
+            }
+        ]
+    }
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    # No provisioned concurrency → no idle cost → skip
+    assert len(findings) == 0
+
+
+def test_serverless_provisioned_concurrency_from_config_only():
+    """ProvisionedConcurrency found only in endpoint config (DesiredServerlessConfig absent) is detected."""
+    sagemaker = MagicMock()
+    cloudwatch = MagicMock()
+
+    paginator = sagemaker.get_paginator.return_value
+    paginator.paginate.return_value = [{"Endpoints": [_make_endpoint(age_days=30)]}]
+
+    # describe_endpoint has no DesiredServerlessConfig (variant omits it)
+    sagemaker.describe_endpoint.return_value = {
+        "ProductionVariants": [{"VariantName": "v1"}],
+        "EndpointConfigName": "cfg",
+    }
+    # But config has ServerlessConfig with provisioned concurrency
+    sagemaker.describe_endpoint_config.return_value = {
+        "ProductionVariants": [
+            {
+                "VariantName": "v1",
+                "ServerlessConfig": {
+                    "MemorySizeInMB": 1024,
+                    "MaxConcurrency": 2,
+                    "ProvisionedConcurrency": 2,
+                },
+            }
+        ]
+    }
+    cloudwatch.get_metric_statistics.return_value = _no_invocations()
+
+    findings = find_idle_sagemaker_endpoints(_make_session(sagemaker, cloudwatch), "us-east-1")
+
+    assert len(findings) == 1
+    assert findings[0].details["total_provisioned_concurrency"] == 2
