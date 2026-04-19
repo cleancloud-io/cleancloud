@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from cleancloud.providers.aws.rules.sagemaker_training_job_long_running import (
+from cleancloud.providers.aws.rules.ai.sagemaker_training_job_long_running import (
     find_long_running_sagemaker_training_jobs,
 )
 

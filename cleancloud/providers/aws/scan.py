@@ -8,7 +8,7 @@ from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
 from cleancloud.providers.aws.region_cache import get_cached_regions, set_cached_regions
 from cleancloud.providers.aws.rules.ami_old import find_old_amis
-from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
     find_idle_bedrock_provisioned_throughputs,
 )
 from cleancloud.providers.aws.rules.cloudwatch_logs_no_retention import (
@@ -16,7 +16,7 @@ from cleancloud.providers.aws.rules.cloudwatch_logs_no_retention import (
 )
 from cleancloud.providers.aws.rules.ebs_snapshot_old import find_old_ebs_snapshots
 from cleancloud.providers.aws.rules.ebs_unattached import find_unattached_ebs_volumes
-from cleancloud.providers.aws.rules.ec2_gpu_idle import find_idle_gpu_instances
+from cleancloud.providers.aws.rules.ai.ec2_gpu_idle import find_idle_gpu_instances
 from cleancloud.providers.aws.rules.ec2_sg_unused import find_unused_security_groups
 from cleancloud.providers.aws.rules.ec2_stopped import find_stopped_ec2_instances
 from cleancloud.providers.aws.rules.elastic_ip_unattached import (
@@ -27,16 +27,16 @@ from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
-from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
-from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
-from cleancloud.providers.aws.rules.sagemaker_studio_app_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_studio_app_idle import (
     find_idle_sagemaker_studio_apps,
 )
-from cleancloud.providers.aws.rules.sagemaker_training_job_long_running import (
+from cleancloud.providers.aws.rules.ai.sagemaker_training_job_long_running import (
     find_long_running_sagemaker_training_jobs,
 )
 from cleancloud.providers.aws.rules.untagged_resources import (

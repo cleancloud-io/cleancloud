@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
     _extract_model_id,
     _extract_model_id_for_cw,
     _parse_model_family,

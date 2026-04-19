@@ -25,7 +25,7 @@ from botocore.exceptions import ClientError
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.aws.rules.ec2_gpu_idle import (
+from cleancloud.providers.aws.rules.ai.ec2_gpu_idle import (
     _DEFAULT_MONTHLY_COST,
     _MONTHLY_COST,
     RULE_METADATA,
@@ -126,7 +126,7 @@ def _run(instances, gpu_util=None, cpu_util=None, has_gpu_metric=False, **kwargs
     session = _make_session(
         instances, gpu_util=gpu_util, cpu_util=cpu_util, has_gpu_metric=has_gpu_metric
     )
-    with patch("cleancloud.providers.aws.rules.ec2_gpu_idle.datetime") as mock_dt:
+    with patch("cleancloud.providers.aws.rules.ai.ec2_gpu_idle.datetime") as mock_dt:
         mock_dt.now.return_value = NOW
         mock_dt.fromisoformat = datetime.fromisoformat
         return find_idle_gpu_instances(session, _REGION, **kwargs)
@@ -366,7 +366,7 @@ class TestFindIdleGpuInstances:
             {"Error": {"Code": "ThrottlingException", "Message": "throttled"}},
             "GetMetricStatistics",
         )
-        with patch("cleancloud.providers.aws.rules.ec2_gpu_idle.datetime") as mock_dt:
+        with patch("cleancloud.providers.aws.rules.ai.ec2_gpu_idle.datetime") as mock_dt:
             mock_dt.now.return_value = NOW
             mock_dt.fromisoformat = datetime.fromisoformat
             findings = find_idle_gpu_instances(session, _REGION)
@@ -419,7 +419,7 @@ class TestFindIdleGpuInstances:
             return ec2 if service == "ec2" else cw
 
         session.client.side_effect = _client
-        with patch("cleancloud.providers.aws.rules.ec2_gpu_idle.datetime") as mock_dt:
+        with patch("cleancloud.providers.aws.rules.ai.ec2_gpu_idle.datetime") as mock_dt:
             mock_dt.now.return_value = NOW
             mock_dt.fromisoformat = datetime.fromisoformat
             findings = find_idle_gpu_instances(session, _REGION)

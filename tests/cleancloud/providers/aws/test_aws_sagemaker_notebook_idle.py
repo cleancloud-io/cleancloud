@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
 
-from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_notebook_idle import (
     RULE_METADATA,
     find_idle_sagemaker_notebooks,
 )
