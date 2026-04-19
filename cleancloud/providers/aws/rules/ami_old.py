@@ -81,9 +81,7 @@ def find_old_amis(
     except ClientError as exc:
         code = exc.response["Error"]["Code"]
         if code in ("UnauthorizedOperation", "AccessDenied"):
-            raise PermissionError(
-                "Missing required IAM permission: ec2:DescribeImages"
-            ) from exc
+            raise PermissionError("Missing required IAM permission: ec2:DescribeImages") from exc
         raise
 
     return findings
@@ -144,9 +142,9 @@ def _evaluate_ami(
     if dep_str:
         try:
             dt = datetime.fromisoformat(dep_str.replace("Z", "+00:00"))
-            deprecation_date = dt          # always store — future dates are useful context
+            deprecation_date = dt  # always store — future dates are useful context
             if dt <= now:
-                is_deprecated = True       # Path A only when already past
+                is_deprecated = True  # Path A only when already past
             # Future DeprecationTime → treat as Path B (not yet deprecated)
         except (ValueError, TypeError):
             pass  # invalid value → treat as non-deprecated
@@ -192,9 +190,7 @@ def _evaluate_ami(
             return None
 
         # ── 5. SCORING_SIGNALS ────────────────────────────────────────────────
-        stale_last_launch = (
-            days_since_launched is not None and days_since_launched >= max_age_days
-        )
+        stale_last_launch = days_since_launched is not None and days_since_launched >= max_age_days
         score = 0
         if age_days >= max_age_days:
             score += 1
@@ -219,7 +215,8 @@ def _evaluate_ami(
         # ── 7. Confidence ─────────────────────────────────────────────────────
         base = ConfidenceLevel.MEDIUM if score == 2 else ConfidenceLevel.LOW
         confidence = (
-            ConfidenceLevel.LOW if (contextual_downgrade and base == ConfidenceLevel.MEDIUM)
+            ConfidenceLevel.LOW
+            if (contextual_downgrade and base == ConfidenceLevel.MEDIUM)
             else base
         )
 
@@ -249,9 +246,7 @@ def _evaluate_ami(
             if isinstance(size, (int, float)):
                 declared_gb += int(size)
 
-    cost_usd: Optional[float] = (
-        round(declared_gb * 0.05, 2) if declared_gb > 0 else None
-    )
+    cost_usd: Optional[float] = round(declared_gb * 0.05, 2) if declared_gb > 0 else None
 
     evidence = _build_evidence(
         evaluation_path=evaluation_path,
@@ -280,7 +275,8 @@ def _evaluate_ami(
         + (" and explicitly deprecated" if is_deprecated else "")
         + (
             f", last launched {days_since_launched} days ago"
-            if days_since_launched is not None else ""
+            if days_since_launched is not None
+            else ""
         )
         + "."
     )
@@ -292,14 +288,10 @@ def _evaluate_ami(
         )
     elif is_deprecated:
         reason = (
-            f"AMI deprecated ({deprecation_date.strftime('%Y-%m-%d')}), "
-            f"{age_days} days old"
+            f"AMI deprecated ({deprecation_date.strftime('%Y-%m-%d')}), " f"{age_days} days old"
         )
     elif stale_last_launch:
-        reason = (
-            f"AMI not launched in {days_since_launched} days "
-            f"(age: {age_days} days)"
-        )
+        reason = f"AMI not launched in {days_since_launched} days " f"(age: {age_days} days)"
     else:
         reason = f"AMI is {age_days} days old (threshold: {max_age_days} days)"
 
@@ -326,12 +318,8 @@ def _evaluate_ami(
             "architecture": ami.get("Architecture", "x86_64"),
             "root_device_type": ami.get("RootDeviceType", "ebs"),
             "is_deprecated": is_deprecated,
-            "deprecation_time": (
-                deprecation_date.isoformat() if deprecation_date else None
-            ),
-            "last_launched_time": (
-                last_launched.isoformat() if last_launched else None
-            ),
+            "deprecation_time": (deprecation_date.isoformat() if deprecation_date else None),
+            "last_launched_time": (last_launched.isoformat() if last_launched else None),
             "days_since_last_launch": days_since_launched,
             "active_instances_found": None if instance_check_failed else active_found,
             "instance_check_failed": instance_check_failed,
@@ -342,7 +330,8 @@ def _evaluate_ami(
             "estimated_monthly_cost": (
                 f"≤~${cost_usd}/month (upper bound — AMI metadata ≠ actual snapshot "
                 f"billing; ~$0.05/GB-month, varies by region)"
-                if cost_usd else None
+                if cost_usd
+                else None
             ),
             "tags": {t["Key"]: t["Value"] for t in ami.get("Tags", [])},
         },
@@ -387,15 +376,11 @@ def _build_evidence(  # noqa: PLR0913
     signals.append(f"evaluation_path: {evaluation_path}")
 
     # age + state
-    signals.append(
-        f"age: {age_days}d (threshold: {max_age_days}d) | state: {ami_state}"
-    )
+    signals.append(f"age: {age_days}d (threshold: {max_age_days}d) | state: {ami_state}")
 
     # deprecation status
     if is_deprecated:
-        signals.append(
-            f"deprecated: true ({deprecation_date.strftime('%Y-%m-%d')} — past)"
-        )
+        signals.append(f"deprecated: true ({deprecation_date.strftime('%Y-%m-%d')} — past)")
     elif deprecation_date is not None:
         signals.append(
             f"deprecated: false (DeprecationTime {deprecation_date.strftime('%Y-%m-%d')} — future)"
@@ -411,9 +396,7 @@ def _build_evidence(  # noqa: PLR0913
         )
         signals.append("last_launched: null (fetch failed — see signals_not_checked)")
     elif last_launched is not None:
-        stale = (
-            days_since_launched is not None and days_since_launched >= max_age_days
-        )
+        stale = days_since_launched is not None and days_since_launched >= max_age_days
         label = "stale" if stale else "recent"
         signals.append(
             f"last_launched: {last_launched.strftime('%Y-%m-%d')} "
@@ -442,9 +425,7 @@ def _build_evidence(  # noqa: PLR0913
             "deregistering does not terminate running instances"
         )
     else:
-        signals.append(
-            "active_instances: none found (existence check, MaxResults=5)"
-        )
+        signals.append("active_instances: none found (existence check, MaxResults=5)")
 
     # LT refs (null allowed, never omitted)
     if lt_index_failed:
@@ -472,8 +453,7 @@ def _build_evidence(  # noqa: PLR0913
     elif lc_refs:
         names_str = ", ".join(lc_refs[:5]) + ("..." if len(lc_refs) > 5 else "")
         signals.append(
-            f"lc_refs: {len(lc_refs)} config(s) ({names_str}) — "
-            "verify before deregistering"
+            f"lc_refs: {len(lc_refs)} config(s) ({names_str}) — " "verify before deregistering"
         )
     else:
         signals.append("lc_refs: none")
@@ -497,11 +477,13 @@ def _build_evidence(  # noqa: PLR0913
         )
 
     # Permanent conceptual blind spots (always appended after permission gaps)
-    not_checked.extend([
-        "LT/LC reference does not prove active ASG usage",
-        "compliance and audit retention requirements",
-        "golden image or disaster recovery intent",
-    ])
+    not_checked.extend(
+        [
+            "LT/LC reference does not prove active ASG usage",
+            "compliance and audit retention requirements",
+            "golden image or disaster recovery intent",
+        ]
+    )
 
     return Evidence(
         signals_used=signals,
@@ -520,9 +502,7 @@ def _get_last_launched_time(ec2, ami_id: str) -> Tuple[Optional[datetime], bool]
     AWS note: tracked since April 2017 only; ~24h ingestion delay.
     """
     try:
-        resp = ec2.describe_image_attribute(
-            ImageId=ami_id, Attribute="lastLaunchedTime"
-        )
+        resp = ec2.describe_image_attribute(ImageId=ami_id, Attribute="lastLaunchedTime")
         value = resp.get("LastLaunchedTime", {}).get("Value")
         if not isinstance(value, str) or not value:
             return None, False

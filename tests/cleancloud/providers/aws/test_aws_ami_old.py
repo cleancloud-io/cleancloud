@@ -4,6 +4,7 @@ Tests for aws.ec2.ami.old — derived from rule spec v4.
 Every test references the spec section it validates.
 Helpers are minimal: only mock what the test scenario requires.
 """
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -86,9 +87,7 @@ def _no_lt_refs(ec2) -> None:
 
 def _lt_refs(ec2, ami_id: str, lt_id: str = "lt-aaa") -> None:
     """Simulate one LT whose $Default/$Latest version references ami_id."""
-    ec2.describe_launch_templates.return_value = {
-        "LaunchTemplates": [{"LaunchTemplateId": lt_id}]
-    }
+    ec2.describe_launch_templates.return_value = {"LaunchTemplates": [{"LaunchTemplateId": lt_id}]}
     ec2.describe_launch_template_versions.return_value = {
         "LaunchTemplateVersions": [
             {
@@ -100,16 +99,12 @@ def _lt_refs(ec2, ami_id: str, lt_id: str = "lt-aaa") -> None:
 
 
 def _no_lc_refs(autoscaling) -> None:
-    autoscaling.describe_launch_configurations.return_value = {
-        "LaunchConfigurations": []
-    }
+    autoscaling.describe_launch_configurations.return_value = {"LaunchConfigurations": []}
 
 
 def _lc_refs(autoscaling, ami_id: str, lc_name: str = "lc-aaa") -> None:
     autoscaling.describe_launch_configurations.return_value = {
-        "LaunchConfigurations": [
-            {"ImageId": ami_id, "LaunchConfigurationName": lc_name}
-        ]
+        "LaunchConfigurations": [{"ImageId": ami_id, "LaunchConfigurationName": lc_name}]
     }
 
 
@@ -148,9 +143,9 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "high"    # spec §8
-        assert f.risk.value == "medium"        # spec §9: deprecated without active → MEDIUM
-        assert f.title == "Deprecated AMI"     # spec §16
+        assert f.confidence.value == "high"  # spec §8
+        assert f.risk.value == "medium"  # spec §9: deprecated without active → MEDIUM
+        assert f.title == "Deprecated AMI"  # spec §16
 
     def test_deprecated_available_with_active_instances(self, mock_boto3_session):
         """Spec §18: deprecated, available, active instances → HIGH confidence, HIGH risk."""
@@ -167,9 +162,9 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "high"             # spec §8
-        assert f.risk.value == "high"                   # spec §9: deprecated + active
-        assert f.title == "Deprecated AMI Still In Use" # spec §16
+        assert f.confidence.value == "high"  # spec §8
+        assert f.risk.value == "high"  # spec §9: deprecated + active
+        assert f.title == "Deprecated AMI Still In Use"  # spec §16
 
     def test_non_deprecated_age_and_stale_launch(self, mock_boto3_session):
         """Spec §18: non-deprecated, age >= 180, stale launch >= 180, no exclusions → finding."""
@@ -187,8 +182,8 @@ class TestMustEmit:
         assert len(findings) == 1
         f = findings[0]
         assert f.confidence.value == "medium"  # spec §8: score 2, no contextual downgrade
-        assert f.risk.value == "medium"         # spec §9: score 2 guardrail
-        assert f.title == "Unused AMI"          # spec §16
+        assert f.risk.value == "medium"  # spec §9: score 2 guardrail
+        assert f.title == "Unused AMI"  # spec §16
 
     def test_non_deprecated_age_only(self, mock_boto3_session):
         """Spec §18: non-deprecated, age-only stale (score 1) → LOW confidence, LOW risk."""
@@ -196,7 +191,7 @@ class TestMustEmit:
         autoscaling = mock_boto3_session._autoscaling
 
         _setup_images(ec2, [_ami(age_days=200)])
-        _no_last_launched(ec2)   # unknown, not stale
+        _no_last_launched(ec2)  # unknown, not stale
         _no_active_instances(ec2)
         _no_lt_refs(ec2)
         _no_lc_refs(autoscaling)
@@ -205,9 +200,9 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "low"                         # spec §8: score 1
-        assert f.risk.value == "low"                               # spec §9
-        assert f.title == f"AMI Older Than 180 Days"               # spec §16
+        assert f.confidence.value == "low"  # spec §8: score 1
+        assert f.risk.value == "low"  # spec §9
+        assert f.title == "AMI Older Than 180 Days"  # spec §16
 
 
 # ---------------------------------------------------------------------------
@@ -370,7 +365,7 @@ class TestMustNotHappen:
         autoscaling = mock_boto3_session._autoscaling
 
         _setup_images(ec2, [_ami(age_days=200)])
-        _no_last_launched(ec2)   # score == 1 (age only)
+        _no_last_launched(ec2)  # score == 1 (age only)
         _instance_check_fails(ec2)  # unknown — not "no instances"
         _no_lt_refs(ec2)
         _no_lc_refs(autoscaling)
@@ -404,8 +399,7 @@ class TestMustDegrade:
 
         assert len(findings) == 1
         assert any(
-            "ec2:DescribeImageAttribute" in s
-            for s in findings[0].evidence.signals_not_checked
+            "ec2:DescribeImageAttribute" in s for s in findings[0].evidence.signals_not_checked
         )
 
     def test_describe_instances_unavailable_score_2_still_emits(self, mock_boto3_session):
@@ -424,12 +418,9 @@ class TestMustDegrade:
         assert len(findings) == 1
         f = findings[0]
         # Score 2, but instance check failed → contextual downgrade
-        assert f.confidence.value == "low"   # MEDIUM downgraded to LOW
-        assert f.risk.value == "medium"       # guardrail: score 2 → risk >= MEDIUM
-        assert any(
-            "ec2:DescribeInstances" in s
-            for s in f.evidence.signals_not_checked
-        )
+        assert f.confidence.value == "low"  # MEDIUM downgraded to LOW
+        assert f.risk.value == "medium"  # guardrail: score 2 → risk >= MEDIUM
+        assert any("ec2:DescribeInstances" in s for s in f.evidence.signals_not_checked)
 
     def test_lt_lookup_unavailable(self, mock_boto3_session):
         """Spec §13: LT lookup failure → finding still emitted, noted in evidence."""
@@ -445,10 +436,7 @@ class TestMustDegrade:
         findings = find_old_amis(mock_boto3_session, "us-east-1")
 
         assert len(findings) == 1
-        assert any(
-            "DescribeLaunchTemplates" in s
-            for s in findings[0].evidence.signals_not_checked
-        )
+        assert any("DescribeLaunchTemplates" in s for s in findings[0].evidence.signals_not_checked)
         assert findings[0].details["launch_template_refs"] == []
 
     def test_lc_lookup_unavailable(self, mock_boto3_session):
@@ -466,8 +454,7 @@ class TestMustDegrade:
 
         assert len(findings) == 1
         assert any(
-            "DescribeLaunchConfigurations" in s
-            for s in findings[0].evidence.signals_not_checked
+            "DescribeLaunchConfigurations" in s for s in findings[0].evidence.signals_not_checked
         )
         assert findings[0].details["launch_config_refs"] == []
 
@@ -565,7 +552,7 @@ class TestSignalModel:
         autoscaling = mock_boto3_session._autoscaling
 
         _setup_images(ec2, [_ami(ami_id="ami-lt", age_days=200)])
-        _last_launched_days_ago(ec2, 200)   # score = 2, base = MEDIUM
+        _last_launched_days_ago(ec2, 200)  # score = 2, base = MEDIUM
         _no_active_instances(ec2)
         _lt_refs(ec2, ami_id="ami-lt")
         _no_lc_refs(autoscaling)
@@ -580,7 +567,7 @@ class TestSignalModel:
         autoscaling = mock_boto3_session._autoscaling
 
         _setup_images(ec2, [_ami(ami_id="ami-lc", age_days=200)])
-        _last_launched_days_ago(ec2, 200)   # score = 2, base = MEDIUM
+        _last_launched_days_ago(ec2, 200)  # score = 2, base = MEDIUM
         _no_active_instances(ec2)
         _no_lt_refs(ec2)
         _lc_refs(autoscaling, ami_id="ami-lc")
@@ -595,7 +582,7 @@ class TestSignalModel:
         autoscaling = mock_boto3_session._autoscaling
 
         _setup_images(ec2, [_ami(ami_id="ami-s1", age_days=200)])
-        _no_last_launched(ec2)   # score = 1, base = LOW
+        _no_last_launched(ec2)  # score = 1, base = LOW
         _no_active_instances(ec2)
         _lt_refs(ec2, ami_id="ami-s1")
         _no_lc_refs(autoscaling)
@@ -698,7 +685,9 @@ class TestTitleContract:
         _active_instances_exist(ec2)
         _no_lt_refs(ec2)
         _no_lc_refs(autoscaling)
-        assert find_old_amis(mock_boto3_session, "us-east-1")[0].title == "Deprecated AMI Still In Use"
+        assert (
+            find_old_amis(mock_boto3_session, "us-east-1")[0].title == "Deprecated AMI Still In Use"
+        )
 
     def test_deprecated_only_title(self, mock_boto3_session):
         ec2 = mock_boto3_session._ec2
@@ -790,12 +779,13 @@ class TestEvidenceContract:
     def test_last_launched_unknown_phrasing(self, mock_boto3_session):
         """Spec §14: 'no record' must not imply 'never launched'."""
         f = self._base_finding(mock_boto3_session)
-        last_launched_signal = next(
-            s for s in f.evidence.signals_used if "last_launched" in s
-        )
+        last_launched_signal = next(s for s in f.evidence.signals_used if "last_launched" in s)
         assert "unknown" in last_launched_signal or "null" in last_launched_signal
         # Must not claim the AMI was never launched
-        assert "proof of non-use" in last_launched_signal or "absence of record" in last_launched_signal
+        assert (
+            "proof of non-use" in last_launched_signal
+            or "absence of record" in last_launched_signal
+        )
 
     def test_instance_check_failure_phrasing(self, mock_boto3_session):
         """Spec §13: instance check failure must not imply 'no instances'."""
@@ -809,9 +799,7 @@ class TestEvidenceContract:
         _no_lc_refs(autoscaling)
 
         f = find_old_amis(mock_boto3_session, "us-east-1")[0]
-        instance_signal = next(
-            s for s in f.evidence.signals_used if "active_instances" in s
-        )
+        instance_signal = next(s for s in f.evidence.signals_used if "active_instances" in s)
         assert "unknown" in instance_signal
         # Must not imply the result is "no instances"
         assert "proof of absence" in instance_signal or "absence of check" in instance_signal
@@ -1023,9 +1011,11 @@ class TestSpecMismatchFixes:
         def _versions_side_effect(**kwargs):
             lt_id = kwargs.get("LaunchTemplateId", "")
             if lt_id == "lt-500":
-                return {"LaunchTemplateVersions": [
-                    {"LaunchTemplateId": lt_id, "LaunchTemplateData": {"ImageId": ami_id}}
-                ]}
+                return {
+                    "LaunchTemplateVersions": [
+                        {"LaunchTemplateId": lt_id, "LaunchTemplateData": {"ImageId": ami_id}}
+                    ]
+                }
             return {"LaunchTemplateVersions": []}
 
         ec2.describe_launch_template_versions.side_effect = _versions_side_effect

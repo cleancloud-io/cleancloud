@@ -1,3 +1,34 @@
+"""
+Rule: aws.cloudwatch.logs.infinite_retention
+
+    (spec — docs/specs/aws/cloudwatch_logs_no_retention.md)
+
+Intent:
+    Detect eligible CloudWatch log groups with no retention policy configured.
+
+Exclusions:
+    - retentionInDays is set
+    - DELIVERY class log groups
+
+Detection:
+    - retentionInDays key not present on STANDARD or INFREQUENT_ACCESS log groups
+
+Key rules:
+    - This is a hygiene/configuration rule, not an idle rule.
+    - Missing retention is a direct AWS-observed configuration fact.
+    - storedBytes must not be used as an activity signal.
+    - storedBytes is a non-billing storage metric.
+    - DELIVERY class must be excluded because its retention is service-managed.
+
+Blind spots:
+    - intent for compliance/audit/security retention is not known
+    - ingestion/activity is not checked
+    - future log growth is not known
+
+API:
+    - logs:DescribeLogGroups
+"""
+
 from datetime import datetime, timezone
 from typing import List, Optional
 
@@ -8,48 +39,21 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
-# Log groups newer than this are skipped — noise-reduction heuristic, not an AWS rule.
-# New groups may not have had time for an operator to review and configure retention.
-_MIN_AGE_DAYS = 7
-
-# Approximate CloudWatch Logs storage cost per GB-month.
-# This is the us-east-1 rate as of 2024; actual cost varies by region.
-# Use only as an order-of-magnitude estimate, not a billing figure.
+# Approximate CloudWatch Logs storage cost per GB-month (us-east-1, 2024).
+# Informational only — must NOT influence detection or confidence (spec §9).
 _STORAGE_COST_PER_GB_APPROX = 0.03
 
-# Risk thresholds by stored size
-_HIGH_RISK_GB = 1.0  # ≥ 1 GB stored → HIGH (significant cost + compliance exposure)
-# < 1 GB stored → MEDIUM; 0 bytes stored → LOW (no current cost, but policy gap still flagged)
+# Risk thresholds by stored size (spec §8)
+_HIGH_RISK_GB = 1.0  # ≥ 1 GB → HIGH; < 1 GB → MEDIUM; 0 bytes → LOW
+
+# Only these classes are eligible (spec §2). Allowlist — unknown/missing class is NOT in scope.
+_ELIGIBLE_CLASSES = {"STANDARD", "INFREQUENT_ACCESS"}
 
 
 def find_cloudwatch_logs_no_retention(
     session: boto3.Session,
     region: str,
 ) -> List[Finding]:
-    """
-    Find CloudWatch log groups with no retention policy (logs never expire).
-
-    This is a hygiene rule, not an idle/activity rule. It flags log groups where
-    retentionInDays is unset, meaning logs accumulate indefinitely and storage costs
-    grow without bound.
-
-    Notes on accuracy:
-    - storedBytes is eventually consistent and may lag actual ingestion by hours.
-      The cost estimate is therefore approximate and should not be used for billing.
-    - Log groups newer than 7 days are skipped as a noise-reduction heuristic.
-    - Infinite retention may be intentional for audit/security/compliance logs —
-      always review before acting on findings from this rule.
-    - Zero storedBytes does not mean no future cost risk; active log groups can
-      grow rapidly once ingestion begins.
-
-    Risk is dynamic based on stored data size:
-    - HIGH:   ≥ 1 GB stored (significant ongoing cost + likely compliance exposure)
-    - MEDIUM: > 0 bytes but < 1 GB (growing cost, policy gap)
-    - LOW:    0 bytes stored (no current cost, but hygiene issue)
-
-    IAM permissions:
-    - logs:DescribeLogGroups
-    """
     logs = session.client("logs", region_name=region)
     paginator = logs.get_paginator("describe_log_groups")
 
@@ -58,62 +62,73 @@ def find_cloudwatch_logs_no_retention(
 
     for page in paginator.paginate():
         for lg in page.get("logGroups", []):
-            retention_days = lg.get("retentionInDays")  # None = never expire
-
-            if retention_days is not None:
+            # EXCLUSION: malformed record (spec §2)
+            if not lg.get("logGroupName"):
                 continue
 
-            # Noise-reduction heuristic: skip recently created log groups.
-            # This is NOT an AWS-defined behavior — new groups may simply not have
-            # been reviewed yet. Adjust _MIN_AGE_DAYS if this produces too much noise.
+            # EXCLUSION: only STANDARD and INFREQUENT_ACCESS are in scope (spec §2, §4A).
+            # DELIVERY is service-managed; unknown/missing class is not eligible.
+            if lg.get("logGroupClass") not in _ELIGIBLE_CLASSES:
+                continue
+
+            # EXCLUSION: retention policy is set — key presence check, not value check (spec §4A).
+            # "retentionInDays is not present in the returned log group object" means
+            # key absent, not value null. An explicit null would still mean the key was
+            # returned and should be treated as set.
+            if "retentionInDays" in lg:
+                continue
+
+            # --- Detection path: no-retention ---
+
+            log_group_name = lg["logGroupName"]
+            log_group_class = lg.get("logGroupClass")
+
             creation_time_ms = lg.get("creationTime")
-            if creation_time_ms:
+            if creation_time_ms is not None:
                 creation_time = datetime.fromtimestamp(creation_time_ms / 1000, tz=timezone.utc)
-                age_days = (now - creation_time).days
-                if age_days < _MIN_AGE_DAYS:
-                    continue
+                age_days: Optional[int] = (now - creation_time).days
             else:
+                creation_time = None
                 age_days = None
 
-            stored_bytes = lg.get("storedBytes") or 0
-            stored_gb = stored_bytes / (1024**3)
-
-            # storedBytes is eventually consistent — cost estimate may lag reality.
-            monthly_storage_cost: Optional[float] = (
-                round(stored_gb * _STORAGE_COST_PER_GB_APPROX, 2) if stored_bytes > 0 else None
+            # storedBytes is a non-billing, eventually-consistent storage metric (spec §3, §9).
+            # It must NOT be used as an activity signal.
+            stored_bytes: Optional[int] = lg.get("storedBytes")
+            stored_gb: Optional[float] = (
+                (stored_bytes / (1024**3)) if stored_bytes is not None else None
             )
 
-            # Risk is proportional to stored size
-            if stored_gb >= _HIGH_RISK_GB:
+            # Risk is proportional to stored size as a proxy for current storage exposure (spec §8)
+            if stored_gb is not None and stored_gb >= _HIGH_RISK_GB:
                 risk = RiskLevel.HIGH
-            elif stored_bytes > 0:
+            elif stored_bytes is not None and stored_bytes > 0:
                 risk = RiskLevel.MEDIUM
             else:
                 risk = RiskLevel.LOW
 
-            signals_used = [
-                "Log group has no retention policy configured (logs never expire)",
-            ]
+            # Cost estimate — informational only (spec §9)
+            monthly_storage_cost: Optional[float] = None
+            if stored_bytes is not None and stored_bytes > 0 and stored_gb is not None:
+                monthly_storage_cost = round(stored_gb * _STORAGE_COST_PER_GB_APPROX, 2)
+
+            signals_used = ["retentionInDays is not set (logs do not expire)"]
             if age_days is not None:
-                signals_used.append(f"Log group is {age_days} days old")
-            if stored_bytes > 0:
-                signals_used.append(
-                    f"Stored data: {stored_gb:.2f} GB "
-                    f"(~${monthly_storage_cost:.2f}/month at ~${_STORAGE_COST_PER_GB_APPROX}/GB — "
-                    f"region-dependent estimate; storedBytes may lag actual ingestion)"
-                )
-            else:
-                signals_used.append(
-                    "Stored data: 0 bytes (storedBytes may lag; active groups can grow rapidly)"
-                )
+                signals_used.append(f"log group age: {age_days} days")
+            if stored_bytes is not None:
+                if stored_bytes > 0 and stored_gb is not None:
+                    signals_used.append(f"stored data: {stored_gb:.2f} GB")
+                else:
+                    signals_used.append("stored data: 0 bytes")
 
             evidence = Evidence(
                 signals_used=signals_used,
                 signals_not_checked=[
-                    "Recent ingestion activity (not checked — this is a hygiene rule)",
-                    "Intentional retention for audit, security, or compliance logs",
-                    "Application-level usage",
-                    "Future ingestion volume",
+                    "intentional compliance/audit/security retention is not known",
+                    "recent ingestion activity (not checked — this is a hygiene rule)",
+                    "application-level usage context",
+                    "future ingestion volume",
+                    "cross-account linked log groups are out of scope unless includeLinkedAccounts is explicitly enabled",
+                    "DELIVERY class log groups are excluded (retention is service-managed)",
                 ],
                 time_window=None,
             )
@@ -123,30 +138,40 @@ def find_cloudwatch_logs_no_retention(
                     provider="aws",
                     rule_id="aws.cloudwatch.logs.infinite_retention",
                     resource_type="aws.cloudwatch.log_group",
-                    resource_id=lg["logGroupName"],
+                    resource_id=log_group_name,
                     region=region,
                     estimated_monthly_cost_usd=monthly_storage_cost,
-                    title="CloudWatch log group with infinite retention",
+                    title="CloudWatch log group with no retention policy",
                     summary=(
-                        "Log group has no retention policy — logs accumulate indefinitely"
-                        + (f" ({stored_gb:.2f} GB stored)" if stored_bytes > 0 else "")
+                        "Retention is not configured; log events do not expire"
+                        + (
+                            f" ({stored_gb:.2f} GB stored)"
+                            if stored_bytes is not None
+                            and stored_bytes > 0
+                            and stored_gb is not None
+                            else ""
+                        )
                     ),
-                    reason="Retention is not set (logs never expire)",
+                    reason="Retention is not configured; log events do not expire",
                     risk=risk,
-                    confidence=ConfidenceLevel.MEDIUM,  # conservative — no activity check
+                    confidence=ConfidenceLevel.HIGH,
                     detected_at=now,
                     evidence=evidence,
                     details={
-                        "stored_bytes": stored_bytes,
-                        "stored_gb": round(stored_gb, 4),
-                        "stored_bytes_note": "eventually consistent — may lag actual ingestion",
-                        "retention_days": retention_days,
+                        "evaluation_path": "no-retention",
+                        "log_group_name": log_group_name,
+                        "log_group_class": log_group_class,
+                        "retention_state": "not set (logs do not expire)",
+                        "creation_time": (
+                            creation_time.isoformat() if creation_time is not None else None
+                        ),
                         "age_days": age_days,
-                        "age_gate_note": f"groups < {_MIN_AGE_DAYS} days old are skipped (noise-reduction heuristic)",
-                        "estimated_monthly_storage_cost": (
-                            f"~${monthly_storage_cost:.2f}/month (approx, region-dependent)"
-                            if monthly_storage_cost
-                            else "negligible now — active groups can grow rapidly"
+                        "stored_bytes": stored_bytes,
+                        "stored_gb": round(stored_gb, 4) if stored_gb is not None else None,
+                        "estimated_monthly_storage_cost_usd": monthly_storage_cost,
+                        "cost_note": (
+                            "approximate, region-dependent; "
+                            "storedBytes is a non-billing point-in-time storage metric"
                         ),
                     },
                 )
