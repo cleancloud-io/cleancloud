@@ -13,6 +13,7 @@ def mock_boto3_session():
     rds = MagicMock()
     elbv2 = MagicMock()
     elb = MagicMock()
+    autoscaling = MagicMock()
 
     def client_side_effect(service_name, *args, **kwargs):
         if service_name == "ec2":
@@ -27,6 +28,8 @@ def mock_boto3_session():
             return elbv2
         if service_name == "elb":
             return elb
+        if service_name == "autoscaling":
+            return autoscaling
         raise ValueError(f"Unexpected service: {service_name}")
 
     session.client.side_effect = client_side_effect
@@ -38,5 +41,6 @@ def mock_boto3_session():
     session._rds = rds
     session._elbv2 = elbv2
     session._elb = elb
+    session._autoscaling = autoscaling
 
     return session
