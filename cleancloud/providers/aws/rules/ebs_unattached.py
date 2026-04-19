@@ -1,6 +1,8 @@
 """
 Rule: aws.ebs.unattached
 
+    (spec — docs/specs/aws/ebs_unattached.md)
+
 Intent:
     Detect currently unattached EBS volumes that are old enough to be cleanup review
     candidates.
