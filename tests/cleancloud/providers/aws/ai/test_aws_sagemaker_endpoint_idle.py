@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
 
@@ -662,7 +662,7 @@ def test_permission_error_raised():
 
 def test_rule_metadata_present():
     """Rule must expose RULE_METADATA with correct fields."""
-    from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import RULE_METADATA
+    from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import RULE_METADATA
 
     assert RULE_METADATA["id"] == "aws.sagemaker.endpoint.idle"
     assert RULE_METADATA["category"] == "ai"

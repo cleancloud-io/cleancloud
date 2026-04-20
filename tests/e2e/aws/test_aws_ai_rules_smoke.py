@@ -4,20 +4,20 @@ import boto3
 import pytest
 
 from cleancloud.core.finding import Finding
-from cleancloud.providers.aws.rules.bedrock_provisioned_idle import (
+from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
     find_idle_bedrock_provisioned_throughputs,
 )
-from cleancloud.providers.aws.rules.ec2_gpu_idle import find_idle_gpu_instances
-from cleancloud.providers.aws.rules.sagemaker_endpoint_idle import (
+from cleancloud.providers.aws.rules.ai.ec2_gpu_idle import find_idle_gpu_instances
+from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
-from cleancloud.providers.aws.rules.sagemaker_notebook_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
-from cleancloud.providers.aws.rules.sagemaker_studio_app_idle import (
+from cleancloud.providers.aws.rules.ai.sagemaker_studio_app_idle import (
     find_idle_sagemaker_studio_apps,
 )
-from cleancloud.providers.aws.rules.sagemaker_training_job_long_running import (
+from cleancloud.providers.aws.rules.ai.sagemaker_training_job_long_running import (
     find_long_running_sagemaker_training_jobs,
 )
 
