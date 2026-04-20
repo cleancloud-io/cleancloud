@@ -397,7 +397,7 @@ def _list_gpu_metrics(cloudwatch, instance_id: str) -> list:
             Dimensions=[{"Name": "InstanceId", "Value": instance_id}],
         )
         return resp.get("Metrics", [])
-    except ClientError:
+    except Exception:
         return []
 
 
@@ -434,7 +434,7 @@ def _get_max_gpu_utilisation(
             gpu_max = max(dp["Maximum"] for dp in datapoints)
             if max_util is None or gpu_max > max_util:
                 max_util = gpu_max
-        except ClientError:
+        except Exception:
             continue
 
     return max_util
@@ -467,5 +467,5 @@ def _get_avg_cpu_utilisation(
         if not datapoints:
             return None
         return max(dp["Maximum"] for dp in datapoints)
-    except ClientError:
+    except Exception:
         return None

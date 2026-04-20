@@ -262,7 +262,7 @@ def find_unused_security_groups(
                 )
                 if name:
                     vpc_names[vpc["VpcId"]] = name
-        except (ClientError, BotoCoreError):
+        except Exception:
             pass  # VPC names are display-only; don't fail the rule
 
     # --- Step 7: Apply exclusion rules and emit findings ---

@@ -434,7 +434,7 @@ def _check_invocations(
                 queried_with_variants=False,
                 fetch_failed=False,
             )
-        except ClientError:
+        except Exception:
             return InvocationCheckResult(
                 has_traffic=True,
                 active_variants=[],
@@ -471,7 +471,7 @@ def _check_invocations(
             else:
                 idle_variants.append(variant_name)
 
-        except ClientError:
+        except Exception:
             # CloudWatch API failure — treat this variant as active and surface the failure.
             return InvocationCheckResult(
                 has_traffic=True,
@@ -561,7 +561,7 @@ def _describe_endpoint(
                 slcfg = cv.get("ServerlessConfig")
                 if slcfg:
                     serverless_cfg_by_variant[cv["VariantName"]] = slcfg
-        except ClientError:
+        except Exception:
             pass  # config inaccessible — costs/GPU will use defaults
 
         accumulated_cost = 0.0
@@ -631,7 +631,7 @@ def _describe_endpoint(
             total_provisioned_concurrency,
         )
 
-    except ClientError:
+    except Exception:
         # Unknown state — return zero instances so the endpoint is skipped rather
         # than flagged with assumed cost and instance count.
         return None, False, 0, 0, None, [], 0

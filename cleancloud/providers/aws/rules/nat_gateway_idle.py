@@ -91,10 +91,10 @@ def _str(value: object) -> Optional[str]:
 
 
 def _choose_period(idle_days: int) -> int:
-    """Return a CloudWatch Period compliant with retention rules for the lookback window.
+    """Return a deterministic Period compliant with CloudWatch retention rules.
 
-    Using idle_days * 86400 produces a single full-window aggregate bucket and satisfies
-    all three CloudWatch retention constraints (86400 is a multiple of 60, 300, and 3600).
+    idle_days * 86400 is a multiple of 60, 300, and 3600, satisfying all three
+    CloudWatch retention constraints for the chosen lookback window.
     """
     return idle_days * 86400
 
