@@ -61,9 +61,8 @@ rules:
 
   aws.rds.instance.idle:
     enabled: true
-    min_cost: 100               # suppress RDS findings below $100/month estimated cost
     params:
-      idle_days: 21             # require 21 days idle before flagging (default: 14)
+      idle_days_threshold: 21   # require 21 days idle before flagging (default: 14)
 
   gcp.sql.instance.idle:
     enabled: true

@@ -166,9 +166,9 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 
 | Param | Rule ID | Default | Description |
 |---|---|---|---|
-| `idle_days` | `aws.elbv2.load_balancer.idle` | 14 | Days of zero traffic before flagging |
-| `idle_days` | `aws.ec2.nat_gateway.idle` | 14 | Days of zero traffic before flagging |
-| `idle_days` | `aws.rds.instance.idle` | 14 | Days of no connections before flagging |
+| `idle_days_threshold` | `aws.elbv2.load_balancer.idle` | 14 | Days of zero traffic before flagging |
+| `idle_days_threshold` | `aws.ec2.nat_gateway.idle` | 14 | Days of zero traffic before flagging |
+| `idle_days_threshold` | `aws.rds.instance.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `aws.sagemaker.endpoint.idle` | 14 | Days of zero invocations before flagging |
 | `idle_days` | `aws.sagemaker.notebook.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.aml.compute.idle` | 14 | Days of no runs before flagging |
