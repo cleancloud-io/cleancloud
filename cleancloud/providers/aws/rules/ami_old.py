@@ -507,7 +507,7 @@ def _get_last_launched_time(ec2, ami_id: str) -> Tuple[Optional[datetime], bool]
         if not isinstance(value, str) or not value:
             return None, False
         return datetime.fromisoformat(value.replace("Z", "+00:00")), False
-    except ClientError:
+    except Exception:
         return None, True
 
 
@@ -527,7 +527,7 @@ def _check_active_instances(ec2, ami_id: str) -> Tuple[bool, bool]:
         )
         found = any(r.get("Instances") for r in resp.get("Reservations", []))
         return found, False
-    except ClientError:
+    except Exception:
         return False, True
 
 
@@ -572,11 +572,11 @@ def _build_lt_index(ec2) -> Tuple[Dict[str, List[str]], bool]:
                     v_lt_id = v.get("LaunchTemplateId")
                     if image_id and v_lt_id:
                         index.setdefault(image_id, set()).add(v_lt_id)
-            except ClientError:
+            except Exception:
                 continue  # best-effort per LT
 
         return {k: sorted(v) for k, v in index.items()}, lt_truncated
-    except ClientError:
+    except Exception:
         return {}, True
 
 
@@ -610,5 +610,5 @@ def _build_lc_index(autoscaling) -> Tuple[Dict[str, List[str]], bool]:
                 break
             kwargs["NextToken"] = nxt
         return {k: sorted(v) for k, v in index.items()}, lc_truncated
-    except ClientError:
+    except Exception:
         return {}, True

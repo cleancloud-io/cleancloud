@@ -37,7 +37,6 @@ from datetime import datetime, timezone
 from typing import List, Optional, Set, Tuple
 
 import boto3
-from botocore.exceptions import BotoCoreError, ClientError
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
@@ -68,7 +67,7 @@ def _build_ami_snapshot_index(ec2) -> Tuple[Set[str], bool]:
                     snap_id = bdm.get("Ebs", {}).get("SnapshotId")
                     if snap_id:
                         referenced.add(snap_id)
-    except (ClientError, BotoCoreError):
+    except Exception:
         return referenced, True
     return referenced, False
 
@@ -91,7 +90,7 @@ def _check_external_sharing(ec2, snap_id: str) -> Tuple[bool, bool]:
             if perm.get("UserId"):  # explicit cross-account
                 return True, False
         return False, False
-    except (ClientError, BotoCoreError):
+    except Exception:
         return False, True
 
 

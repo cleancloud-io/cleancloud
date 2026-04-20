@@ -331,7 +331,7 @@ def _get_volume_sizes(ec2, volume_ids: List[str]) -> Dict[str, int]:
                 size = vol.get("Size")
                 if vid and size is not None:
                     sizes[vid] = size
-    except (ClientError, BotoCoreError):
+    except Exception:
         pass
     return sizes
 
