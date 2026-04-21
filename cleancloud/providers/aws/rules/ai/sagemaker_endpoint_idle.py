@@ -1,13 +1,90 @@
+"""
+Rule: aws.sagemaker.endpoint.idle
+
+    (spec — docs/specs/aws/ai/sagemaker_endpoint_idle.md)
+
+Intent:
+    Detect SageMaker inference endpoints that are currently InService, still have billable
+    compute allocated, and show no observed InvokeEndpoint request activity for the
+    configured lookback window, so they can be reviewed as cleanup candidates.
+
+    This is a read-only review-candidate rule. Not proof that the endpoint is safe to
+    delete, and not proof that there are no other traffic patterns.
+
+Exclusions:
+    - endpoint_arn or endpoint_name absent (malformed identity)
+    - creation_time_utc or last_modified_time_utc absent, naive, or reference_time future
+    - age_days < idle_days_threshold (too new)
+    - DescribeEndpoint failure (insufficient evidence for this item)
+    - DescribeEndpointConfig failure (insufficient evidence for this item)
+    - AsyncInferenceConfig present (out of scope — async traffic not detectable)
+    - no billable production variants
+    - any evaluated variant has positive Invocations Sum
+    - CloudWatch retrieval failure for any variant
+
+Detection:
+    - InService endpoint, age >= idle_days_threshold
+    - not an async endpoint (AsyncInferenceConfig absent)
+    - at least one billable production variant
+    - no observed InvokeEndpoint traffic across all billable variants
+
+Key rules:
+    - resource_id = endpoint_arn (not endpoint_name)
+    - reference_time = max(creation_time_utc, last_modified_time_utc)
+    - DescribeEndpoint / DescribeEndpointConfig: permission failure → FAIL RULE; transient failure → SKIP ITEM
+    - CloudWatch per-variant: permission failure → FAIL RULE; transient failure → SKIP ITEM
+    - No datapoints → weaker idle evidence (MEDIUM confidence)
+    - Positive invocations → SKIP ITEM
+    - estimated_monthly_cost_usd = None
+    - Confidence: HIGH (all variants had datapoints + zero) or MEDIUM (any no-datapoint variant)
+    - Risk: HIGH (accelerator-backed: g*, p*, inf*, trn*) or MEDIUM (other)
+
+Blind spots:
+    - InvokeEndpointAsync traffic and async endpoint intent
+    - Multi-model endpoint per-model burstiness and model-loading behavior
+    - Shadow production variant intent
+    - Inference-component-specific traffic review
+    - Managed instance scaling floor/warm-capacity intent
+    - Scheduled future usage, failover intent, or reserved warm capacity intent
+    - Exact region-specific pricing impact
+
+APIs:
+    - sagemaker:ListEndpoints
+    - sagemaker:DescribeEndpoint
+    - sagemaker:DescribeEndpointConfig
+    - cloudwatch:GetMetricStatistics
+"""
+
+import math
 from datetime import datetime, timedelta, timezone
-from typing import List, NamedTuple, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
+
+# --- Module-level constants ---
+
+_DEFAULT_IDLE_DAYS_THRESHOLD = 14
+_ELIGIBLE_STATUS = "InService"
+_CW_NAMESPACE = "AWS/SageMaker"
+_CW_METRIC = "Invocations"
+
+_FINDING_TITLE = "Idle SageMaker endpoint review candidate"
+
+_SIGNALS_NOT_CHECKED = (
+    "InvokeEndpointAsync traffic and async endpoint intent",
+    "Multi-model endpoint per-model burstiness and model-loading behavior",
+    "Shadow production variant intent",
+    "Inference-component-specific traffic review",
+    "Managed instance scaling floor/warm-capacity intent",
+    "Scheduled future usage, failover intent, or reserved warm capacity intent",
+    "Exact region-specific pricing impact",
+)
 
 RULE_METADATA = {
     "id": "aws.sagemaker.endpoint.idle",
@@ -16,622 +93,481 @@ RULE_METADATA = {
     "cost_impact": "high",
 }
 
-# GPU/accelerator instance families — significantly more expensive than CPU
-_GPU_FAMILIES = (
-    "ml.g4dn",
-    "ml.g5",
-    "ml.p2",
-    "ml.p3",
-    "ml.p4d",
-    "ml.p4de",
-    "ml.p5",
-    "ml.trn1",
-    "ml.inf1",
-    "ml.inf2",
-)
 
-# Approximate monthly cost by instance type (on-demand, us-east-1)
-_MONTHLY_COST_BY_FAMILY = {
-    "ml.g4dn.xlarge": 531.0,
-    "ml.g4dn.2xlarge": 941.0,
-    "ml.g4dn.4xlarge": 1_633.0,
-    "ml.g4dn.12xlarge": 2_817.0,
-    "ml.g5.xlarge": 600.0,
-    "ml.g5.2xlarge": 1_008.0,
-    "ml.g5.4xlarge": 1_838.0,
-    "ml.g5.12xlarge": 5_443.0,
-    "ml.p3.2xlarge": 2_754.0,
-    "ml.p3.8xlarge": 11_016.0,
-    "ml.p4d.24xlarge": 23_596.0,
-    "ml.p4de.24xlarge": 29_908.0,
-    "ml.p5.48xlarge": 71_774.0,
-    # Trainium
-    "ml.trn1.2xlarge": 978.0,
-    "ml.trn1.32xlarge": 15_695.0,
-    "ml.trn1n.32xlarge": 18_089.0,
-    # Inferentia
-    "ml.inf1.xlarge": 166.0,
-    "ml.inf1.2xlarge": 264.0,
-    "ml.inf1.6xlarge": 793.0,
-    "ml.inf1.24xlarge": 3_170.0,
-    # Inferentia2
-    "ml.inf2.xlarge": 554.0,
-    "ml.inf2.8xlarge": 4_427.0,
-    "ml.inf2.24xlarge": 13_283.0,
-    "ml.inf2.48xlarge": 26_566.0,
-    "ml.m5.large": 94.0,
-    "ml.m5.xlarge": 188.0,
-    "ml.m5.2xlarge": 376.0,
-    "ml.c5.large": 85.0,
-    "ml.c5.xlarge": 171.0,
-    "ml.t2.medium": 40.0,
-    "ml.t3.medium": 42.0,
-}
-# No default cost fallback — when instance type is unknown, cost is None.
-# Using a hardcoded default ($150) for unknown types misleads cost aggregation.
-
-# Serverless Inference provisioned concurrency: ~$0.0051/unit-hour (us-east-1 on-demand).
-# Monthly ≈ 0.0051 × 24 × 30 ≈ $3.67 per provisioned concurrency unit.
-# Approximate us-east-1 rate; other regions vary. Serverless endpoints with provisioned
-# concurrency incur this reservation charge continuously, even when idle.
-_SERVERLESS_PROVISIONED_COST_PER_UNIT_MONTHLY = 3.67  # approx us-east-1 on-demand
+def _str(value: object) -> Optional[str]:
+    """Return value as str only when it is a non-empty string; else None."""
+    return value if isinstance(value, str) and value else None
 
 
-class InvocationCheckResult(NamedTuple):
-    """Structured return type for _check_invocations.
+def _choose_period(idle_days: int) -> int:
+    """Return the smallest legal CloudWatch period for the requested lookback.
 
-    Using a NamedTuple instead of a raw tuple prevents positional misuse and
-    makes the caller's intent explicit when reading each field by name.
+    Two constraints must both be satisfied:
+
+    1. Datapoints ≤ 1440:
+           period ≥ ceil(idle_days × 86400 / 1440)
+
+    2. Period must be a multiple of the granularity for the lookback age,
+       matching CloudWatch's retention-tier alignment rules:
+           ≤ 15 days  → multiple of 60 s   (1-minute tier)
+           ≤ 63 days  → multiple of 300 s  (5-minute tier)
+           > 63 days  → multiple of 3600 s (1-hour tier)
+
+    The selected period is the smallest integer satisfying both.
     """
+    window_seconds = idle_days * 86400
+    min_period = math.ceil(window_seconds / 1440)
+    if idle_days <= 15:
+        granularity = 60
+    elif idle_days <= 63:
+        granularity = 300
+    else:
+        granularity = 3600
+    return math.ceil(min_period / granularity) * granularity
 
-    has_traffic: bool  # True when at least one variant has confirmed invocations
-    active_variants: list  # variant names with detected invocations (per-variant mode)
-    idle_variants: list  # variant names with zero invocations (per-variant mode)
-    total_datapoints: int  # total CW datapoints seen across all queries
-    queried_with_variants: bool  # True if per-variant dimensions were used
-    fetch_failed: bool  # True if a CloudWatch API error occurred
+
+def _is_gpu_instance(instance_type: str) -> bool:
+    """Return True if the instance type is GPU/accelerator-backed (g*, p*, inf*, trn*)."""
+    parts = instance_type.split(".")
+    if len(parts) >= 2:
+        family = parts[1]
+        return any(family.startswith(prefix) for prefix in ("g", "p", "inf", "trn"))
+    return False
+
+
+def _normalize_endpoint_summary(item: object, now_utc: datetime) -> Optional[dict]:
+    """Normalize a raw ListEndpoints item to the canonical field shape.
+
+    Returns None when required identity or timestamp fields are absent or invalid —
+    the caller must skip the item. All rule logic operates only on the returned dict.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    endpoint_arn = _str(item.get("EndpointArn"))
+    if endpoint_arn is None:
+        return None
+
+    endpoint_name = _str(item.get("EndpointName"))
+    if endpoint_name is None:
+        return None
+
+    endpoint_status = _str(item.get("EndpointStatus"))
+    if endpoint_status is None:
+        return None
+
+    # CreationTime (required; absent, naive, or future → skip)
+    raw_ct = item.get("CreationTime")
+    if not isinstance(raw_ct, datetime):
+        return None
+    if raw_ct.tzinfo is None:
+        return None
+    creation_time_utc = raw_ct.astimezone(timezone.utc)
+
+    # LastModifiedTime (required; absent, naive, or future → skip)
+    raw_lmt = item.get("LastModifiedTime")
+    if not isinstance(raw_lmt, datetime):
+        return None
+    if raw_lmt.tzinfo is None:
+        return None
+    last_modified_time_utc = raw_lmt.astimezone(timezone.utc)
+
+    # reference_time = max(creation, last_modified) — future reference → skip
+    reference_time_utc = max(creation_time_utc, last_modified_time_utc)
+    if reference_time_utc > now_utc:
+        return None
+
+    age_days = int((now_utc - reference_time_utc).total_seconds() // 86400)
+
+    return {
+        "resource_id": endpoint_arn,
+        "endpoint_arn": endpoint_arn,
+        "endpoint_name": endpoint_name,
+        "endpoint_status": endpoint_status,
+        "creation_time_utc": creation_time_utc,
+        "last_modified_time_utc": last_modified_time_utc,
+        "reference_time_utc": reference_time_utc,
+        "age_days": age_days,
+    }
+
+
+def _normalize_variant(
+    rv: dict,
+    config_variants_by_name: Dict[str, dict],
+) -> Optional[dict]:
+    """Normalize a runtime production variant from DescribeEndpoint.ProductionVariants.
+
+    Runtime state from DescribeEndpoint is the authoritative evaluation set.
+    DescribeEndpointConfig.ProductionVariants are joined by VariantName for
+    enrichment only and must not be the canonical billing driver.
+
+    Returns None when variant_name is absent — caller must skip the variant.
+    """
+    variant_name = _str(rv.get("VariantName"))
+    if variant_name is None:
+        return None
+
+    # Runtime state — authoritative for billing determination
+    raw_count = rv.get("CurrentInstanceCount")
+    current_instance_count = raw_count if isinstance(raw_count, int) else None
+
+    current_sl = rv.get("CurrentServerlessConfig") or {}
+    raw_prov = current_sl.get("ProvisionedConcurrency")
+    current_serverless_provisioned_concurrency = raw_prov if isinstance(raw_prov, int) else None
+
+    managed_instance_scaling_present = rv.get("ManagedInstanceScaling") is not None
+
+    # Config enrichment (contextual only — not the billing driver)
+    cfg_v = config_variants_by_name.get(variant_name, {})
+    instance_type = _str(cfg_v.get("InstanceType"))
+    cfg_sl = cfg_v.get("ServerlessConfig") or {}
+    raw_cfg_prov = cfg_sl.get("ProvisionedConcurrency")
+    configured_serverless_provisioned_concurrency = (
+        raw_cfg_prov if isinstance(raw_cfg_prov, int) else None
+    )
+
+    is_serverless_variant = bool(cfg_sl) or rv.get("CurrentServerlessConfig") is not None
+
+    # Billing determination (runtime state authoritative per spec)
+    instance_billable = (current_instance_count or 0) > 0
+    serverless_billable = (current_serverless_provisioned_concurrency or 0) > 0
+    is_billable = instance_billable or serverless_billable
+
+    if instance_billable and serverless_billable:
+        billable_compute_mode = "mixed"
+    elif instance_billable:
+        billable_compute_mode = "instance"
+    elif serverless_billable:
+        billable_compute_mode = "serverless_provisioned"
+    else:
+        billable_compute_mode = "none"
+
+    return {
+        "variant_name": variant_name,
+        "current_instance_count": current_instance_count,
+        "current_serverless_provisioned_concurrency": current_serverless_provisioned_concurrency,
+        "configured_serverless_provisioned_concurrency": configured_serverless_provisioned_concurrency,
+        "instance_type": instance_type,
+        "managed_instance_scaling_present": managed_instance_scaling_present,
+        "is_serverless_variant": is_serverless_variant,
+        "is_billable": is_billable,
+        "billable_compute_mode": billable_compute_mode,
+    }
+
+
+def _get_variant_invocations(
+    cloudwatch,
+    endpoint_name: str,
+    variant_name: str,
+    start_time: datetime,
+    end_time: datetime,
+    period: int,
+) -> Optional[Tuple[float, bool]]:
+    """Fetch Invocations Sum for a single production variant over the observation window.
+
+    Returns (total_sum, had_datapoints) on success:
+    - had_datapoints=True:  datapoints present; total_sum is the aggregate Sum (>= 0.0)
+    - had_datapoints=False: no datapoints — weaker idle evidence (no published metric series)
+
+    Returns None on transient API failure — caller must SKIP ITEM.
+    Raises PermissionError on missing IAM permission — FAIL RULE.
+
+    Dimensions must be EndpointName + VariantName (the documented published pair).
+    EndpointName-only queries are not canonical and are not used as a fallback.
+    """
+    try:
+        resp = cloudwatch.get_metric_statistics(
+            Namespace=_CW_NAMESPACE,
+            MetricName=_CW_METRIC,
+            Dimensions=[
+                {"Name": "EndpointName", "Value": endpoint_name},
+                {"Name": "VariantName", "Value": variant_name},
+            ],
+            StartTime=start_time,
+            EndTime=end_time,
+            Period=period,
+            Statistics=["Sum"],
+        )
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in (
+            "AccessDenied",
+            "UnauthorizedOperation",
+            "AccessDeniedException",
+        ):
+            raise PermissionError(
+                "Missing required IAM permission: cloudwatch:GetMetricStatistics"
+            ) from exc
+        return None  # Other API error → caller SKIP ITEM
+    except BotoCoreError:
+        return None  # Transport/connection error → caller SKIP ITEM
+
+    datapoints = resp.get("Datapoints", [])
+    if not datapoints:
+        return 0.0, False  # No metric series — weaker idle evidence
+    return sum(dp.get("Sum", 0.0) for dp in datapoints), True
 
 
 def find_idle_sagemaker_endpoints(
     session: boto3.Session,
     region: str,
-    idle_days: int = 14,
+    idle_days_threshold: int = _DEFAULT_IDLE_DAYS_THRESHOLD,
 ) -> List[Finding]:
-    """
-    Find SageMaker inference endpoints with zero invocations.
-
-    SageMaker endpoints incur continuous charges while InService, regardless
-    of whether they receive any traffic. GPU-backed endpoints cost $500–$23K/month.
-    Endpoints deployed for experiments or demos are frequently abandoned.
-
-    Detection logic:
-    - Endpoint is in InService state
-    - Endpoint has billable compute: at least one running instance (DesiredInstanceCount > 0)
-      OR at least one serverless variant with provisioned concurrency > 0
-    - Zero Invocations over the effective idle window, queried per-variant
-      (CloudWatch AWS/SageMaker namespace, EndpointName + VariantName dimensions)
-
-    Confidence:
-    - HIGH:   per-variant query, full idle window coverage (age >= idle_days)
-    - MEDIUM: per-variant query, partial window (age >= 75% of idle_days); OR partial
-              variant waste (some variants idle, some active — reliable data, uncertain intent)
-    - LOW:    CloudWatch metric fetch failed; idle status unverified
-
-    IAM permissions:
-    - sagemaker:ListEndpoints
-    - sagemaker:DescribeEndpoint
-    - sagemaker:DescribeEndpointConfig
-    - cloudwatch:GetMetricStatistics
-    """
     sagemaker = session.client("sagemaker", region_name=region)
     cloudwatch = session.client("cloudwatch", region_name=region)
     now = datetime.now(timezone.utc)
+    window_start = now - timedelta(seconds=idle_days_threshold * 86400)
+    period = _choose_period(idle_days_threshold)
     findings: List[Finding] = []
 
+    # Step 1: Retrieve and fully paginate ListEndpoints (FAIL RULE on failure)
     try:
         paginator = sagemaker.get_paginator("list_endpoints")
-
-        for page in paginator.paginate(StatusEquals="InService"):
-            for endpoint in page.get("Endpoints", []):
-                endpoint_name = endpoint["EndpointName"]
-
-                # Calculate age — normalize to UTC to handle timezone-naive timestamps
-                # from older boto3 versions, which would otherwise raise TypeError.
-                # Use total_seconds()/86400 instead of .days — both floor-divide but
-                # the float form is used for idle_ratio precision; int() for comparisons.
-                create_time = endpoint.get("CreationTime")
-                age_days: float = 0.0
-                if create_time:
-                    if create_time.tzinfo is None:
-                        create_time = create_time.replace(tzinfo=timezone.utc)
-                    age_days = (now - create_time).total_seconds() / 86400
-
-                # Describe endpoint — get cost, GPU flag, variant info
-                (
-                    monthly_cost,
-                    is_gpu,
-                    variant_count,
-                    total_instances,
-                    primary_instance_type,
-                    variant_names,
-                    total_provisioned_concurrency,
-                ) = _describe_endpoint(sagemaker, endpoint_name)
-
-                # Skip if no billable compute:
-                # - Instance-backed: DesiredInstanceCount must be > 0
-                # - Serverless: ProvisionedConcurrency must be > 0
-                # Serverless endpoints without provisioned concurrency have no idle cost.
-                if total_instances == 0 and total_provisioned_concurrency == 0:
-                    continue
-
-                # Use effective window: can't look back further than the endpoint's age.
-                # int() here so downstream comparisons and string formatting are clean.
-                effective_window = min(idle_days, int(age_days))
-
-                # Skip if effective window is too small to draw a reliable conclusion
-                if effective_window < 3:
-                    continue
-
-                # Check invocations per variant — CloudWatch publishes Invocations
-                # with {EndpointName, VariantName} dimensions; querying EndpointName
-                # alone returns empty datapoints regardless of actual traffic.
-                result = _check_invocations(
-                    cloudwatch, endpoint_name, variant_names, effective_window
-                )
-
-                if result.has_traffic and not result.idle_variants and not result.fetch_failed:
-                    continue  # all variants have confirmed traffic — fully active, skip
-
-                if not result.queried_with_variants:
-                    # EndpointName-only fallback — structurally unreliable for idle detection.
-                    # Empty results may mean "no traffic" or "wrong dimension set"; we cannot
-                    # distinguish the two. Skip rather than emit a low-quality finding.
-                    continue
-
-                active_variants = result.active_variants
-                idle_variants = result.idle_variants
-                total_datapoints = result.total_datapoints
-                fetch_failed = result.fetch_failed
-
-                partial_waste = len(active_variants) > 0 and len(idle_variants) > 0
-
-                # Confidence tiers (explicit):
-                # LOW    → CW fetch failed (per-variant path); traffic status unverified
-                # MEDIUM → partial waste (reliable per-variant data; uncertainty is intent)
-                #          OR per-variant query but partial time window (75–99% of threshold)
-                # HIGH   → per-variant query + full window coverage
-                if fetch_failed:
-                    confidence = ConfidenceLevel.LOW
-                elif partial_waste:
-                    # Per-variant data is reliable; some variants have confirmed zero traffic.
-                    # Uncertainty is about intent, not data quality → MEDIUM is appropriate.
-                    confidence = ConfidenceLevel.MEDIUM
-                elif effective_window >= idle_days:
-                    confidence = ConfidenceLevel.HIGH
-                elif effective_window >= int(idle_days * 0.75):
-                    confidence = ConfidenceLevel.MEDIUM
-                else:
-                    continue  # too borderline for a confident finding
-
-                # idle_ratio: how many multiples of the threshold the endpoint has been running.
-                # >= 2.0 means a GPU endpoint has been burning money for 2× the idle window.
-                idle_ratio = round(age_days / idle_days, 2) if idle_days > 0 else 0.0
-                idle_variant_ratio = (
-                    len(idle_variants) / variant_count if variant_count > 0 else 0.0
-                )
-
-                # CRITICAL requires: GPU + fully idle (not partial_waste) + 2× overage.
-                # partial_waste means some variants are still active — capping at HIGH avoids
-                # over-escalating when the endpoint isn't wholly abandoned.
-                if is_gpu and not partial_waste and idle_ratio >= 2.0:
-                    risk = RiskLevel.CRITICAL
-                elif is_gpu:
-                    risk = RiskLevel.HIGH
-                elif monthly_cost is None:
-                    # Unknown cost — could be an expensive unlisted type; don't under-report
-                    risk = RiskLevel.HIGH
-                elif partial_waste:
-                    # Scale risk by fraction of idle variants: ≥50% idle → HIGH, else MEDIUM
-                    risk = RiskLevel.HIGH if idle_variant_ratio >= 0.5 else RiskLevel.MEDIUM
-                else:
-                    risk = RiskLevel.MEDIUM
-
-                compute_signal = (
-                    f"Total running instances (DesiredInstanceCount): {total_instances}"
-                    if total_instances > 0
-                    else f"Serverless provisioned concurrency: {total_provisioned_concurrency} unit(s)"
-                )
-                signals = [
-                    "Endpoint state: InService",
-                    f"Endpoint age: {int(age_days)} days",
-                    compute_signal,
-                ]
-
-                if fetch_failed:
-                    signals.insert(
-                        0,
-                        "CloudWatch Invocations metric fetch failed (transient/throttle error) "
-                        "— idle status unverified",
-                    )
-                elif partial_waste:
-                    signals.insert(
-                        0,
-                        f"Partial variant waste: {len(idle_variants)} of {variant_count} variant(s) "
-                        f"have zero invocations for {effective_window} days "
-                        f"(idle: {', '.join(idle_variants)}; "
-                        f"active: {', '.join(active_variants)})",
-                    )
-                else:
-                    signals.insert(
-                        0,
-                        f"Zero recorded invocations for {effective_window} days across all "
-                        f"{len(idle_variants)} variant(s) "
-                        f"({total_datapoints} total datapoints observed — "
-                        "SageMaker omits zero-invocation datapoints, so this is the expected idle state)",
-                    )
-
-                if primary_instance_type:
-                    signals.append(f"Instance type: {primary_instance_type}")
-                else:
-                    signals.append("Instance type: unknown — could not fetch endpoint config")
-                if is_gpu:
-                    signals.append("GPU/accelerator-backed instance — high hourly cost")
-                if variant_count > 1:
-                    signals.append(f"Production variants: {variant_count}")
-
-                signals_not_checked = [
-                    "Scheduled or batch invocation patterns",
-                    "Internal health-check invocations",
-                    "Planned future usage",
-                    "Shadow mode / canary deployments",
-                ]
-                if fetch_failed:
-                    signals_not_checked.insert(
-                        0,
-                        "Invocations — CloudWatch fetch failed; traffic status unverified",
-                    )
-                if monthly_cost is None:
-                    signals_not_checked.insert(
-                        0,
-                        "Cost — instance type unknown; actual cost may be significantly higher "
-                        "(e.g. ml.p5.48xlarge: ~$71K/month, ml.p4d.24xlarge: ~$23K/month)",
-                    )
-
-                evidence = Evidence(
-                    signals_used=signals,
-                    signals_not_checked=signals_not_checked,
-                    time_window=f"{effective_window} days",
-                )
-
-                if fetch_failed:
-                    title = "SageMaker Endpoint Requires Invocation Verification"
-                    summary = (
-                        f"SageMaker endpoint '{endpoint_name}' could not be verified as idle — "
-                        "CloudWatch Invocations metric was unreadable (transient/throttle error)."
-                    )
-                    reason = "SageMaker Invocations metric could not be fetched; idle status is unconfirmed"
-                elif partial_waste:
-                    title = (
-                        f"SageMaker Endpoint Partial Variant Waste "
-                        f"({len(idle_variants)} of {variant_count} variants idle)"
-                    )
-                    summary = (
-                        f"SageMaker endpoint '{endpoint_name}' has {len(idle_variants)} variant(s) "
-                        f"with zero invocations for {effective_window} days while other variants remain active."
-                    )
-                    reason = (
-                        f"{len(idle_variants)} of {variant_count} endpoint variants "
-                        f"have zero invocations for {effective_window} days"
-                    )
-                else:
-                    title = f"Idle SageMaker Endpoint (No Invocations for {effective_window} Days)"
-                    summary = (
-                        f"SageMaker endpoint '{endpoint_name}' has received zero invocations "
-                        f"for {effective_window} days but remains InService, incurring continuous charges."
-                    )
-                    reason = f"SageMaker endpoint has zero invocations for {effective_window} days"
-
-                findings.append(
-                    Finding(
-                        provider="aws",
-                        rule_id="aws.sagemaker.endpoint.idle",
-                        resource_type="aws.sagemaker.endpoint",
-                        resource_id=endpoint_name,
-                        region=region,
-                        estimated_monthly_cost_usd=monthly_cost,
-                        title=title,
-                        summary=summary,
-                        reason=reason,
-                        risk=risk,
-                        confidence=confidence,
-                        detected_at=now,
-                        evidence=evidence,
-                        details={
-                            "endpoint_name": endpoint_name,
-                            "instance_type": primary_instance_type,
-                            "is_gpu": is_gpu,
-                            "variant_count": variant_count,
-                            "idle_variant_count": len(idle_variants),
-                            "active_variant_count": len(active_variants),
-                            "total_instances": total_instances,
-                            "total_provisioned_concurrency": total_provisioned_concurrency,
-                            "age_days": int(age_days),
-                            "idle_window_days": effective_window,
-                            "idle_days_threshold": idle_days,
-                            "idle_ratio": idle_ratio,
-                            "invocation_datapoints_observed": total_datapoints,
-                            "estimated_monthly_cost": (
-                                f"~${monthly_cost:,.0f}/month (us-east-1 on-demand approx)"
-                                if monthly_cost is not None
-                                else "unknown — instance type not available; may be significantly higher"
-                            ),
-                            "cost_note": (
-                                "instance type unknown; cost omitted — verify before dismissing"
-                                if monthly_cost is None
-                                else "approximate us-east-1 on-demand; region-dependent"
-                            ),
-                        },
-                    )
-                )
-
-    except ClientError as e:
-        code = e.response["Error"]["Code"]
-        if code in ("UnauthorizedOperation", "AccessDenied", "AccessDeniedException"):
+        pages = list(paginator.paginate(StatusEquals=_ELIGIBLE_STATUS))
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in (
+            "AccessDenied",
+            "UnauthorizedOperation",
+            "AccessDeniedException",
+        ):
             raise PermissionError(
-                "Missing required IAM permissions: "
-                "sagemaker:ListEndpoints, sagemaker:DescribeEndpoint, "
-                "sagemaker:DescribeEndpointConfig, cloudwatch:GetMetricStatistics"
-            ) from e
+                "Missing required IAM permission: sagemaker:ListEndpoints"
+            ) from exc
+        raise
+    except BotoCoreError:
         raise
 
-    return findings
+    for page in pages:
+        for raw_item in page.get("Endpoints", []):
+            # Step 2: Normalize endpoint summary
+            n = _normalize_endpoint_summary(raw_item, now)
+            if n is None:
+                continue
 
+            # Step 3: Age gate
+            if n["age_days"] < idle_days_threshold:
+                continue
 
-def _check_invocations(
-    cloudwatch, endpoint_name: str, variant_names: list, days: int
-) -> InvocationCheckResult:
-    """Check per-variant invocations for the endpoint over the past `days` days.
+            # Step 4: DescribeEndpoint (SKIP ITEM on transient failure; FAIL RULE on permission)
+            try:
+                desc = sagemaker.describe_endpoint(EndpointName=n["endpoint_name"])
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] in (
+                    "AccessDenied",
+                    "UnauthorizedOperation",
+                    "AccessDeniedException",
+                ):
+                    raise PermissionError(
+                        "Missing required IAM permission: sagemaker:DescribeEndpoint"
+                    ) from exc
+                continue  # Other API error → SKIP ITEM
+            except BotoCoreError:
+                continue  # Transport/connection error → SKIP ITEM
 
-    CloudWatch publishes SageMaker Invocations with *both* EndpointName and VariantName
-    dimensions. Querying with EndpointName alone returns empty datapoints regardless of
-    actual traffic. Each variant is queried independently.
+            # Step 5: Re-check EndpointStatus from DescribeEndpoint
+            if _str(desc.get("EndpointStatus")) != _ELIGIBLE_STATUS:
+                continue
 
-    Note: SageMaker does NOT publish zero-value Invocations datapoints. An idle endpoint
-    genuinely returns no datapoints — so empty results are the expected idle state when
-    queried with the correct per-variant dimensions. With EndpointName-only (fallback),
-    empty results are unreliable and cannot be treated as confirmed idle.
+            # Step 6: Resolve EndpointConfigName (required for DescribeEndpointConfig)
+            config_name = _str(desc.get("EndpointConfigName"))
+            if config_name is None:
+                continue
 
-    The caller is responsible for checking `queried_with_variants` before treating
-    empty idle_variants as a reliable idle signal. When `queried_with_variants=False`,
-    the caller should skip the endpoint rather than emit a low-quality finding.
+            # Step 6: DescribeEndpointConfig (SKIP ITEM on transient failure; FAIL RULE on permission)
+            try:
+                config = sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
+            except ClientError as exc:
+                if exc.response["Error"]["Code"] in (
+                    "AccessDenied",
+                    "UnauthorizedOperation",
+                    "AccessDeniedException",
+                ):
+                    raise PermissionError(
+                        "Missing required IAM permission: sagemaker:DescribeEndpointConfig"
+                    ) from exc
+                continue  # Other API error → SKIP ITEM
+            except BotoCoreError:
+                continue  # Transport/connection error → SKIP ITEM
 
-    Period=3600 (hourly) is intentional — finer granularity catches sparse traffic
-    that a daily period might lump into zero-datapoint gaps.
-    """
-    now = datetime.now(timezone.utc)
-    start_time = now - timedelta(days=max(days, 1))
+            # Step 7: Async scope check — AsyncInferenceConfig present → SKIP ITEM
+            if config.get("AsyncInferenceConfig") is not None:
+                continue
 
-    if not variant_names:
-        # EndpointName-only fallback — known to return empty data for active endpoints.
-        # queried_with_variants=False signals to the caller to skip rather than flag.
-        try:
-            response = cloudwatch.get_metric_statistics(
-                Namespace="AWS/SageMaker",
-                MetricName="Invocations",
-                Dimensions=[{"Name": "EndpointName", "Value": endpoint_name}],
-                StartTime=start_time,
-                EndTime=now,
-                Period=3600,
-                Statistics=["Sum"],
-            )
-            datapoints = response.get("Datapoints", [])
-            has_traffic = any(dp.get("Sum", 0) > 0 for dp in datapoints)
-            return InvocationCheckResult(
-                has_traffic=has_traffic,
-                active_variants=[],
-                idle_variants=[],
-                total_datapoints=len(datapoints),
-                queried_with_variants=False,
-                fetch_failed=False,
-            )
-        except Exception:
-            return InvocationCheckResult(
-                has_traffic=True,
-                active_variants=[],
-                idle_variants=[],
-                total_datapoints=0,
-                queried_with_variants=False,
-                fetch_failed=True,
-            )
+            # Steps 8–10: Normalize runtime variants; join config for enrichment only
+            config_variants_by_name: Dict[str, dict] = {
+                cv.get("VariantName"): cv
+                for cv in config.get("ProductionVariants", [])
+                if cv.get("VariantName")
+            }
 
-    # Per-variant query — correct dimension set for SageMaker Invocations.
-    active_variants: list = []
-    idle_variants: list = []
-    total_datapoints = 0
+            normalized_variants = []
+            for rv in desc.get("ProductionVariants", []):
+                nv = _normalize_variant(rv, config_variants_by_name)
+                if nv is None:
+                    continue
+                normalized_variants.append(nv)
 
-    for variant_name in variant_names:
-        dimensions = [
-            {"Name": "EndpointName", "Value": endpoint_name},
-            {"Name": "VariantName", "Value": variant_name},
-        ]
-        try:
-            response = cloudwatch.get_metric_statistics(
-                Namespace="AWS/SageMaker",
-                MetricName="Invocations",
-                Dimensions=dimensions,
-                StartTime=start_time,
-                EndTime=now,
-                Period=3600,
-                Statistics=["Sum"],
-            )
-            datapoints = response.get("Datapoints", [])
-            total_datapoints += len(datapoints)
-            if any(dp.get("Sum", 0) > 0 for dp in datapoints):
-                active_variants.append(variant_name)
-            else:
-                idle_variants.append(variant_name)
+            if not normalized_variants:
+                continue
 
-        except Exception:
-            # CloudWatch API failure — treat this variant as active and surface the failure.
-            return InvocationCheckResult(
-                has_traffic=True,
-                active_variants=active_variants + [variant_name],
-                idle_variants=idle_variants,
-                total_datapoints=total_datapoints,
-                queried_with_variants=True,
-                fetch_failed=True,
-            )
+            # Steps 11–12: Determine billable variants
+            billable_variants = [v for v in normalized_variants if v["is_billable"]]
+            if not billable_variants:
+                continue
 
-    # has_traffic=True if ANY variant has confirmed invocations.
-    # The caller separately checks idle_variants to detect partial waste.
-    has_traffic = len(active_variants) > 0
-    return InvocationCheckResult(
-        has_traffic=has_traffic,
-        active_variants=active_variants,
-        idle_variants=idle_variants,
-        total_datapoints=total_datapoints,
-        queried_with_variants=True,
-        fetch_failed=False,
-    )
+            # Steps 13–14: CloudWatch Invocations per billable variant
+            skip_item = False
+            no_datapoint_variant_count = 0
+            total_invocations_sum = 0.0
+            all_had_datapoints = True
 
-
-def _is_gpu_instance(itype: str) -> bool:
-    """Return True if the instance type is a GPU or accelerator family.
-
-    Uses explicit prefix matching against known families first, then falls back
-    to family-letter heuristics so newly released types (ml.g6e, ml.p6, etc.)
-    are caught without requiring a code update.
-    """
-    if any(itype.startswith(fam) for fam in _GPU_FAMILIES):
-        return True
-    # Fallback: match by the family letter in the second dot-segment (e.g. ml.g6e.xlarge → "g6e")
-    parts = itype.split(".")
-    if len(parts) >= 2:
-        family = parts[1]
-        return any(family.startswith(p) for p in ("g", "p", "inf", "trn"))
-    return False
-
-
-def _describe_endpoint(
-    sagemaker, endpoint_name: str
-) -> Tuple[Optional[float], bool, int, int, Optional[str], list, int]:
-    """Return (monthly_cost, is_gpu, variant_count, total_instances, primary_instance_type,
-    variant_names, total_provisioned_concurrency).
-
-    Instance type lives in the endpoint *config* (describe_endpoint_config), not in
-    the endpoint summary (describe_endpoint ProductionVariantSummary has no InstanceType
-    field — only DesiredInstanceCount). We make two calls: one for instance counts/serverless
-    config, one for instance types/ServerlessConfig, then pair them by VariantName.
-
-    Cost is computed per-variant:
-    - Instance-backed: DesiredInstanceCount × per-instance monthly cost, summed across variants
-    - Serverless with provisioned concurrency: units × $3.67/unit/month (us-east-1)
-    GPU flag is True if any variant uses an accelerator instance.
-
-    total_provisioned_concurrency is the sum of ProvisionedConcurrency across all serverless
-    variants. A serverless endpoint with provisioned concurrency > 0 incurs cost even when idle.
-
-    variant_names is returned so the caller can query CloudWatch per-variant without
-    an extra describe_endpoint call.
-
-    Returns (None, False, 0, 0, None, [], 0) on failure so the endpoint is skipped.
-
-    Cost is None if ANY instance-backed variant has an unknown instance type — a partial
-    sum would look accurate but silently underreport real spend (an unknown variant could
-    be ml.p5 at $71K/month). Either all costs are known or we return None.
-    """
-    try:
-        endpoint = sagemaker.describe_endpoint(EndpointName=endpoint_name)
-        variants = endpoint.get("ProductionVariants", [])
-        if not variants:
-            return None, False, 0, 0, None, [], 0
-
-        # Fetch instance types and ServerlessConfig from the endpoint config.
-        # InstanceType and ServerlessConfig live in describe_endpoint_config, not in
-        # the ProductionVariantSummary returned by describe_endpoint.
-        config_name = endpoint.get("EndpointConfigName", "")
-        instance_type_by_variant: dict = {}
-        serverless_cfg_by_variant: dict = {}
-        try:
-            config = sagemaker.describe_endpoint_config(EndpointConfigName=config_name)
-            for cv in config.get("ProductionVariants", []):
-                itype = cv.get("InstanceType")
-                if itype:
-                    instance_type_by_variant[cv["VariantName"]] = itype
-                slcfg = cv.get("ServerlessConfig")
-                if slcfg:
-                    serverless_cfg_by_variant[cv["VariantName"]] = slcfg
-        except Exception:
-            pass  # config inaccessible — costs/GPU will use defaults
-
-        accumulated_cost = 0.0
-        all_costs_known = True
-        is_gpu = False
-        total_instances = 0
-        total_provisioned_concurrency = 0
-        primary_instance_type: Optional[str] = None
-        variant_names = []
-
-        for i, v in enumerate(variants):
-            variant_name = v.get("VariantName", "")
-            itype = instance_type_by_variant.get(variant_name)
-            count = v.get("DesiredInstanceCount") or 0
-            total_instances += count
-
-            # Serverless provisioned concurrency — check runtime state (DescribeEndpoint)
-            # first, then fall back to static config (DescribeEndpointConfig).
-            # Both DesiredServerlessConfig and CurrentServerlessConfig are standard fields
-            # on ProductionVariantSummary (boto3 botocore model: DescribeEndpointOutput);
-            # they are NOT dead code. CurrentServerlessConfig = currently deployed state,
-            # DesiredServerlessConfig = target state. We take max() to avoid undercounting
-            # during in-progress updates where one may lag the other.
-            ep_sl = v.get("DesiredServerlessConfig") or v.get("CurrentServerlessConfig") or {}
-            cfg_sl = serverless_cfg_by_variant.get(variant_name, {})
-            provisioned_concurrency = max(
-                ep_sl.get("ProvisionedConcurrency") or 0,
-                cfg_sl.get("ProvisionedConcurrency") or 0,
-            )
-            total_provisioned_concurrency += provisioned_concurrency
-
-            if variant_name:
-                variant_names.append(variant_name)
-
-            if i == 0:
-                primary_instance_type = itype
-
-            if count > 0:
-                # Instance-backed variant — cost depends on known instance type.
-                cost_per_instance = _MONTHLY_COST_BY_FAMILY.get(itype)
-                if cost_per_instance is not None:
-                    accumulated_cost += cost_per_instance * count
-                else:
-                    # Unknown instance type makes the total unreliable — don't return
-                    # a partial sum that silently underreports real spend.
-                    all_costs_known = False
-            elif provisioned_concurrency > 0:
-                # Serverless variant with provisioned concurrency — cost is deterministic.
-                # Does not affect all_costs_known; serverless pricing is well-defined.
-                accumulated_cost += (
-                    provisioned_concurrency * _SERVERLESS_PROVISIONED_COST_PER_UNIT_MONTHLY
+            for v in billable_variants:
+                result = _get_variant_invocations(
+                    cloudwatch,
+                    n["endpoint_name"],
+                    v["variant_name"],
+                    window_start,
+                    now,
+                    period,
                 )
-            # else: serverless without provisioned concurrency or instance at zero → no cost
+                if result is None:
+                    # CloudWatch API failure → SKIP ITEM
+                    skip_item = True
+                    break
 
-            if itype and _is_gpu_instance(itype):
-                is_gpu = True
+                inv_sum, had_datapoints = result
+                if not had_datapoints:
+                    no_datapoint_variant_count += 1
+                    all_had_datapoints = False
 
-        total_monthly_cost: Optional[float] = accumulated_cost if all_costs_known else None
+                if inv_sum > 0:
+                    # Observed traffic → SKIP ITEM
+                    skip_item = True
+                    break
 
-        return (
-            total_monthly_cost,
-            is_gpu,
-            len(variants),
-            total_instances,
-            primary_instance_type,
-            variant_names,
-            total_provisioned_concurrency,
-        )
+                total_invocations_sum += inv_sum
 
-    except Exception:
-        # Unknown state — return zero instances so the endpoint is skipped rather
-        # than flagged with assumed cost and instance count.
-        return None, False, 0, 0, None, [], 0
+            if skip_item:
+                continue
+
+            # Step 15: Emit finding
+
+            # Confidence
+            confidence = ConfidenceLevel.HIGH if all_had_datapoints else ConfidenceLevel.MEDIUM
+
+            # Risk: HIGH for accelerator-backed, MEDIUM otherwise
+            is_gpu_or_accelerator_backed = any(
+                _is_gpu_instance(v["instance_type"])
+                for v in billable_variants
+                if v["instance_type"]
+            )
+            risk = RiskLevel.HIGH if is_gpu_or_accelerator_backed else RiskLevel.MEDIUM
+
+            # Endpoint-level billable_compute_mode
+            instance_billable_present = any(
+                v["billable_compute_mode"] in ("instance", "mixed") for v in billable_variants
+            )
+            serverless_billable_present = any(
+                v["billable_compute_mode"] in ("serverless_provisioned", "mixed")
+                for v in billable_variants
+            )
+            if instance_billable_present and serverless_billable_present:
+                endpoint_billable_compute_mode = "mixed"
+            elif instance_billable_present:
+                endpoint_billable_compute_mode = "instance"
+            else:
+                endpoint_billable_compute_mode = "serverless_provisioned"
+
+            total_current_instance_count = sum(
+                (v["current_instance_count"] or 0) for v in billable_variants
+            )
+            total_provisioned_concurrency = sum(
+                (v["current_serverless_provisioned_concurrency"] or 0) for v in billable_variants
+            )
+
+            signals_used = [
+                f"Endpoint status is '{_ELIGIBLE_STATUS}' (serving capacity)",
+                (
+                    f"Endpoint age is {n['age_days']} days, meeting the {idle_days_threshold}-day "
+                    f"threshold using the later of creation time and last-modified time"
+                ),
+                "Async inference was excluded: DescribeEndpointConfig.AsyncInferenceConfig absent",
+                (
+                    f"Billable compute remains allocated across {len(billable_variants)} "
+                    f"production variant(s)"
+                ),
+                (
+                    f"No observed positive InvokeEndpoint traffic across all evaluated runtime "
+                    f"production variants over the {idle_days_threshold}-day observation window"
+                ),
+            ]
+            if no_datapoint_variant_count > 0:
+                signals_used.append(
+                    f"{no_datapoint_variant_count} variant(s) returned no CloudWatch datapoints "
+                    "— treated as lower-confidence 'no recorded invocation metrics' evidence, "
+                    "not as proven zero traffic"
+                )
+
+            findings.append(
+                Finding(
+                    provider="aws",
+                    rule_id="aws.sagemaker.endpoint.idle",
+                    resource_type="aws.sagemaker.endpoint",
+                    resource_id=n["endpoint_arn"],
+                    region=region,
+                    estimated_monthly_cost_usd=None,
+                    title=_FINDING_TITLE,
+                    summary=(
+                        f"SageMaker endpoint {n['endpoint_name']} has no observed InvokeEndpoint "
+                        f"traffic in the last {idle_days_threshold} days while billable compute "
+                        f"remains allocated"
+                    ),
+                    reason=(
+                        f"InService SageMaker endpoint shows no observed InvokeEndpoint traffic "
+                        f"in the last {idle_days_threshold} days while billable compute remains "
+                        f"allocated"
+                    ),
+                    risk=risk,
+                    confidence=confidence,
+                    detected_at=now,
+                    evidence=Evidence(
+                        signals_used=signals_used,
+                        signals_not_checked=list(_SIGNALS_NOT_CHECKED),
+                        time_window=f"{idle_days_threshold} days",
+                    ),
+                    details={
+                        "evaluation_path": "idle-sagemaker-endpoint-review-candidate",
+                        "endpoint_arn": n["endpoint_arn"],
+                        "endpoint_name": n["endpoint_name"],
+                        "endpoint_status": "InService",
+                        "endpoint_config_name": config_name,
+                        "creation_time": n["creation_time_utc"].isoformat(),
+                        "last_modified_time": n["last_modified_time_utc"].isoformat(),
+                        "reference_time": n["reference_time_utc"].isoformat(),
+                        "evaluation_window_start": window_start.isoformat(),
+                        "evaluation_window_end": now.isoformat(),
+                        "age_days": n["age_days"],
+                        "idle_days_threshold": idle_days_threshold,
+                        "variant_names_evaluated": [v["variant_name"] for v in billable_variants],
+                        "billable_variant_count": len(billable_variants),
+                        "billable_compute_mode": endpoint_billable_compute_mode,
+                        "total_current_instance_count": total_current_instance_count,
+                        "total_provisioned_concurrency": total_provisioned_concurrency,
+                        "invocation_metric_namespace": _CW_NAMESPACE,
+                        "invocation_metric_name": _CW_METRIC,
+                        "invocation_dimensions": "EndpointName + VariantName",
+                        "traffic_detected": False,
+                        "no_datapoint_variant_count": no_datapoint_variant_count,
+                        "total_invocations_sum": total_invocations_sum,
+                        # Optional context
+                        "instance_types": sorted(
+                            {v["instance_type"] for v in billable_variants if v["instance_type"]}
+                        ),
+                        "is_gpu_or_accelerator_backed": is_gpu_or_accelerator_backed,
+                        "managed_instance_scaling_present": any(
+                            v["managed_instance_scaling_present"] for v in billable_variants
+                        ),
+                    },
+                )
+            )
+
+    return findings
