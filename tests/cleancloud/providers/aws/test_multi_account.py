@@ -3,6 +3,7 @@ Tests for multi-account scanning — aggregation, isolation, failure handling,
 org discovery, and account tagging on findings.
 """
 
+import functools
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -19,6 +20,7 @@ from cleancloud.providers.aws.multi_account import (
     scan_account,
     scan_multiple_accounts,
 )
+from cleancloud.providers.aws.scan import AWS_AI_RULES
 
 
 def _make_finding(resource_id="vol-1", region="us-east-1"):
@@ -135,7 +137,7 @@ def test_scan_account_all_regions_uses_assumed_session(
     )
 
     # Region discovery must use the assumed session, not hub
-    mock_get_regions.assert_called_once_with(assumed_session)
+    mock_get_regions.assert_called_once_with(assumed_session, include_ai=True)
     mock_scan.assert_called_once_with(assumed_session, ["us-east-1", "eu-west-1"], rules=None)
 
 
@@ -164,18 +166,48 @@ def test_scan_account_all_regions_falls_back_to_us_east_1_when_none_detected(
     assert result.regions_scanned == ["us-east-1"]
 
 
+@patch("cleancloud.providers.aws.multi_account.scan_aws_regions_with_session")
+@patch("cleancloud.providers.aws.multi_account._get_active_aws_regions")
+@patch("cleancloud.providers.aws.multi_account.assume_role")
+@patch("cleancloud.providers.aws.multi_account.create_aws_session")
+def test_scan_account_all_regions_detects_parameterized_ai_rules(
+    mock_create_session, mock_assume, mock_get_regions, mock_scan
+):
+    assumed_session = MagicMock()
+    mock_assume.return_value = assumed_session
+    mock_get_regions.return_value = ["us-east-1"]
+    mock_scan.return_value = ([], [], [])
+
+    account = AccountConfig(id="111111111111", name="prod")
+    scan_account(
+        profile=None,
+        account=account,
+        role_name="CleanCloudReadOnlyRole",
+        region=None,
+        external_id=None,
+        regions_override=None,
+        rules=[functools.partial(AWS_AI_RULES[0], idle_days_threshold=21)],
+    )
+
+    mock_get_regions.assert_called_once_with(assumed_session, include_ai=True)
+
+
 # ---------------------------------------------------------------------------
 # scan_multiple_accounts
 # ---------------------------------------------------------------------------
 
 
 @patch("cleancloud.providers.aws.multi_account.scan_account")
+@patch("cleancloud.providers.aws.multi_account._get_active_aws_regions")
 @patch("cleancloud.providers.aws.multi_account.create_aws_session")
-def test_scan_multiple_accounts_aggregates_findings(mock_create_session, mock_scan_account):
+def test_scan_multiple_accounts_aggregates_findings(
+    mock_create_session, mock_get_regions, mock_scan_account
+):
     mock_create_session.return_value = MagicMock()
     mock_create_session.return_value.client.return_value.get_caller_identity.return_value = {
         "Account": "000000000000"
     }
+    mock_get_regions.return_value = ["us-east-1"]
 
     finding_a = _make_finding("vol-1")
     finding_b = _make_finding("vol-2")
@@ -209,14 +241,16 @@ def test_scan_multiple_accounts_aggregates_findings(mock_create_session, mock_sc
 
 
 @patch("cleancloud.providers.aws.multi_account.scan_account")
+@patch("cleancloud.providers.aws.multi_account._get_active_aws_regions")
 @patch("cleancloud.providers.aws.multi_account.create_aws_session")
 def test_scan_multiple_accounts_one_failure_does_not_stop_others(
-    mock_create_session, mock_scan_account
+    mock_create_session, mock_get_regions, mock_scan_account
 ):
     mock_create_session.return_value = MagicMock()
     mock_create_session.return_value.client.return_value.get_caller_identity.return_value = {
         "Account": "000000000000"
     }
+    mock_get_regions.return_value = ["us-east-1"]
 
     finding = _make_finding("vol-1")
     mock_scan_account.side_effect = [
@@ -246,6 +280,39 @@ def test_scan_multiple_accounts_one_failure_does_not_stop_others(
     statuses = {r.account_id: r.status for r in results}
     assert statuses["111111111111"] == "failed"
     assert statuses["222222222222"] == "success"
+
+
+@patch("cleancloud.providers.aws.multi_account.scan_account")
+@patch("cleancloud.providers.aws.multi_account._get_active_aws_regions")
+@patch("cleancloud.providers.aws.multi_account.create_aws_session")
+def test_scan_multiple_accounts_all_regions_uses_ai_aware_region_discovery(
+    mock_create_session, mock_get_regions, mock_scan_account
+):
+    mock_create_session.return_value = MagicMock()
+    mock_create_session.return_value.client.return_value.get_caller_identity.return_value = {
+        "Account": "000000000000"
+    }
+    mock_get_regions.return_value = ["us-east-1"]
+    mock_scan_account.return_value = AccountScanResult(
+        account_id="111111111111",
+        account_name="prod",
+        status="success",
+    )
+
+    config = MultiAccountConfig(
+        accounts=[AccountConfig(id="111111111111", name="prod")],
+        role_name="CleanCloudReadOnlyRole",
+    )
+
+    scan_multiple_accounts(
+        config,
+        region=None,
+        all_regions=True,
+        profile=None,
+        rules=[functools.partial(AWS_AI_RULES[0], idle_days_threshold=21)],
+    )
+
+    mock_get_regions.assert_called_once_with(mock_create_session.return_value, include_ai=True)
 
 
 # ---------------------------------------------------------------------------

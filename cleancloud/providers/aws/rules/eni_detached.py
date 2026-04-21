@@ -60,7 +60,7 @@ _ELIGIBLE_STATUS = "available"
 # Any attachment_status outside this set is treated as inconsistent → SKIP ITEM.
 _ALLOWED_ATTACHMENT_STATUSES: frozenset = frozenset({None, "detached"})
 
-_FINDING_TITLE = "ENI not currently attached review candidate"
+_FINDING_TITLE = "Detached ENI review candidate"
 
 _SIGNAL_NOT_CURRENTLY_ATTACHED = (
     "ENI top-level Status is 'available' (not currently attached per EC2 documented contract)"
@@ -176,7 +176,7 @@ def find_detached_enis(
         paginator = ec2.get_paginator("describe_network_interfaces")
         pages = list(paginator.paginate())
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "UnauthorizedOperation":
+        if exc.response["Error"]["Code"] in ("UnauthorizedOperation", "AccessDenied"):
             raise PermissionError(
                 "Missing required IAM permission: ec2:DescribeNetworkInterfaces"
             ) from exc

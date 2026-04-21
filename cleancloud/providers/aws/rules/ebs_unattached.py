@@ -200,7 +200,7 @@ def find_unattached_ebs_volumes(
         paginator = ec2.get_paginator("describe_volumes")
         pages = list(paginator.paginate())
     except ClientError as exc:
-        if exc.response["Error"]["Code"] == "UnauthorizedOperation":
+        if exc.response["Error"]["Code"] in ("UnauthorizedOperation", "AccessDenied"):
             raise PermissionError("Missing required IAM permission: ec2:DescribeVolumes") from exc
         raise
     except BotoCoreError:

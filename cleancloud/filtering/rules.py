@@ -208,7 +208,9 @@ def apply_rule_config(
                 continue
             if effective.params:
                 _validate_params(rule_id, effective.params, rule)
-                rule = functools.partial(rule, **effective.params)
+                bound_rule = functools.partial(rule, **effective.params)
+                bound_rule.__name__ = getattr(rule, "__name__", type(rule).__name__)
+                rule = bound_rule
         else:
             # Rule not in RULE_MAP — include as-is (no config to apply)
             pass

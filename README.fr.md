@@ -94,16 +94,15 @@ cleancloud scan --provider aws --category all
      - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/mois
 
-5. [AWS] Endpoint SageMaker inactif (aucune invocation depuis 21 jours)
+5. [AWS] Endpoint SageMaker inactif — candidat de revue
    Risque     : Élevé
    Confiance  : High
    Ressource  : aws.sagemaker.endpoint → fraud-detection-v2
    Région     : us-east-1
    Règle      : aws.sagemaker.endpoint.idle
-   Raison     : Endpoint SageMaker sans invocation depuis 21 jours
+   Raison     : Endpoint SageMaker InService sans trafic InvokeEndpoint observé depuis 21 jours alors que du compute facturable reste alloué
    Détails :
-     - instance_type: ml.g5.2xlarge
-     - estimated_monthly_cost: ~$1 008/mois
+      - billable_variant_count: 1
 
 6. [AWS] NAT Gateway inactive
    Risque     : Moyen
@@ -191,7 +190,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 
 ## Fonctionnalités clés
 
-- **Détection du gaspillage IA/ML sur les 3 clouds :** points de terminaison SageMaker et notebooks, clusters AML Compute et instances ML, points de terminaison en ligne Azure ML et services Azure AI Search, points de terminaison Vertex AI et instances Workbench — facturés 500–23 000 $/mois par ressource en silence. Les ressources GPU sont signalées comme RISQUE ÉLEVÉ. Les outils natifs n'indiquent pas toujours quoi supprimer — CleanCloud le fait. Opt-in via `--category ai`
+- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints, notebooks, Studio apps et training jobs SageMaker ; clusters AML Compute et instances ML ; endpoints en ligne Azure ML et services Azure AI Search ; endpoints, instances Workbench et training jobs Vertex AI. Les ressources GPU sont mises en avant comme candidats de revue à risque plus élevé. Les outils natifs n'indiquent pas toujours quoi examiner — CleanCloud le fait. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
 - **45 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
@@ -286,7 +285,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Nœud Cloud TPU (v4/v5p) | 188 – 750+ $ / jour |
 | Vertex AI Feature Store (Bigtable) | 197 – 591+ $ / mois |
 
-CleanCloud détecte les endpoints à zéro invocation / zéro prédiction et les instances de notebook inactives sur les 3 clouds et les signale risque HIGH. Les outils natifs montrent la facture — ils ne vous disent pas *quel endpoint* supprimer.
+CleanCloud détecte les endpoints à zéro invocation / zéro prédiction, l'activité de contrôle inactive sur les notebooks et apps managés, ainsi que les training jobs managés anormalement longs sur les 3 clouds. Les outils natifs montrent la facture — ils ne vous disent pas quelle ressource concrète examiner.
 
 ```bash
 cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks + Studio apps SageMaker + training jobs SageMaker + EC2 GPU
@@ -538,7 +537,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
 - Gouvernance : ressources sans tags, security groups inutilisés
-- IA/ML *(opt-in : `--category ai`)* : Bedrock Provisioned Throughput (Model Units) inactifs avec zéro invocations depuis 7+ jours — facturés 600–7 300+$/MU/mois quel que soit le trafic ; endpoints SageMaker inactifs avec zéro invocations depuis 14+ jours — endpoints GPU flaggés risque HIGH ($500–$23K/mois) ; instances Notebook SageMaker sans activité depuis 14+ jours — notebooks GPU flaggés risque HIGH ($500–$23K+/mois) ; Studio Apps SageMaker (KernelGateway/JupyterLab/CodeEditor) sans activité utilisateur depuis 7+ jours — apps GPU flaggées risque HIGH ($42–$1 600+/mois) ; training jobs SageMaker dépassant 24h — alerte précoce GPU à 75% du seuil, risque CRITICAL pour les jobs GPU ayant dépassé leur condition d'arrêt (670–2 360+$/jour pour instances p3/p4d/p5)
+- IA/ML *(opt-in : `--category ai`)* : Bedrock Provisioned Throughput (Model Units) inactifs avec zéro invocation depuis 7+ jours ; endpoints SageMaker sans trafic `InvokeEndpoint` observé depuis 14+ jours ; instances Notebook SageMaker avec timestamps de contrôle inactifs depuis 14+ jours ; Studio Apps SageMaker (`KernelGateway`/`JupyterLab`/`CodeEditor`) sans signal d'activité récent exploitable depuis 7+ jours ; training jobs SageMaker toujours `InProgress` au-delà du seuil de 24h
 
 **Azure :**
 - Compute : VMs arrêtées (non désallouées) (HIGH)

@@ -76,13 +76,18 @@ def _format_enum_counts(data: dict) -> dict[str, int]:
 def _print_summary(summary: dict, region_selection_mode: str = None, multi_account_results=None):
     click.echo("\n--- Scan Summary ---")
 
-    skipped_rules = summary.get("skipped_rules", [])
+    all_skipped = summary.get("skipped_rules", [])
+    permission_skipped = [s for s in all_skipped if "missing_permissions" in s]
+    failed_rules = [s for s in all_skipped if "error" in s]
     total_rules = summary.get("total_rules")
-    if skipped_rules:
+    if all_skipped:
         if total_rules:
-            executed = total_rules - len(skipped_rules)
+            executed = total_rules - len(all_skipped)
             click.echo(f"Rules executed: {executed}/{total_rules}")
-        click.echo(f"Rules skipped:  {len(skipped_rules)} (missing permissions)")
+        if permission_skipped:
+            click.echo(f"Rules skipped:  {len(permission_skipped)} (missing permissions)")
+        if failed_rules:
+            click.echo(f"Rules failed:   {len(failed_rules)} (errors during scan)")
     click.echo(f"Total findings: {summary['total_findings']}")
 
     rules_evaluated = summary.get("rules_evaluated", {})
@@ -182,26 +187,41 @@ def _print_summary(summary: dict, region_selection_mode: str = None, multi_accou
 
     click.echo(f"\nScanned at: {summary['scanned_at']}")
 
-    # Skipped rules detail
-    if skipped_rules:
+    # Skipped rules detail (permission failures)
+    if permission_skipped:
         click.echo()
         click.echo("Skipped (missing permissions):")
-        for skipped in skipped_rules:
+        for skipped in permission_skipped:
             rule_name = skipped["rule"]
             if rule_name.startswith("find_"):
                 rule_name = rule_name[5:]
             missing = skipped.get("missing_permissions", "")
-            # Strip verbose prefix if present
             missing = missing.replace("Missing required IAM permissions: ", "")
             missing = missing.replace("Missing required permissions: ", "")
             click.echo(f"  - {rule_name}")
             if missing:
                 click.echo(f"      needs: {missing}")
         click.echo()
-        # Detect which providers have skipped rules by their provider-specific keys
-        has_azure = any("subscription_id" in s for s in skipped_rules)
-        has_gcp = any("project_id" in s for s in skipped_rules)
-        has_aws = any("subscription_id" not in s and "project_id" not in s for s in skipped_rules)
+
+    # Failed rules detail (non-permission errors)
+    if failed_rules:
+        click.echo()
+        click.echo("Failed rules (errors during scan):")
+        for failed in failed_rules:
+            rule_name = failed["rule"]
+            if rule_name.startswith("find_"):
+                rule_name = rule_name[5:]
+            error = failed.get("error", "unknown error")
+            click.echo(f"  - {rule_name}: {error}")
+        click.echo()
+
+    # Prompt to fix missing permissions
+    if permission_skipped:
+        has_azure = any("subscription_id" in s for s in permission_skipped)
+        has_gcp = any("project_id" in s for s in permission_skipped)
+        has_aws = any(
+            "subscription_id" not in s and "project_id" not in s for s in permission_skipped
+        )
 
         click.echo("To enable skipped rules, update your IAM policy/role to the latest version:")
         if has_aws:

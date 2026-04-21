@@ -94,16 +94,15 @@ Found 10 findings (6 hygiene + 4 AI/ML):
      - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/month
 
-5. [AWS] Idle SageMaker Endpoint (No Invocations for 21 Days)
+5. [AWS] Idle SageMaker Endpoint Review Candidate
    Risk       : High
    Confidence : High
    Resource   : aws.sagemaker.endpoint → fraud-detection-v2
    Region     : us-east-1
    Rule       : aws.sagemaker.endpoint.idle
-   Reason     : SageMaker endpoint has zero invocations for 21 days
+   Reason     : InService SageMaker endpoint shows no observed InvokeEndpoint traffic in the last 21 days while billable compute remains allocated
    Details:
-     - instance_type: ml.g5.2xlarge
-     - estimated_monthly_cost: ~$1,008/month
+      - billable_variant_count: 1
 
 6. [AWS] Idle NAT Gateway
    Risk       : Medium
@@ -191,7 +190,7 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ## Key Features
 
-- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints and notebooks, AML compute clusters and instances, Azure ML online endpoints and AI Search services, Vertex AI endpoints and Workbench instances — silently billing $500–$23K/month per resource. GPU-backed resources flagged HIGH risk. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
+- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints, notebook instances, Studio apps, and long-running training jobs; AML compute clusters and instances; Azure ML online endpoints and AI Search services; Vertex AI endpoints, Workbench instances, and training jobs. GPU-backed resources are highlighted as higher-risk review candidates. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
 - **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
 - **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
 - **45 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
@@ -286,7 +285,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | Cloud TPU node (v4/v5p) | $188 – $750+/ day |
 | Vertex AI Feature Store (Bigtable-backed) | $197 – $591+ / month |
 
-CleanCloud detects zero-invocation / zero-prediction endpoints and idle notebook instances across all three clouds and flags them HIGH risk. Native cost tools show the bill — they don't tell you *which endpoint* to delete.
+CleanCloud detects zero-invocation / zero-prediction endpoints, stale managed notebook and app activity, and long-running managed training jobs across all three clouds. Native cost tools show the bill — they do not tell you which concrete resource to review.
 
 ```bash
 cleancloud scan --provider aws --category ai          # Bedrock PTUs + SageMaker endpoints + notebooks + Studio apps + training jobs + idle GPU EC2
@@ -538,7 +537,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Platform: idle RDS instances (HIGH)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
-- AI/ML *(opt-in: `--category ai`)*: idle Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills $600–$7,300+/MU/month regardless of traffic; idle SageMaker endpoints with zero invocations 14+ days — GPU-backed endpoints flagged HIGH risk ($500–$23K/month); idle Notebook Instances with no activity 14+ days — GPU-backed notebooks flagged HIGH risk ($500–$23K+/month); idle Studio Apps (KernelGateway/JupyterLab/CodeEditor) with no user activity 7+ days — GPU-backed apps flagged HIGH risk ($42–$1,600+/month); long-running SageMaker training jobs beyond 24h threshold — GPU early warning at 75% of threshold, CRITICAL risk for GPU jobs that have outlived their stopping condition ($670–$2,360+/day for p3/p4d/p5 instances)
+- AI/ML *(opt-in: `--category ai`)*: idle Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days; idle SageMaker endpoints with no observed `InvokeEndpoint` traffic 14+ days; SageMaker Notebook Instances with stale control-plane timestamps 14+ days; SageMaker Studio apps (`KernelGateway`/`JupyterLab`/`CodeEditor`) with no usable recent activity signal 7+ days; SageMaker training jobs still `InProgress` beyond the 24h threshold
 
 **Azure:**
 - Compute: stopped (not deallocated) VMs (HIGH)

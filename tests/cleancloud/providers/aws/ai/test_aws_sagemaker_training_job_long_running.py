@@ -2,73 +2,129 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cleancloud.providers.aws.rules.ai.sagemaker_training_job_long_running import (
+    RULE_METADATA,
+    _is_accelerator_backed,
+    _is_job_accelerator_backed,
+    _normalize_describe,
+    _normalize_list_item,
     find_long_running_sagemaker_training_jobs,
 )
 
 _REGION = "us-east-1"
+_ARN_PREFIX = "arn:aws:sagemaker:us-east-1:123456789012:training-job"
 
 
-def _make_job(
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_list_job(
     name="train-job-1",
     arn=None,
     age_hours=48,
+    status="InProgress",
+    secondary_status="Training",
+    lmt_hours=None,
 ):
+    """Return a raw ListTrainingJobs item."""
     now = datetime.now(timezone.utc)
-    return {
+    item = {
         "TrainingJobName": name,
-        "TrainingJobArn": arn or f"arn:aws:sagemaker:us-east-1:123456789012:training-job/{name}",
+        "TrainingJobArn": arn or f"{_ARN_PREFIX}/{name}",
+        "TrainingJobStatus": status,
         "CreationTime": now - timedelta(hours=age_hours),
-        "TrainingJobStatus": "InProgress",
+        "SecondaryStatus": secondary_status,
     }
+    if lmt_hours is not None:
+        item["LastModifiedTime"] = now - timedelta(hours=lmt_hours)
+    return item
+
+
+def _make_describe(
+    name="train-job-1",
+    arn=None,
+    status="InProgress",
+    training_start_hours=None,
+    secondary_status="Training",
+    enable_spot=False,
+    max_runtime_seconds=None,
+    max_wait_time_seconds=None,
+    max_pending_time_seconds=None,
+    instance_type="ml.m5.xlarge",
+    instance_count=1,
+    instance_groups=None,
+    serverless=False,
+    warm_pool_status=None,
+):
+    """Return a raw DescribeTrainingJob response."""
+    now = datetime.now(timezone.utc)
+    result = {
+        "TrainingJobArn": arn or f"{_ARN_PREFIX}/{name}",
+        "TrainingJobName": name,
+        "TrainingJobStatus": status,
+        "SecondaryStatus": secondary_status,
+        "EnableManagedSpotTraining": enable_spot,
+    }
+    if training_start_hours is not None:
+        result["TrainingStartTime"] = now - timedelta(hours=training_start_hours)
+
+    stopping = {}
+    if max_runtime_seconds is not None:
+        stopping["MaxRuntimeInSeconds"] = max_runtime_seconds
+    if max_wait_time_seconds is not None:
+        stopping["MaxWaitTimeInSeconds"] = max_wait_time_seconds
+    if max_pending_time_seconds is not None:
+        stopping["MaxPendingTimeInSeconds"] = max_pending_time_seconds
+    result["StoppingCondition"] = stopping
+
+    resource_config: dict = {}
+    if instance_groups is not None:
+        resource_config["InstanceGroups"] = instance_groups
+    else:
+        resource_config["InstanceType"] = instance_type
+        resource_config["InstanceCount"] = instance_count
+    result["ResourceConfig"] = resource_config
+
+    if serverless:
+        result["ServerlessJobConfig"] = {}
+
+    if warm_pool_status is not None:
+        result["WarmPoolStatus"] = {"Status": warm_pool_status}
+
+    return result
 
 
 def _make_session(
     jobs=None,
-    instance_type="ml.m5.xlarge",
-    instance_count=1,
-    training_image="763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-training:2.0.0-gpu-py310",
-    secondary_status="Training",
-    max_runtime_seconds=None,
-    max_wait_time_seconds=None,
-    enable_managed_spot=False,
-    instance_groups=None,  # list of {"InstanceType": ..., "InstanceCount": ...} for heterogeneous
+    describe_response=None,
     describe_side_effect=None,
+    list_side_effect=None,
 ):
+    """Build a mock boto3 session."""
     sagemaker = MagicMock()
 
-    page = {"TrainingJobSummaries": jobs or []}
-    paginator = MagicMock()
-    paginator.paginate.return_value = [page]
-    sagemaker.get_paginator.return_value = paginator
-
-    if describe_side_effect:
-        sagemaker.describe_training_job.side_effect = describe_side_effect
+    # List paginator
+    if list_side_effect is not None:
+        paginator = MagicMock()
+        paginator.paginate.side_effect = list_side_effect
+        sagemaker.get_paginator.return_value = paginator
     else:
-        stopping = {}
-        if max_runtime_seconds is not None:
-            stopping["MaxRuntimeInSeconds"] = max_runtime_seconds
-        if max_wait_time_seconds is not None:
-            stopping["MaxWaitTimeInSeconds"] = max_wait_time_seconds
+        page = {"TrainingJobSummaries": jobs or []}
+        paginator = MagicMock()
+        paginator.paginate.return_value = [page]
+        sagemaker.get_paginator.return_value = paginator
 
-        resource_config: dict = {}
-        if instance_groups is not None:
-            resource_config["InstanceGroups"] = instance_groups
-        else:
-            resource_config["InstanceType"] = instance_type
-            resource_config["InstanceCount"] = instance_count
-
-        sagemaker.describe_training_job.return_value = {
-            "ResourceConfig": resource_config,
-            "AlgorithmSpecification": {
-                "TrainingImage": training_image,
-            },
-            "SecondaryStatus": secondary_status,
-            "StoppingCondition": stopping,
-            "EnableManagedSpotTraining": enable_managed_spot,
-        }
+    # Describe
+    if describe_side_effect is not None:
+        sagemaker.describe_training_job.side_effect = describe_side_effect
+    elif describe_response is not None:
+        sagemaker.describe_training_job.return_value = describe_response
+    else:
+        sagemaker.describe_training_job.return_value = _make_describe()
 
     session = MagicMock()
     session.client.return_value = sagemaker
@@ -79,635 +135,1271 @@ def _auth_error(code="AccessDeniedException"):
     return ClientError({"Error": {"Code": code, "Message": "Access Denied"}}, "op")
 
 
-# ---------------------------------------------------------------------------
-# Basic detection
-# ---------------------------------------------------------------------------
-
-
-def test_long_running_job_detected():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.rule_id == "aws.sagemaker.training_job.long_running"
-    assert f.resource_type == "aws.sagemaker.training_job"
-    assert f.provider == "aws"
-    assert f.region == _REGION
-
-
-def test_short_job_not_flagged():
-    """Job running for only 6h with 24h threshold should not be flagged."""
-    job = _make_job(age_hours=6)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings == []
-
-
-def test_job_at_75pct_threshold_not_flagged_for_cpu():
-    """CPU job at 75% of threshold (18h for 24h threshold) is below the medium floor — skip."""
-    job = _make_job(age_hours=17)  # 17h < 18h = 24 * 0.75
-    session, _ = _make_session(jobs=[job], instance_type="ml.m5.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings == []
-
-
-def test_no_jobs_returns_empty():
-    session, _ = _make_session(jobs=[])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION)
-    assert findings == []
+def _transient_error(code="ThrottlingException"):
+    return ClientError({"Error": {"Code": code, "Message": "Throttled"}}, "op")
 
 
 # ---------------------------------------------------------------------------
-# Confidence levels
+# TestMustEmit — basic detection
 # ---------------------------------------------------------------------------
 
 
-def test_high_confidence_at_3x_threshold():
-    """Job running >= 3× threshold → HIGH confidence."""
-    job = _make_job(age_hours=75)  # 75h >= 3×24=72h
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
+class TestMustEmit:
+    def test_basic_long_running_job_detected(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.rule_id == "aws.sagemaker.training_job.long_running"
+        assert f.resource_type == "aws.sagemaker.training_job"
+        assert f.provider == "aws"
+        assert f.region == _REGION
 
+    def test_exact_threshold_emits(self):
+        """Job at exactly the threshold (24h) emits."""
+        job = _make_list_job(age_hours=24)
+        desc = _make_describe(training_start_hours=24)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert len(findings) == 1
 
-def test_medium_confidence_at_1x_threshold():
-    """Job running >= threshold but < 3× → MEDIUM confidence."""
-    job = _make_job(age_hours=30)  # 30h >= 24h but < 72h
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
+    def test_creation_time_anchor_when_no_training_start(self):
+        """When TrainingStartTime absent, CreationTime is used as anchor."""
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe()  # no training_start_hours → no TrainingStartTime
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert len(findings) == 1
+        assert findings[0].details["runtime_anchor_type"] == "creation_time"
+        assert findings[0].details["training_start_time"] is None
 
+    def test_training_start_time_anchor(self):
+        """When TrainingStartTime present, it is used as anchor."""
+        job = _make_list_job(age_hours=50)
+        desc = _make_describe(training_start_hours=26)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.details["runtime_anchor_type"] == "training_start_time"
+        assert f.details["training_start_time"] is not None
+        assert f.details["active_training_hours"] == 26
 
-def test_gpu_job_flagged_at_75pct_threshold_as_medium():
-    """GPU job at 75–100% of threshold is surfaced as early MEDIUM warning."""
-    job = _make_job(age_hours=19)  # 19h >= 24*0.75=18h, < 24h, GPU instance
-    session, _ = _make_session(jobs=[job], instance_type="ml.g5.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-    assert findings[0].details["is_gpu"] is True
+    def test_no_jobs_returns_empty(self):
+        session, _ = _make_session(jobs=[])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings == []
 
+    def test_resource_id_from_describe_arn(self):
+        custom_arn = f"{_ARN_PREFIX}/myjob"
+        job = _make_list_job(age_hours=48, arn=custom_arn)
+        desc = _make_describe(arn=custom_arn)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].resource_id == custom_arn
 
-# ---------------------------------------------------------------------------
-# Risk levels
-# ---------------------------------------------------------------------------
+    def test_resource_id_falls_back_to_list_arn_when_describe_arn_absent(self):
+        list_arn = f"{_ARN_PREFIX}/fallback-job"
+        job = _make_list_job(name="fallback-job", age_hours=48, arn=list_arn)
+        # Describe response without TrainingJobArn field
+        desc = _make_describe()
+        desc.pop("TrainingJobArn", None)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].resource_id == list_arn
 
-
-def test_critical_risk_gpu_high_confidence():
-    """GPU instance + HIGH confidence (3×) → CRITICAL risk."""
-    job = _make_job(age_hours=75)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.16xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].risk.value == "critical"
-
-
-def test_high_risk_gpu_medium_confidence():
-    """GPU instance + MEDIUM confidence → HIGH risk."""
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.2xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].risk.value == "high"
-
-
-def test_high_risk_cpu_high_confidence():
-    """CPU instance + HIGH confidence → HIGH risk."""
-    job = _make_job(age_hours=75)
-    session, _ = _make_session(jobs=[job], instance_type="ml.m5.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].risk.value == "high"
-
-
-def test_medium_risk_cpu_medium_confidence():
-    """CPU instance + MEDIUM confidence → MEDIUM risk."""
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(jobs=[job], instance_type="ml.m5.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].risk.value == "medium"
-
-
-# ---------------------------------------------------------------------------
-# Cost estimation
-# ---------------------------------------------------------------------------
-
-
-def test_accrued_cost_single_instance():
-    """Accrued cost = duration_hours × hourly_rate × 1; estimated_monthly_cost_usd is None."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.16xlarge", instance_count=1)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    f = findings[0]
-    # Training jobs are transient — monthly cost field must not be set
-    assert f.estimated_monthly_cost_usd is None
-    # Accrued cost lives in details: $28.15/hr × 1 × ~48h ≈ $1,351
-    assert f.details["accrued_cost_usd"] > 0
-    assert f.details["hourly_rate_per_instance"] == 28.15
-    assert f.details["instance_count"] == 1
-    assert f.details["cost_type"] == "accrued_to_date"
-
-
-def test_accrued_cost_distributed_job():
-    """Accrued cost multiplied by instance_count for distributed training."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.2xlarge", instance_count=4)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    f = findings[0]
-    # $3.83/hr × 4 instances × ~48h ≈ $734
-    assert f.details["instance_count"] == 4
-    assert f.estimated_monthly_cost_usd is None
-    # Accrued cost should be ~4× single instance cost
-    single_cost = 3.83 * 1 * f.details["duration_hours"]
-    assert abs(f.details["accrued_cost_usd"] - single_cost * 4) < 1.0
-
-
-def test_unknown_instance_type_uses_cpu_default():
-    """Unknown CPU instance type uses $0.50/hr default."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.m7i.xlarge")  # not in table
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["hourly_rate_per_instance"] == 0.50
-
-
-def test_unknown_gpu_instance_type_uses_gpu_default():
-    """Unknown GPU instance type uses $4.00/hr GPU floor."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.g7.xlarge")  # future SKU
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_gpu"] is True
-    assert findings[0].details["hourly_rate_per_instance"] == 4.00
+    def test_estimated_monthly_cost_is_none(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].estimated_monthly_cost_usd is None
 
 
 # ---------------------------------------------------------------------------
-# GPU family detection
+# TestMustSkipListLevel — list-level exclusion rules
 # ---------------------------------------------------------------------------
 
 
-def test_p3_instance_detected_as_gpu():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.16xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_gpu"] is True
+class TestMustSkipListLevel:
+    def test_name_absent_skipped(self):
+        job = _make_list_job(age_hours=48)
+        del job["TrainingJobName"]
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
+    def test_arn_absent_skipped(self):
+        job = _make_list_job(age_hours=48)
+        del job["TrainingJobArn"]
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
-def test_g6_instance_detected_as_gpu():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.g6.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_gpu"] is True
+    def test_status_absent_skipped(self):
+        job = _make_list_job(age_hours=48)
+        del job["TrainingJobStatus"]
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
+    def test_non_inprogress_status_skipped(self):
+        for status in ("Completed", "Failed", "Stopping", "Stopped"):
+            job = _make_list_job(age_hours=48, status=status)
+            session, _ = _make_session(jobs=[job])
+            findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+            assert findings == [], f"Expected skip for status {status}"
 
-def test_trn1_instance_detected_as_gpu():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.trn1.32xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_gpu"] is True
+    def test_creation_time_absent_skipped(self):
+        job = _make_list_job(age_hours=48)
+        del job["CreationTime"]
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
+    def test_creation_time_naive_skipped(self):
+        job = _make_list_job(age_hours=48)
+        job["CreationTime"] = datetime.now() - timedelta(hours=48)  # no tzinfo
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
-def test_m5_instance_not_gpu():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.m5.xlarge")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_gpu"] is False
+    def test_creation_time_future_beyond_skew_skipped(self):
+        job = _make_list_job(age_hours=48)
+        job["CreationTime"] = datetime.now(timezone.utc) + timedelta(seconds=600)
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
+    def test_last_modified_time_future_beyond_skew_skips_item(self):
+        job = _make_list_job(age_hours=48)
+        job["LastModifiedTime"] = datetime.now(timezone.utc) + timedelta(seconds=600)
+        session, _ = _make_session(jobs=[job])
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
-# ---------------------------------------------------------------------------
-# Details and title
-# ---------------------------------------------------------------------------
+    def test_short_job_below_threshold_skipped(self):
+        job = _make_list_job(age_hours=6)
+        desc = _make_describe()
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert (
+            find_long_running_sagemaker_training_jobs(
+                session, _REGION, long_running_hours_threshold=24
+            )
+            == []
+        )
 
-
-def test_details_contain_required_fields():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.16xlarge", instance_count=2)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    d = findings[0].details
-    assert "job_name" in d
-    assert "instance_type" in d
-    assert "instance_count" in d
-    assert "is_gpu" in d
-    assert "duration_hours" in d
-    assert "long_running_hours_threshold" in d
-    assert "accrued_cost_usd" in d
-    assert "cost_type" in d
-    assert d["cost_type"] == "accrued_to_date"
-    assert "pricing_source" in d
-    assert d["pricing_source"] == "static_estimate_us_east_1"
-    assert "secondary_status" in d
-    assert "max_runtime_seconds" in d
-    assert "exceeded_max_runtime" in d
-    assert "is_stuck_early" in d
-
-
-def test_title_includes_duration_and_instance():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.16xlarge", instance_count=1)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    title = findings[0].title
-    assert "Long-Running" in title
-    assert "ml.p3.16xlarge" in title
-    assert "h" in title  # duration in hours
-
-
-def test_title_includes_instance_count_for_distributed():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.2xlarge", instance_count=8)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert "× 8" in findings[0].title
-
-
-def test_resource_id_uses_arn_when_available():
-    job = _make_job(age_hours=48, arn="arn:aws:sagemaker:us-east-1:123:training-job/myjob")
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].resource_id == "arn:aws:sagemaker:us-east-1:123:training-job/myjob"
+    def test_item_not_dict_skipped(self):
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.return_value = [{"TrainingJobSummaries": ["not-a-dict"]}]
+        sagemaker.get_paginator.return_value = paginator
+        session = MagicMock()
+        session.client.return_value = sagemaker
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
 
 
 # ---------------------------------------------------------------------------
-# Naive datetime handling
+# TestMustSkipDescribeLevel — describe-level exclusion rules
 # ---------------------------------------------------------------------------
 
 
-def test_naive_creation_time_does_not_raise():
-    """Naive CreationTime (no tzinfo) should be normalised to UTC without raising."""
-    now = datetime.now(timezone.utc)
-    job = _make_job(age_hours=48)
-    job["CreationTime"] = (now - timedelta(hours=48)).replace(tzinfo=None)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
+class TestMustSkipDescribeLevel:
+    def test_describe_status_absent_skipped(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe()
+        del desc["TrainingJobStatus"]
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_describe_status_not_inprogress_skipped(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(status="Completed")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_training_start_time_naive_treated_as_null_uses_creation_time(self):
+        """Naive TrainingStartTime normalizes to null → CreationTime used as anchor."""
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe()
+        desc["TrainingStartTime"] = datetime.now() - timedelta(hours=46)  # naive
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        # Item is still emitted using creation_time anchor
+        assert len(findings) == 1
+        assert findings[0].details["runtime_anchor_type"] == "creation_time"
+
+    def test_training_start_time_future_beyond_skew_skipped(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe()
+        desc["TrainingStartTime"] = datetime.now(timezone.utc) + timedelta(seconds=600)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_training_start_before_creation_beyond_skew_skipped(self):
+        """TrainingStartTime that is before CreationTime by more than 300s → skip."""
+        now = datetime.now(timezone.utc)
+        job = _make_list_job(age_hours=48)
+        job["CreationTime"] = now - timedelta(hours=48)
+        desc = _make_describe()
+        # TrainingStartTime 1 hour before CreationTime — exceeds skew tolerance of 300s
+        desc["TrainingStartTime"] = now - timedelta(hours=49)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_training_start_within_skew_of_creation_emits(self):
+        """TrainingStartTime within clock_skew_tolerance_seconds before CreationTime → emit."""
+        now = datetime.now(timezone.utc)
+        job = _make_list_job(age_hours=48)
+        job["CreationTime"] = now - timedelta(hours=48)
+        desc = _make_describe()
+        # TrainingStartTime 200s before CreationTime — within 300s skew tolerance
+        desc["TrainingStartTime"] = (now - timedelta(hours=48)) - timedelta(seconds=200)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings) == 1
+
+    def test_elapsed_below_threshold_after_describe_skipped(self):
+        """Job with TrainingStartTime only 12h ago is below 24h threshold."""
+        job = _make_list_job(age_hours=50)  # old creation time, but…
+        desc = _make_describe(training_start_hours=12)  # only running 12h
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        assert (
+            find_long_running_sagemaker_training_jobs(
+                session, _REGION, long_running_hours_threshold=24
+            )
+            == []
+        )
 
 
 # ---------------------------------------------------------------------------
-# Error handling
+# TestMustFailRule — failure model
 # ---------------------------------------------------------------------------
 
 
-def test_list_training_jobs_auth_error_raises_permission_error():
-    sagemaker = MagicMock()
-    sagemaker.get_paginator.return_value.paginate.side_effect = _auth_error()
-    session = MagicMock()
-    session.client.return_value = sagemaker
-    with pytest.raises(PermissionError, match="sagemaker:ListTrainingJobs"):
-        find_long_running_sagemaker_training_jobs(session, _REGION)
+class TestMustFailRule:
+    def test_list_permission_error_access_denied_raises(self):
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _auth_error("AccessDeniedException")
+        sagemaker.get_paginator.return_value = paginator
+        session = MagicMock()
+        session.client.return_value = sagemaker
+        with pytest.raises(PermissionError, match="sagemaker:ListTrainingJobs"):
+            find_long_running_sagemaker_training_jobs(session, _REGION)
+
+    def test_list_permission_error_unauthorized_raises(self):
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _auth_error("UnauthorizedOperation")
+        sagemaker.get_paginator.return_value = paginator
+        session = MagicMock()
+        session.client.return_value = sagemaker
+        with pytest.raises(PermissionError, match="sagemaker:ListTrainingJobs"):
+            find_long_running_sagemaker_training_jobs(session, _REGION)
+
+    def test_list_non_permission_error_reraises(self):
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.side_effect = _transient_error()
+        sagemaker.get_paginator.return_value = paginator
+        session = MagicMock()
+        session.client.return_value = sagemaker
+        with pytest.raises(ClientError):
+            find_long_running_sagemaker_training_jobs(session, _REGION)
+
+    def test_list_botocore_error_reraises(self):
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.side_effect = BotoCoreError()
+        sagemaker.get_paginator.return_value = paginator
+        session = MagicMock()
+        session.client.return_value = sagemaker
+        with pytest.raises(BotoCoreError):
+            find_long_running_sagemaker_training_jobs(session, _REGION)
+
+    def test_describe_permission_error_raises(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(
+            jobs=[job], describe_side_effect=_auth_error("AccessDeniedException")
+        )
+        with pytest.raises(PermissionError, match="sagemaker:DescribeTrainingJob"):
+            find_long_running_sagemaker_training_jobs(session, _REGION)
 
 
-def test_describe_training_job_auth_error_raises_permission_error():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], describe_side_effect=_auth_error())
-    with pytest.raises(PermissionError, match="sagemaker:DescribeTrainingJob"):
-        find_long_running_sagemaker_training_jobs(session, _REGION)
+# ---------------------------------------------------------------------------
+# TestDescribeSkipItem — non-permission describe failures → SKIP ITEM
+# ---------------------------------------------------------------------------
 
 
-def test_describe_transient_error_skips_job():
-    """Non-auth describe failure should skip the job, not abort the scan."""
-    job1 = _make_job(name="job-1", age_hours=48)
-    job2 = _make_job(name="job-2", age_hours=48)
+class TestDescribeSkipItem:
+    def test_describe_transient_error_skips_job(self):
+        job1 = _make_list_job(name="job-1", age_hours=48)
+        job2 = _make_list_job(name="job-2", age_hours=48)
+        desc2 = _make_describe(name="job-2")
 
-    sagemaker = MagicMock()
-    paginator = MagicMock()
-    paginator.paginate.return_value = [{"TrainingJobSummaries": [job1, job2]}]
-    sagemaker.get_paginator.return_value = paginator
+        def _describe(**kwargs):
+            if kwargs["TrainingJobName"] == "job-1":
+                raise _transient_error()
+            return desc2
 
-    call_count = [0]
+        session, sagemaker = _make_session(jobs=[job1, job2])
+        sagemaker.describe_training_job.side_effect = _describe
 
-    def _describe(**kwargs):
-        call_count[0] += 1
-        if kwargs["TrainingJobName"] == "job-1":
-            raise ClientError({"Error": {"Code": "ThrottlingException", "Message": ""}}, "op")
-        return {
-            "ResourceConfig": {"InstanceType": "ml.m5.xlarge", "InstanceCount": 1},
-            "AlgorithmSpecification": {"TrainingImage": ""},
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings) == 1
+        assert findings[0].details["training_job_name"] == "job-2"
+
+    def test_describe_resource_not_found_skips_job(self):
+        job = _make_list_job(age_hours=48)
+        err = ClientError({"Error": {"Code": "ResourceNotFound", "Message": "not found"}}, "op")
+        session, _ = _make_session(jobs=[job], describe_side_effect=err)
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_describe_botocore_error_skips_job(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job], describe_side_effect=BotoCoreError())
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+    def test_describe_returns_non_dict_skips_job(self):
+        job = _make_list_job(age_hours=48)
+        session, sagemaker = _make_session(jobs=[job])
+        sagemaker.describe_training_job.return_value = "bad-response"
+        assert find_long_running_sagemaker_training_jobs(session, _REGION) == []
+
+
+# ---------------------------------------------------------------------------
+# TestRuntimeAnchor — runtime anchor selection logic
+# ---------------------------------------------------------------------------
+
+
+class TestRuntimeAnchor:
+    def test_anchor_is_training_start_time_when_present(self):
+        job = _make_list_job(age_hours=100)
+        desc = _make_describe(training_start_hours=50)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert findings[0].details["runtime_anchor_type"] == "training_start_time"
+        assert findings[0].details["elapsed_runtime_hours"] == 50
+        assert findings[0].details["active_training_hours"] == 50
+
+    def test_anchor_is_creation_time_when_no_training_start(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe()  # no training start
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert findings[0].details["runtime_anchor_type"] == "creation_time"
+        assert findings[0].details["active_training_hours"] is None
+        assert findings[0].details["elapsed_runtime_hours"] == findings[0].details["job_age_hours"]
+
+    def test_short_training_start_with_old_creation_time_uses_training_start(self):
+        """Job created 72h ago but only started training 12h ago → not emitted (12h < 24h)."""
+        job = _make_list_job(age_hours=72)
+        desc = _make_describe(training_start_hours=12)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert findings == []
+
+    def test_job_age_hours_always_based_on_creation_time(self):
+        job = _make_list_job(age_hours=60)
+        desc = _make_describe(training_start_hours=30)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["job_age_hours"] == 60
+        assert findings[0].details["active_training_hours"] == 30
+
+
+# ---------------------------------------------------------------------------
+# TestStoppingCondition — applicable_runtime_limit_seconds logic
+# ---------------------------------------------------------------------------
+
+
+class TestStoppingCondition:
+    def test_spot_uses_max_wait_time_as_limit(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(
+            training_start_hours=48,
+            enable_spot=True,
+            max_wait_time_seconds=259_200,  # 72h
+            max_runtime_seconds=86_400,  # 24h — not used for spot
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["applicable_runtime_limit_seconds"] == 259_200
+        # 48h elapsed (172800s) < 72h (259200s) → not exceeded
+        assert findings[0].details["exceeded_applicable_runtime_limit"] is False
+
+    def test_spot_exceeds_max_wait_time(self):
+        job = _make_list_job(age_hours=80)
+        desc = _make_describe(
+            training_start_hours=80,
+            enable_spot=True,
+            max_wait_time_seconds=259_200,  # 72h — exceeded by 80h
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["exceeded_applicable_runtime_limit"] is True
+
+    def test_spot_no_max_wait_time_falls_back_to_max_runtime(self):
+        """Spot + no MaxWaitTimeInSeconds: falls back to MaxRuntimeInSeconds per spec §3."""
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(
+            training_start_hours=48,
+            enable_spot=True,
+            max_runtime_seconds=86_400,  # fallback when MaxWaitTimeInSeconds absent
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        # 48h = 172800s > 86400s → exceeded
+        assert findings[0].details["applicable_runtime_limit_seconds"] == 86_400
+        assert findings[0].details["exceeded_applicable_runtime_limit"] is True
+
+    def test_spot_no_max_wait_no_max_runtime_unbounded(self):
+        """Spot with neither MaxWaitTimeInSeconds nor MaxRuntimeInSeconds → unbounded."""
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, enable_spot=True)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["applicable_runtime_limit_seconds"] is None
+        assert findings[0].details["unbounded_runtime_limit"] is True
+
+    def test_non_spot_with_training_start_uses_max_runtime(self):
+        job = _make_list_job(age_hours=50)
+        desc = _make_describe(
+            training_start_hours=30,
+            enable_spot=False,
+            max_runtime_seconds=86_400,  # 24h — exceeded by 30h
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["applicable_runtime_limit_seconds"] == 86_400
+        assert findings[0].details["exceeded_applicable_runtime_limit"] is True
+
+    def test_non_spot_without_training_start_ignores_max_runtime(self):
+        """MaxRuntimeInSeconds only applies when TrainingStartTime is present."""
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(
+            enable_spot=False,
+            max_runtime_seconds=86_400,  # present, but no TrainingStartTime
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["applicable_runtime_limit_seconds"] is None
+        assert findings[0].details["unbounded_runtime_limit"] is True
+
+    def test_no_stopping_condition_unbounded(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        desc["StoppingCondition"] = {}
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["applicable_runtime_limit_seconds"] is None
+        assert findings[0].details["unbounded_runtime_limit"] is True
+
+    def test_stopping_condition_non_dict_degrades_safely(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        desc["StoppingCondition"] = "bad"
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings) == 1
+        assert findings[0].details["max_runtime_seconds"] is None
+
+    def test_max_pending_time_emitted_as_optional_context(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, max_pending_time_seconds=3600)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["max_pending_time_seconds"] == 3600
+
+
+# ---------------------------------------------------------------------------
+# TestConfidenceModel — HIGH when exceeded_applicable_runtime_limit, MEDIUM otherwise
+# ---------------------------------------------------------------------------
+
+
+class TestConfidenceModel:
+    def test_high_confidence_when_exceeded_applicable_limit(self):
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(
+            training_start_hours=30,
+            max_runtime_seconds=86_400,  # 24h exceeded by 30h
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].confidence.value == "high"
+
+    def test_medium_confidence_when_threshold_met_no_limit_exceeded(self):
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(training_start_hours=30)  # no stopping condition
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].confidence.value == "medium"
+
+    def test_medium_confidence_when_within_applicable_limit(self):
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(
+            training_start_hours=30,
+            max_runtime_seconds=604_800,  # 7 days — not exceeded
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].confidence.value == "medium"
+        assert findings[0].details["exceeded_applicable_runtime_limit"] is False
+
+    def test_high_confidence_spot_exceeded_max_wait(self):
+        job = _make_list_job(age_hours=80)
+        desc = _make_describe(
+            training_start_hours=80,
+            enable_spot=True,
+            max_wait_time_seconds=259_200,  # 72h — exceeded
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].confidence.value == "high"
+
+
+# ---------------------------------------------------------------------------
+# TestRiskModel — HIGH (accelerator) or MEDIUM
+# ---------------------------------------------------------------------------
+
+
+class TestRiskModel:
+    def test_high_risk_gpu_instance(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, instance_type="ml.p3.16xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "high"
+
+    def test_high_risk_g5_instance(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, instance_type="ml.g5.xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "high"
+
+    def test_high_risk_trn1_instance(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, instance_type="ml.trn1.32xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "high"
+
+    def test_high_risk_inf_instance(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, instance_type="ml.inf1.xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "high"
+
+    def test_medium_risk_cpu_instance(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, instance_type="ml.m5.xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "medium"
+
+    def test_high_risk_from_accelerator_in_instance_groups(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(
+            training_start_hours=48,
+            instance_groups=[
+                {"InstanceType": "ml.g4dn.xlarge", "InstanceCount": 1},
+                {"InstanceType": "ml.m5.large", "InstanceCount": 4},
+            ],
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "high"
+        assert findings[0].details["is_accelerator_backed"] is True
+
+    def test_medium_risk_cpu_only_instance_groups(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(
+            training_start_hours=48,
+            instance_groups=[
+                {"InstanceType": "ml.m5.xlarge", "InstanceCount": 4},
+                {"InstanceType": "ml.c5.4xlarge", "InstanceCount": 2},
+            ],
+        )
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].risk.value == "medium"
+        assert findings[0].details["is_accelerator_backed"] is False
+
+    def test_no_critical_risk_level_emitted(self):
+        """Spec §13: no CRITICAL risk — max is HIGH."""
+        for instance_type in ("ml.p4d.24xlarge", "ml.g5.48xlarge", "ml.trn1n.32xlarge"):
+            job = _make_list_job(age_hours=48)
+            desc = _make_describe(
+                training_start_hours=48,
+                instance_type=instance_type,
+                max_runtime_seconds=3600,  # force HIGH confidence too
+            )
+            session, _ = _make_session(jobs=[job], describe_response=desc)
+            findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+            assert findings[0].risk.value != "critical", f"Got CRITICAL for {instance_type}"
+
+
+# ---------------------------------------------------------------------------
+# TestCostModel
+# ---------------------------------------------------------------------------
+
+
+class TestCostModel:
+    def test_estimated_monthly_cost_always_none(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].estimated_monthly_cost_usd is None
+
+    def test_no_accrued_cost_in_details(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        d = findings[0].details
+        assert "accrued_cost_usd" not in d
+        assert "hourly_rate_per_instance" not in d
+        assert "burn_rate_per_hour" not in d
+        assert "cost_type" not in d
+        assert "pricing_source" not in d
+
+
+# ---------------------------------------------------------------------------
+# TestNormalizeListItem — unit tests for _normalize_list_item
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeListItem:
+    def _now(self):
+        return datetime.now(timezone.utc)
+
+    def test_valid_item_normalizes(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now - timedelta(hours=24),
+            "SecondaryStatus": "Training",
         }
+        result = _normalize_list_item(item, now)
+        assert result is not None
+        assert result["training_job_name"] == "job-1"
+        assert result["list_status"] == "InProgress"
+        assert result["job_age_hours"] == 24
 
-    sagemaker.describe_training_job.side_effect = _describe
-    session = MagicMock()
-    session.client.return_value = sagemaker
+    def test_non_dict_returns_none(self):
+        assert _normalize_list_item("bad", datetime.now(timezone.utc)) is None
 
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1  # job-1 skipped, job-2 found
-    assert findings[0].details["job_name"] == "job-2"
+    def test_empty_name_returns_none(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "",
+            "TrainingJobArn": f"{_ARN_PREFIX}/x",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now - timedelta(hours=24),
+        }
+        assert _normalize_list_item(item, now) is None
 
+    def test_naive_creation_time_returns_none(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now.replace(tzinfo=None) - timedelta(hours=24),
+        }
+        assert _normalize_list_item(item, now) is None
 
-def test_long_running_hours_minimum_clamped():
-    """long_running_hours=0 should be clamped to 1, not divide by zero."""
-    job = _make_job(age_hours=2)
-    session, _ = _make_session(jobs=[job])
-    # Should not raise
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=0)
-    assert isinstance(findings, list)
+    def test_creation_time_not_datetime_returns_none(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": "2024-01-01T00:00:00Z",  # string, not datetime
+        }
+        assert _normalize_list_item(item, now) is None
 
+    def test_future_creation_time_beyond_skew_returns_none(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now + timedelta(seconds=600),
+        }
+        assert _normalize_list_item(item, now) is None
 
-# ---------------------------------------------------------------------------
-# MaxRuntimeInSeconds (issue 4)
-# ---------------------------------------------------------------------------
+    def test_naive_lmt_is_null(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now - timedelta(hours=24),
+            "LastModifiedTime": (now - timedelta(hours=12)).replace(tzinfo=None),
+        }
+        result = _normalize_list_item(item, now)
+        assert result is not None
+        assert result["last_modified_time_utc"] is None
 
+    def test_future_lmt_beyond_skew_returns_none(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now - timedelta(hours=24),
+            "LastModifiedTime": now + timedelta(seconds=600),
+        }
+        assert _normalize_list_item(item, now) is None
 
-def test_exceeded_max_runtime_forces_high_confidence():
-    """Job elapsed > MaxRuntimeInSeconds → HIGH confidence regardless of multiplier."""
-    # 30h elapsed, threshold=24h (would normally be MEDIUM at 1×), but max_runtime=86400s (24h)
-    # elapsed 30h = 108000s > 86400s → exceeded → HIGH
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(jobs=[job], max_runtime_seconds=86_400)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
-    assert findings[0].details["exceeded_max_runtime"] is True
-
-
-def test_within_max_runtime_does_not_override_confidence():
-    """Job within MaxRuntimeInSeconds uses normal duration-based confidence."""
-    # 30h elapsed, max_runtime=7 days (604800s) — not exceeded → MEDIUM at 1× threshold
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(jobs=[job], max_runtime_seconds=604_800)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-    assert findings[0].details["exceeded_max_runtime"] is False
-
-
-def test_no_max_runtime_uses_duration_logic():
-    """Absent StoppingCondition falls back to duration-based confidence normally."""
-    job = _make_job(age_hours=75)  # 75h >= 3×24=72h → HIGH
-    session, _ = _make_session(jobs=[job], max_runtime_seconds=None)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].confidence.value == "high"
-    assert findings[0].details["exceeded_max_runtime"] is False
-    assert findings[0].details["max_runtime_seconds"] is None
-
-
-def test_exceeded_max_runtime_in_signals():
-    """MaxRuntimeInSeconds exceeded should appear in evidence signals."""
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(jobs=[job], max_runtime_seconds=86_400)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "MaxRuntimeInSeconds exceeded" in signal_text
-
-
-# ---------------------------------------------------------------------------
-# SecondaryStatus (issue 2)
-# ---------------------------------------------------------------------------
-
-
-def test_secondary_status_included_in_details():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], secondary_status="Training")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["secondary_status"] == "Training"
-    assert findings[0].details["is_stuck_early"] is False
-
-
-def test_stuck_early_status_boosts_to_high_confidence():
-    """Job at 1× threshold but SecondaryStatus=Downloading → HIGH confidence."""
-    job = _make_job(age_hours=25)  # 25h >= 24h threshold, < 72h (3×)
-    session, _ = _make_session(jobs=[job], secondary_status="Downloading")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
-    assert findings[0].details["is_stuck_early"] is True
-
-
-def test_starting_status_is_stuck_early():
-    job = _make_job(age_hours=25)
-    session, _ = _make_session(jobs=[job], secondary_status="Starting")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_stuck_early"] is True
-
-
-def test_normal_training_status_not_stuck_early():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], secondary_status="Training")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["is_stuck_early"] is False
-
-
-def test_secondary_status_in_signals():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], secondary_status="Downloading")
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "Downloading" in signal_text
-    assert "pre-training phase" in signal_text
+    def test_secondary_status_optional_null_when_absent(self):
+        now = self._now()
+        item = {
+            "TrainingJobName": "job-1",
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "CreationTime": now - timedelta(hours=24),
+        }
+        result = _normalize_list_item(item, now)
+        assert result["list_secondary_status"] is None
 
 
 # ---------------------------------------------------------------------------
-# Distributed training signal (issue 3)
+# TestNormalizeDescribe — unit tests for _normalize_describe
 # ---------------------------------------------------------------------------
 
 
-def test_distributed_job_signal_in_evidence():
-    """Distributed job (instance_count > 1) gets an explanatory signal."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.2xlarge", instance_count=8)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "Distributed training" in signal_text
-    assert "8 instances" in signal_text
+class TestNormalizeDescribe:
+    def _now(self):
+        return datetime.now(timezone.utc)
 
+    def test_valid_response_normalizes(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "EnableManagedSpotTraining": False,
+            "StoppingCondition": {"MaxRuntimeInSeconds": 3600},
+            "ResourceConfig": {"InstanceType": "ml.m5.xlarge", "InstanceCount": 1},
+        }
+        result = _normalize_describe(resp, now)
+        assert result is not None
+        assert result["describe_status"] == "InProgress"
+        assert result["max_runtime_seconds"] == 3600
+        assert result["instance_type"] == "ml.m5.xlarge"
 
-def test_single_instance_no_distributed_signal():
-    """Single-instance job should NOT get the distributed signal."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.m5.xlarge", instance_count=1)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "Distributed" not in signal_text
+    def test_non_dict_returns_none(self):
+        assert _normalize_describe("bad", datetime.now(timezone.utc)) is None
+
+    def test_missing_status_returns_none(self):
+        now = self._now()
+        resp = {"TrainingJobArn": f"{_ARN_PREFIX}/job-1"}
+        assert _normalize_describe(resp, now) is None
+
+    def test_naive_training_start_treated_as_null(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "TrainingStartTime": (now - timedelta(hours=24)).replace(tzinfo=None),
+        }
+        result = _normalize_describe(resp, now)
+        assert result is not None
+        assert result["training_start_time_utc"] is None
+
+    def test_future_training_start_beyond_skew_returns_none(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "TrainingStartTime": now + timedelta(seconds=600),
+        }
+        assert _normalize_describe(resp, now) is None
+
+    def test_resource_config_non_dict_degrades_to_null_fields(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "ResourceConfig": "bad",
+        }
+        result = _normalize_describe(resp, now)
+        assert result is not None
+        assert result["instance_type"] is None
+        assert result["instance_count"] is None
+
+    def test_stopping_condition_non_dict_degrades_to_null_fields(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "StoppingCondition": None,
+        }
+        result = _normalize_describe(resp, now)
+        assert result is not None
+        assert result["max_runtime_seconds"] is None
+        assert result["max_wait_time_seconds"] is None
+
+    def test_serverless_job_config_present_flag(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "ServerlessJobConfig": {},
+        }
+        result = _normalize_describe(resp, now)
+        assert result["serverless_job_config_present"] is True
+
+    def test_serverless_job_config_absent_is_false(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+        }
+        result = _normalize_describe(resp, now)
+        assert result["serverless_job_config_present"] is False
+
+    def test_warm_pool_status_extracted(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "WarmPoolStatus": {"Status": "Available"},
+        }
+        result = _normalize_describe(resp, now)
+        assert result["warm_pool_status"] == "Available"
+
+    def test_warm_pool_status_absent_is_null(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+        }
+        result = _normalize_describe(resp, now)
+        assert result["warm_pool_status"] is None
+
+    def test_zero_max_runtime_treated_as_null(self):
+        now = self._now()
+        resp = {
+            "TrainingJobArn": f"{_ARN_PREFIX}/job-1",
+            "TrainingJobStatus": "InProgress",
+            "StoppingCondition": {"MaxRuntimeInSeconds": 0},
+        }
+        result = _normalize_describe(resp, now)
+        assert result["max_runtime_seconds"] is None
 
 
 # ---------------------------------------------------------------------------
-# Pricing transparency (issue 1)
+# TestIsAcceleratorBacked — unit tests for _is_accelerator_backed
 # ---------------------------------------------------------------------------
 
 
-def test_pricing_source_in_details():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["pricing_source"] == "static_estimate_us_east_1"
+class TestIsAcceleratorBacked:
+    def test_g_prefix_is_accelerator(self):
+        assert _is_accelerator_backed("ml.g5.xlarge") is True
+
+    def test_p_prefix_is_accelerator(self):
+        assert _is_accelerator_backed("ml.p3.16xlarge") is True
+
+    def test_inf_prefix_is_accelerator(self):
+        assert _is_accelerator_backed("ml.inf1.xlarge") is True
+
+    def test_trn_prefix_is_accelerator(self):
+        assert _is_accelerator_backed("ml.trn1.32xlarge") is True
+
+    def test_m_prefix_not_accelerator(self):
+        assert _is_accelerator_backed("ml.m5.xlarge") is False
+
+    def test_c_prefix_not_accelerator(self):
+        assert _is_accelerator_backed("ml.c5.4xlarge") is False
+
+    def test_none_not_accelerator(self):
+        assert _is_accelerator_backed(None) is False
+
+    def test_empty_string_not_accelerator(self):
+        assert _is_accelerator_backed("") is False
 
 
-def test_cost_type_is_accrued_to_date():
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert findings[0].details["cost_type"] == "accrued_to_date"
+class TestIsJobAcceleratorBacked:
+    def test_accelerator_instance_type(self):
+        assert _is_job_accelerator_backed("ml.p3.2xlarge", None) is True
 
+    def test_non_accelerator_instance_type(self):
+        assert _is_job_accelerator_backed("ml.m5.xlarge", None) is False
 
-def test_pricing_disclaimer_in_signals():
-    """Cost signal should mention us-east-1 baseline and regional variance."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job])
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "us-east-1 baseline" in signal_text
-    assert "varies by region" in signal_text
-
-
-# ---------------------------------------------------------------------------
-# Managed spot training (issue 2)
-# ---------------------------------------------------------------------------
-
-
-def test_spot_job_max_runtime_not_exceeded_when_within_max_wait():
-    """Spot job: MaxRuntimeInSeconds exceeded but MaxWaitTimeInSeconds not → not exceeded."""
-    # 30h elapsed; MaxRuntimeInSeconds=86400 (24h) would fire for on-demand,
-    # but this is spot so we compare against MaxWaitTimeInSeconds=259200 (72h).
-    job = _make_job(age_hours=30)
-    session, _ = _make_session(
-        jobs=[job],
-        max_runtime_seconds=86_400,  # 24h — would be exceeded for on-demand
-        max_wait_time_seconds=259_200,  # 72h — NOT exceeded
-        enable_managed_spot=True,
-    )
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    # Should NOT be treated as exceeded (wall-clock limit is MaxWaitTimeInSeconds)
-    assert findings[0].details["exceeded_max_runtime"] is False
-    assert findings[0].details["enable_managed_spot"] is True
-
-
-def test_spot_job_exceeded_max_wait_time_is_high_confidence():
-    """Spot job: elapsed > MaxWaitTimeInSeconds → HIGH confidence."""
-    # 80h elapsed, MaxWaitTimeInSeconds=259200 (72h)
-    job = _make_job(age_hours=80)
-    session, _ = _make_session(
-        jobs=[job],
-        max_wait_time_seconds=259_200,  # 72h — elapsed 80h > 72h
-        enable_managed_spot=True,
-    )
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
-    assert findings[0].details["exceeded_max_runtime"] is True
-    assert findings[0].details["max_wait_time_seconds"] == 259_200
-
-
-def test_spot_job_signal_mentions_max_wait_not_max_runtime():
-    """Spot job exceeded: signal must reference MaxWaitTimeInSeconds, not MaxRuntimeInSeconds."""
-    job = _make_job(age_hours=80)
-    session, _ = _make_session(
-        jobs=[job],
-        max_wait_time_seconds=259_200,
-        enable_managed_spot=True,
-    )
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    signal_text = " ".join(findings[0].evidence.signals_used)
-    assert "MaxWaitTimeInSeconds" in signal_text
-    assert "MaxRuntimeInSeconds exceeded" not in signal_text
-
-
-def test_spot_job_not_checked_list_excludes_spot_note():
-    """Spot jobs: 'Spot training' not-checked note should be dropped (we know it's spot)."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], enable_managed_spot=True)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    not_checked_text = " ".join(findings[0].evidence.signals_not_checked)
-    assert "Spot training" not in not_checked_text
-
-
-def test_ondemand_job_not_checked_includes_spot_note():
-    """On-demand jobs: not-checked list should still mention spot semantics."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], enable_managed_spot=False)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    not_checked_text = " ".join(findings[0].evidence.signals_not_checked)
-    assert "Spot training" in not_checked_text
-
-
-# ---------------------------------------------------------------------------
-# Heterogeneous clusters (issue 3)
-# ---------------------------------------------------------------------------
-
-
-def test_heterogeneous_cluster_cost_aggregated():
-    """InstanceGroups with mixed types: burn rate and accrued cost aggregate all groups."""
-    job = _make_job(age_hours=48)
-    # Group 1: 1× ml.p3.16xlarge @ $28.15/hr; Group 2: 4× ml.m5.xlarge @ $0.23/hr
-    # Total hourly = 28.15 + 4×0.23 = 29.07/hr
-    session, _ = _make_session(
-        jobs=[job],
-        instance_groups=[
-            {"InstanceType": "ml.p3.16xlarge", "InstanceCount": 1},
+    def test_accelerator_in_groups(self):
+        groups = [
             {"InstanceType": "ml.m5.xlarge", "InstanceCount": 4},
-        ],
-    )
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.details["is_heterogeneous_cluster"] is True
-    assert f.details["instance_count"] == 5  # 1 + 4
-    assert f.details["instance_type"] is None  # no single type for heterogeneous
-    assert f.details["instance_groups"] is not None
-    assert len(f.details["instance_groups"]) == 2
-    assert f.details["hourly_rate_per_instance"] is None  # not meaningful for mixed clusters
-    expected_burn = round(28.15 + 4 * 0.23, 2)
-    assert abs(f.details["burn_rate_per_hour"] - expected_burn) < 0.05
-
-
-def test_heterogeneous_cluster_gpu_detected_by_family_not_rate():
-    """GPU detection uses _GPU_FAMILIES per group, not total burn rate heuristic.
-
-    A large CPU-only cluster must NOT be misclassified as GPU even if its total burn
-    rate exceeds _DEFAULT_HOURLY_COST_GPU. A cheap GPU group must still be detected.
-    """
-    job = _make_job(age_hours=48)
-
-    # High-cost CPU-only: 24× ml.m5.24xlarge @ $5.53/hr each = $132.72/hr total — would
-    # exceed _DEFAULT_HOURLY_COST_GPU ($4.00) if rate-based, but no GPU families present.
-    session_cpu, _ = _make_session(
-        jobs=[job],
-        instance_groups=[
-            {"InstanceType": "ml.m5.24xlarge", "InstanceCount": 24},
-        ],
-    )
-    findings_cpu = find_long_running_sagemaker_training_jobs(
-        session_cpu, _REGION, long_running_hours=24
-    )
-    assert findings_cpu[0].details["is_gpu"] is False, "CPU-only cluster must not be flagged as GPU"
-
-    # Cheap GPU group: 1× ml.g4dn.xlarge @ $0.74/hr — well below _DEFAULT_HOURLY_COST_GPU
-    # but is still a GPU instance by family.
-    session_gpu, _ = _make_session(
-        jobs=[job],
-        instance_groups=[
             {"InstanceType": "ml.g4dn.xlarge", "InstanceCount": 1},
-            {"InstanceType": "ml.m5.large", "InstanceCount": 2},
-        ],
-    )
-    findings_gpu = find_long_running_sagemaker_training_jobs(
-        session_gpu, _REGION, long_running_hours=24
-    )
-    assert (
-        findings_gpu[0].details["is_gpu"] is True
-    ), "Cluster with GPU group must be flagged as GPU"
-    assert findings_gpu[0].risk.value in ("high", "critical")
+        ]
+        assert _is_job_accelerator_backed(None, groups) is True
+
+    def test_no_accelerator_in_groups(self):
+        groups = [
+            {"InstanceType": "ml.m5.xlarge", "InstanceCount": 4},
+            {"InstanceType": "ml.c5.2xlarge", "InstanceCount": 2},
+        ]
+        assert _is_job_accelerator_backed(None, groups) is False
+
+    def test_groups_with_bad_dict_entries_graceful(self):
+        groups = ["not-a-dict", {"InstanceType": "ml.p3.2xlarge", "InstanceCount": 1}]
+        assert _is_job_accelerator_backed(None, groups) is True
+
+    def test_none_groups_falls_back_to_instance_type(self):
+        assert _is_job_accelerator_backed("ml.g5.xlarge", None) is True
 
 
-def test_heterogeneous_cluster_instance_label_includes_all_groups():
-    """Instance label for a heterogeneous cluster must show all group types."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(
-        jobs=[job],
-        instance_groups=[
+# ---------------------------------------------------------------------------
+# TestDetailsContract — required and optional details fields per spec §11
+# ---------------------------------------------------------------------------
+
+
+class TestDetailsContract:
+    _REQUIRED = [
+        "evaluation_path",
+        "training_job_arn",
+        "training_job_name",
+        "normalized_status",
+        "creation_time",
+        "training_start_time",
+        "runtime_anchor_type",
+        "elapsed_runtime_hours",
+        "job_age_hours",
+        "active_training_hours",
+        "long_running_hours_threshold",
+        "evaluation_window_start",
+        "evaluation_window_end",
+        "enable_managed_spot_training",
+        "applicable_runtime_limit_seconds",
+        "unbounded_runtime_limit",
+        "exceeded_applicable_runtime_limit",
+    ]
+
+    _OPTIONAL = [
+        "secondary_status",
+        "max_runtime_seconds",
+        "max_wait_time_seconds",
+        "max_pending_time_seconds",
+        "instance_type",
+        "instance_count",
+        "instance_groups",
+        "serverless_job_config_present",
+        "warm_pool_status",
+        "is_accelerator_backed",
+    ]
+
+    def test_all_required_fields_present(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        d = findings[0].details
+        for field in self._REQUIRED:
+            assert field in d, f"Missing required field: {field}"
+
+    def test_all_optional_fields_present(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        d = findings[0].details
+        for field in self._OPTIONAL:
+            assert field in d, f"Missing optional field: {field}"
+
+    def test_evaluation_path_value(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert (
+            findings[0].details["evaluation_path"]
+            == "long-running-sagemaker-training-job-review-candidate"
+        )
+
+    def test_normalized_status_value(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["normalized_status"] == "InProgress"
+
+    def test_evaluation_window_values_are_iso_strings(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        d = findings[0].details
+        # Should not raise
+        datetime.fromisoformat(d["evaluation_window_start"])
+        datetime.fromisoformat(d["evaluation_window_end"])
+
+    def test_creation_time_is_iso_string(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        datetime.fromisoformat(findings[0].details["creation_time"])
+
+    def test_serverless_job_config_present_in_details(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, serverless=True)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["serverless_job_config_present"] is True
+
+    def test_warm_pool_status_in_details(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48, warm_pool_status="Available")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["warm_pool_status"] == "Available"
+
+    def test_instance_groups_in_details(self):
+        job = _make_list_job(age_hours=48)
+        groups = [
             {"InstanceType": "ml.p3.2xlarge", "InstanceCount": 2},
             {"InstanceType": "ml.m5.large", "InstanceCount": 4},
-        ],
-    )
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    title = findings[0].title
-    # Both types must appear in title/label
-    assert "ml.p3.2xlarge" in title
-    assert "ml.m5.large" in title
+        ]
+        desc = _make_describe(training_start_hours=48, instance_groups=groups)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].details["instance_groups"] == groups
+        assert findings[0].details["instance_type"] is None  # no single type for hetero
 
 
-def test_homogeneous_cluster_not_flagged_as_heterogeneous():
-    """Standard homogeneous job must not set is_heterogeneous_cluster."""
-    job = _make_job(age_hours=48)
-    session, _ = _make_session(jobs=[job], instance_type="ml.p3.2xlarge", instance_count=2)
-    findings = find_long_running_sagemaker_training_jobs(session, _REGION, long_running_hours=24)
-    f = findings[0]
-    assert f.details["is_heterogeneous_cluster"] is False
-    assert f.details["instance_type"] == "ml.p3.2xlarge"
-    assert f.details["instance_groups"] is None
-    assert f.details["hourly_rate_per_instance"] == 3.83
+# ---------------------------------------------------------------------------
+# TestTitleAndReason — fixed strings per spec §14
+# ---------------------------------------------------------------------------
+
+
+class TestTitleAndReason:
+    def test_fixed_title(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].title == "Long-running SageMaker training job review candidate"
+
+    def test_fixed_reason(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert findings[0].reason == (
+            "InProgress SageMaker training job has exceeded the configured "
+            "long-running threshold"
+        )
+
+    def test_title_does_not_include_instance_type(self):
+        """Title is a fixed string — must not dynamically embed instance info."""
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(instance_type="ml.p3.16xlarge")
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert "ml.p3.16xlarge" not in findings[0].title
+
+
+# ---------------------------------------------------------------------------
+# TestEvidenceContract — required evidence wording per spec §11
+# ---------------------------------------------------------------------------
+
+
+class TestEvidenceContract:
+    def test_signals_used_mentions_inprogress_status(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        signal_text = " ".join(findings[0].evidence.signals_used)
+        assert "InProgress" in signal_text
+
+    def test_signals_used_mentions_elapsed_runtime_hours(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        signal_text = " ".join(findings[0].evidence.signals_used)
+        assert "elapsed_runtime_hours" in signal_text or "48" in signal_text
+
+    def test_signals_used_mentions_runtime_anchor(self):
+        job = _make_list_job(age_hours=48)
+        desc = _make_describe(training_start_hours=48)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        signal_text = " ".join(findings[0].evidence.signals_used)
+        assert "training_start_time" in signal_text or "anchor" in signal_text.lower()
+
+    def test_signals_not_checked_present(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings[0].evidence.signals_not_checked) > 0
+
+    def test_signals_not_checked_mentions_model_progress(self):
+        job = _make_list_job(age_hours=48)
+        session, _ = _make_session(jobs=[job])
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        not_checked_text = " ".join(findings[0].evidence.signals_not_checked)
+        assert "model" in not_checked_text.lower() or "progress" in not_checked_text.lower()
+
+    def test_exceeded_limit_signal_when_applicable(self):
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(training_start_hours=30, max_runtime_seconds=86_400)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        signal_text = " ".join(findings[0].evidence.signals_used)
+        assert "stopping" in signal_text.lower() or "limit" in signal_text.lower()
+
+    def test_no_limit_exceeded_signal_when_not_applicable(self):
+        job = _make_list_job(age_hours=30)
+        desc = _make_describe(training_start_hours=30)  # no limit
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        signal_text = " ".join(findings[0].evidence.signals_used)
+        assert "No applicable stopping-condition limit was exceeded" in signal_text
+
+
+# ---------------------------------------------------------------------------
+# TestPagination — multi-page support
+# ---------------------------------------------------------------------------
+
+
+class TestPagination:
+    def test_jobs_across_multiple_pages_all_evaluated(self):
+        job1 = _make_list_job(name="job-1", age_hours=48)
+        job2 = _make_list_job(name="job-2", age_hours=48)
+        job3 = _make_list_job(name="job-3", age_hours=48)
+
+        sagemaker = MagicMock()
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {"TrainingJobSummaries": [job1, job2]},
+            {"TrainingJobSummaries": [job3]},
+        ]
+        sagemaker.get_paginator.return_value = paginator
+        sagemaker.describe_training_job.return_value = _make_describe(training_start_hours=48)
+        session = MagicMock()
+        session.client.return_value = sagemaker
+
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings) == 3
+
+    def test_paginator_called_without_status_equals(self):
+        """Spec §8: ListTrainingJobs must NOT use StatusEquals parameter."""
+        job = _make_list_job(age_hours=48)
+        session, sagemaker = _make_session(jobs=[job])
+        find_long_running_sagemaker_training_jobs(session, _REGION)
+        paginator = sagemaker.get_paginator.return_value
+        call_kwargs = paginator.paginate.call_args
+        # Should be called with no arguments OR without StatusEquals
+        if call_kwargs is not None:
+            kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+            args = call_kwargs.args if call_kwargs.args else ()
+            assert "StatusEquals" not in kwargs
+            if len(args) > 0 and isinstance(args[0], dict):
+                assert "StatusEquals" not in args[0]
+
+    def test_client_created_with_correct_region(self):
+        session, sagemaker = _make_session(jobs=[])
+        find_long_running_sagemaker_training_jobs(session, "eu-west-1")
+        session.client.assert_called_once_with("sagemaker", region_name="eu-west-1")
+
+    def test_mixed_statuses_only_inprogress_evaluated(self):
+        """Jobs with non-InProgress list status are filtered client-side."""
+        job_ip = _make_list_job(name="running", age_hours=48, status="InProgress")
+        job_cp = _make_list_job(name="done", age_hours=48, status="Completed")
+        job_fa = _make_list_job(name="failed", age_hours=48, status="Failed")
+        session, sagemaker = _make_session(jobs=[job_ip, job_cp, job_fa])
+        sagemaker.describe_training_job.return_value = _make_describe(training_start_hours=48)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        # Only the InProgress job is described and emitted
+        assert len(findings) == 1
+        assert sagemaker.describe_training_job.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# TestCustomThreshold
+# ---------------------------------------------------------------------------
+
+
+class TestCustomThreshold:
+    def test_custom_48h_threshold_emits_at_49h(self):
+        job = _make_list_job(age_hours=49)
+        desc = _make_describe(training_start_hours=49)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=48
+        )
+        assert len(findings) == 1
+        assert findings[0].details["long_running_hours_threshold"] == 48
+
+    def test_custom_48h_threshold_skips_at_47h(self):
+        job = _make_list_job(age_hours=47)
+        desc = _make_describe(training_start_hours=47)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=48
+        )
+        assert findings == []
+
+    def test_default_threshold_is_24h(self):
+        job = _make_list_job(age_hours=24)
+        desc = _make_describe(training_start_hours=24)
+        session, _ = _make_session(jobs=[job], describe_response=desc)
+        findings = find_long_running_sagemaker_training_jobs(session, _REGION)
+        assert len(findings) == 1
+        assert findings[0].details["long_running_hours_threshold"] == 24
+
+
+# ---------------------------------------------------------------------------
+# TestRuleMetadata
+# ---------------------------------------------------------------------------
+
+
+class TestRuleMetadata:
+    def test_rule_id(self):
+        assert RULE_METADATA["id"] == "aws.sagemaker.training_job.long_running"
+
+    def test_category(self):
+        assert RULE_METADATA["category"] == "ai"
+
+    def test_service(self):
+        assert RULE_METADATA["service"] == "sagemaker"
+
+    def test_cost_impact(self):
+        assert RULE_METADATA["cost_impact"] == "high"
+
+
+# ---------------------------------------------------------------------------
+# TestMultipleJobs
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleJobs:
+    def test_only_long_running_jobs_emitted(self):
+        """Mix of jobs: only those above threshold emit."""
+        job_long = _make_list_job(name="long", age_hours=48)
+        job_short = _make_list_job(name="short", age_hours=6)
+
+        desc_long = _make_describe(name="long", training_start_hours=48)
+        desc_short = _make_describe(name="short", training_start_hours=6)
+
+        def _describe(**kwargs):
+            if kwargs["TrainingJobName"] == "long":
+                return desc_long
+            return desc_short
+
+        session, sagemaker = _make_session(jobs=[job_long, job_short])
+        sagemaker.describe_training_job.side_effect = _describe
+
+        findings = find_long_running_sagemaker_training_jobs(
+            session, _REGION, long_running_hours_threshold=24
+        )
+        assert len(findings) == 1
+        assert findings[0].details["training_job_name"] == "long"

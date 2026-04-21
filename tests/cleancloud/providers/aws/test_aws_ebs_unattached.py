@@ -591,6 +591,16 @@ class TestFailureBehavior:
         with pytest.raises(PermissionError):
             find_unattached_ebs_volumes(mock_boto3_session, "us-east-1")
 
+    def test_access_denied_raises_permission_error(self, mock_boto3_session):
+        """AccessDenied is also a canonical permission error → PermissionError."""
+        ec2 = mock_boto3_session._ec2
+        ec2.get_paginator.side_effect = ClientError(
+            {"Error": {"Code": "AccessDenied", "Message": "denied"}},
+            "DescribeVolumes",
+        )
+        with pytest.raises(PermissionError):
+            find_unattached_ebs_volumes(mock_boto3_session, "us-east-1")
+
     def test_other_client_error_re_raised(self, mock_boto3_session):
         """Spec §10: non-auth ClientError re-raised without wrapping."""
         ec2 = mock_boto3_session._ec2

@@ -215,6 +215,7 @@ def test_params_bound_to_rule_via_partial():
     assert isinstance(active[0], functools.partial)
     assert active[0].keywords == {"idle_days": 21}
     assert active[0].func is r1
+    assert active[0].__name__ == "rule_fn"
 
 
 def test_no_params_returns_original_function():
