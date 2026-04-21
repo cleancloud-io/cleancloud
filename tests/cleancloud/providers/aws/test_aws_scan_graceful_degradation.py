@@ -88,16 +88,20 @@ def test_mixed_success_and_permission_error(mock_session):
 
 
 @patch("cleancloud.providers.aws.scan.create_aws_session")
-def test_non_permission_error_still_counted_as_failure(mock_session):
-    """Non-PermissionError exceptions are still counted as rule failures (existing behavior)."""
+def test_non_permission_error_tracked_in_skipped_rules(mock_session):
+    """Non-PermissionError exceptions are tracked in skipped_rules with 'error' key."""
     findings, skipped_rules = _scan_aws_region(
         profile=None, region="us-east-1", rules=[_good_rule, _error_rule]
     )
 
-    # Good rule still returns findings
+    # Good rule still returns findings — scan never blows up
     assert len(findings) == 1
-    # Error rule is NOT in skipped_rules
-    assert len(skipped_rules) == 0
+    # Error rule IS tracked in skipped_rules, but with 'error' key (not 'missing_permissions')
+    assert len(skipped_rules) == 1
+    assert skipped_rules[0]["rule"] == "_error_rule"
+    assert "error" in skipped_rules[0]
+    assert "missing_permissions" not in skipped_rules[0]
+    assert "RuntimeError" in skipped_rules[0]["error"]
 
 
 @patch("cleancloud.providers.aws.scan.create_aws_session")

@@ -344,15 +344,13 @@ def scan_aws_regions(
                     for skipped in region_skipped:
                         if not any(s["rule"] == skipped["rule"] for s in all_skipped_rules):
                             all_skipped_rules.append(skipped)
-                except RuntimeError as e:
-                    # RuntimeError indicates a complete region failure (all rules failed)
-                    # This is fatal for explicitly requested regions
-                    click.echo(f"Region {region} failed: {e}")
-                    advance(bar)
-                    raise  # Re-raise to fail the entire scan
+                except botocore.exceptions.NoCredentialsError:
+                    # Credentials missing or expired — re-raise to fail the scan fast.
+                    raise
                 except Exception as e:
-                    # Other exceptions might be transient - log and continue
+                    # Any other region-level error: log and continue scanning remaining regions
                     click.echo(f"Region {region} failed: {e}")
+                finally:
                     advance(bar)
 
     return findings, all_skipped_rules
@@ -415,10 +413,13 @@ def _scan_aws_region_with_session(
                 raise
             except PermissionError as e:
                 skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
-            except botocore.exceptions.EndpointConnectionError:
-                pass  # Invalid/inaccessible region — skip silently in multi-account
+            except botocore.exceptions.EndpointConnectionError as e:
+                skipped_rules.append(
+                    {"rule": rule.__name__, "error": f"EndpointConnectionError: {e}"}
+                )
             except Exception as e:
-                click.echo(f"    Rule {rule.__name__} failed in {region}: {e}")
+                skipped_rules.append({"rule": rule.__name__, "error": f"{type(e).__name__}: {e}"})
+                click.echo(f"    Rule {rule.__name__} failed in {region}: {type(e).__name__}: {e}")
 
     for f in findings:
         f.region = region
@@ -460,30 +461,27 @@ def _scan_aws_region(
                     # Graceful degradation — missing permissions skip this rule
                     skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
                 except botocore.exceptions.EndpointConnectionError as e:
-                    # Endpoint connection error - likely invalid region
                     rules_failed += 1
                     endpoint_errors += 1
-                    click.echo(f"Rule failed in {region}: {e}")
+                    skipped_rules.append(
+                        {"rule": rule.__name__, "error": f"EndpointConnectionError: {e}"}
+                    )
+                    click.echo(f"Rule failed in {region} [{rule.__name__}]: {e}")
                 except Exception as e:
-                    # Other errors (throttling, unexpected, etc.)
                     rules_failed += 1
-                    click.echo(f"Rule failed in {region}: {e}")
+                    skipped_rules.append(
+                        {"rule": rule.__name__, "error": f"{type(e).__name__}: {e}"}
+                    )
+                    click.echo(
+                        f"Rule failed in {region} [{rule.__name__}]: {type(e).__name__}: {e}"
+                    )
                 finally:
                     advance(bar)
 
-    # If ALL rules failed due to endpoint errors (none skipped), this is an invalid region
-    if rules_succeeded == 0 and not skipped_rules and endpoint_errors == rules_failed:
-        raise RuntimeError(
-            f"Region '{region}' appears to be invalid or inaccessible. "
-            f"All {rules_failed} rules failed with endpoint connectivity errors. "
-            f"Check that the region name is correct (e.g., us-east-1, eu-west-1)."
-        )
-
-    # If ALL rules failed for any non-permission reason, something is seriously wrong
-    if rules_succeeded == 0 and not skipped_rules and rules_failed > 0:
-        raise RuntimeError(
-            f"All {rules_failed} rules failed in region '{region}'. "
-            f"This indicates a serious configuration or permissions issue."
+    if rules_succeeded == 0 and endpoint_errors == rules_failed and rules_failed > 0:
+        click.echo(
+            f"Warning: region '{region}' may be invalid or inaccessible — "
+            f"all {rules_failed} rules failed with endpoint connectivity errors."
         )
 
     # Ensure region is always set

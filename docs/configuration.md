@@ -169,8 +169,10 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 | `idle_days_threshold` | `aws.elbv2.load_balancer.idle` | 14 | Days of zero traffic before flagging |
 | `idle_days_threshold` | `aws.ec2.nat_gateway.idle` | 14 | Days of zero traffic before flagging |
 | `idle_days_threshold` | `aws.rds.instance.idle` | 14 | Days of no connections before flagging |
-| `idle_days` | `aws.sagemaker.endpoint.idle` | 14 | Days of zero invocations before flagging |
-| `idle_days` | `aws.sagemaker.notebook.idle` | 14 | Days since last control-plane activity before flagging |
+| `idle_days_threshold` | `aws.sagemaker.endpoint.idle` | 14 | Days of no observed `InvokeEndpoint` traffic before flagging |
+| `idle_days_threshold` | `aws.sagemaker.notebook.idle` | 14 | Days of stale control-plane timestamp state before flagging |
+| `idle_days_threshold` | `aws.sagemaker.studio_app.idle` | 7 | Days since the last usable Studio app activity timestamp before flagging |
+| `long_running_hours_threshold` | `aws.sagemaker.training_job.long_running` | 24 | Hours before an `InProgress` SageMaker training job is flagged |
 | `idle_days` | `azure.aml.compute.idle` | 14 | Days of no runs before flagging |
 | `idle_days` | `azure.ml.compute_instance.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.sql.database.idle` | 14 | Days of no connections before flagging |
@@ -421,7 +423,15 @@ rules:
 
   aws.sagemaker.notebook.idle:
     params:
-      idle_days: 21             # flag notebooks with no activity for 21+ days (default: 14)
+      idle_days_threshold: 21   # flag notebooks with stale control-plane timestamps for 21+ days
+
+  aws.sagemaker.studio_app.idle:
+    params:
+      idle_days_threshold: 10   # flag Studio apps with no usable activity signal for 10+ days
+
+  aws.sagemaker.training_job.long_running:
+    params:
+      long_running_hours_threshold: 36  # review InProgress training jobs after 36 hours
 
   aws.resource.untagged:
     enabled: false              # team manages tags separately

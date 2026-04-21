@@ -550,9 +550,9 @@ jobs:
           retention-days: 30
 ```
 
-### AWS AI/ML Scan (SageMaker + EC2 GPU)
+### AWS AI/ML Scan
 
-Run AI/ML idle resource detection (SageMaker endpoints + notebook instances, EC2 GPU/accelerator instances) separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
+Run AWS AI/ML detection (Bedrock Provisioned Throughput, SageMaker endpoints/notebooks/Studio apps/training jobs, and EC2 GPU/accelerator instances) separately — requires the `security/aws/ai-readonly.json` policy attached to your IAM role.
 
 ```yaml
 name: CleanCloud AI/ML Scan

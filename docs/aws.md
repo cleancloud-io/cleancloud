@@ -325,7 +325,10 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Action": [
         "ec2:DescribeVolumes",
         "ec2:DescribeSnapshots",
+        "ec2:DescribeSnapshotAttribute",
         "ec2:DescribeImages",
+        "ec2:DescribeLaunchTemplates",
+        "ec2:DescribeLaunchTemplateVersions",
         "ec2:DescribeAddresses",
         "ec2:DescribeNetworkInterfaces",
         "ec2:DescribeNatGateways",
@@ -340,7 +343,8 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Effect": "Allow",
       "Action": [
         "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeTargetGroups"
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth"
       ],
       "Resource": "*"
     },
@@ -349,7 +353,8 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Effect": "Allow",
       "Action": [
         "rds:DescribeDBInstances",
-        "rds:DescribeDBSnapshots"
+        "rds:DescribeDBSnapshots",
+        "rds:DescribeDBSnapshotAttributes"
       ],
       "Resource": "*"
     },
@@ -358,6 +363,7 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Effect": "Allow",
       "Action": [
         "logs:DescribeLogGroups",
+        "logs:ListTagsForResource",
         "cloudwatch:GetMetricStatistics"
       ],
       "Resource": "*"
@@ -368,6 +374,22 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Action": [
         "s3:ListAllMyBuckets",
         "s3:GetBucketTagging"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AutoScalingReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "autoscaling:DescribeLaunchConfigurations"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CloudTrailReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents"
       ],
       "Resource": "*"
     },

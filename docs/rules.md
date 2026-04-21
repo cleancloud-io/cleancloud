@@ -42,20 +42,20 @@ Every finding includes a confidence level:
 | `aws.ebs.unattached` | Storage | EBS volumes not attached to any instance |
 | `aws.ebs.snapshot.old` | Storage | Snapshots ≥ 90 days old |
 | `aws.ec2.ami.old` | Storage | AMIs older than 180 days |
-| `aws.ec2.elastic_ip.unattached` | Network | Elastic IPs allocated 30+ days with no attachment |
-| `aws.ec2.eni.detached` | Network | Detached ENIs 60+ days old |
+| `aws.ec2.elastic_ip.unattached` | Network | Elastic IPs not currently associated with any instance or network interface |
+| `aws.ec2.eni.detached` | Network | Detached ENIs not currently attached |
 | `aws.ec2.nat_gateway.idle` | Network | NAT Gateways with zero traffic 14+ days |
 | `aws.elbv2.alb.idle` / `aws.elbv2.nlb.idle` / `aws.elb.clb.idle` | Network | Load balancers with zero traffic 14+ days |
 | `aws.rds.instance.idle` | Platform | RDS instances with zero connections 14+ days |
 | `aws.rds.snapshot.old` | Storage | Manual RDS snapshots older than 90 days |
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
-| `aws.sagemaker.endpoint.idle` | AI/ML | SageMaker endpoints with zero invocations 14+ days *(opt-in: `--category ai`)* |
-| `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances InService with no activity 14+ days *(opt-in: `--category ai`)* |
+| `aws.sagemaker.endpoint.idle` | AI/ML | Real-time SageMaker endpoints `InService` with no observed `InvokeEndpoint` traffic across billable production variants for 14+ days *(opt-in: `--category ai`)* |
+| `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances `InService` with stale control-plane timestamps for 14+ days *(opt-in: `--category ai`)* |
 | `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances (p/g/trn/inf/dl families) running with <5% GPU or <10% CPU utilisation over 7 days *(opt-in: `--category ai`)* |
 | `aws.bedrock.provisioned_throughput.idle` | AI/ML | Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days — bills per MU per hour regardless of traffic *(opt-in: `--category ai`)* |
-| `aws.sagemaker.studio_app.idle` | AI/ML | SageMaker Studio KernelGateway/JupyterLab/CodeEditor apps with no user activity for 7+ days *(opt-in: `--category ai`)* |
-| `aws.sagemaker.training_job.long_running` | AI/ML | SageMaker training jobs InProgress beyond the threshold (default 24h); GPU early warning at 75% of threshold — hung or runaway jobs on GPU instances cost $28–$98+/hr *(opt-in: `--category ai`)* |
+| `aws.sagemaker.studio_app.idle` | AI/ML | SageMaker Studio `KernelGateway`/`JupyterLab`/`CodeEditor` apps `InService` with no usable recent activity signal for 7+ days *(opt-in: `--category ai`)* |
+| `aws.sagemaker.training_job.long_running` | AI/ML | SageMaker training jobs still `InProgress` beyond the configured threshold (default 24h), using `TrainingStartTime` when present else `CreationTime` *(opt-in: `--category ai`)* |
 
 **Azure:**
 
@@ -110,8 +110,8 @@ Every finding includes a confidence level:
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Stop time parsed from `StateTransitionReason` ≥ 30 days ago (deterministic timestamp)
-- Not flagged: stop time unparseable or < 30 days ago
+- **HIGH:** Stop time from CloudTrail `LookupEvents` ≥ 30 days ago (deterministic timestamp)
+- Not flagged: no CloudTrail stop event found or stopped < 30 days ago
 
 **Risk:** MEDIUM
 
@@ -124,11 +124,10 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 **Detection logic:**
 ```python
 for instance in describe_instances(state=stopped):
-    stop_time = parse_state_transition_reason(instance.StateTransitionReason)
-    # Format: "User initiated (YYYY-MM-DD HH:MM:SS UTC)"
-    if stop_time and (now - stop_time).days >= 30:
-        cost = sum(volume.size_gb for volume in attached_volumes) * $0.10
-        confidence = "HIGH"  # Deterministic timestamp, not a heuristic
+    stop_event = cloudtrail_lookup_events(EventName="StopInstances", instance_id=instance.id)
+    # Uses latest StopInstances event after most recent StartInstances (restart-cycle aware)
+    if stop_event and (now - stop_event.eventTime).days >= 30:
+        confidence = "HIGH"  # Deterministic CloudTrail timestamp, not a heuristic
 ```
 
 **Cost estimates:**
@@ -145,6 +144,7 @@ for instance in describe_instances(state=stopped):
 **Required permissions:**
 - `ec2:DescribeInstances`
 - `ec2:DescribeVolumes`
+- `cloudtrail:LookupEvents`
 
 ---
 
@@ -212,8 +212,7 @@ for sg in describe_security_groups():
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Unattached ≥ 14 days
-- **MEDIUM:** Unattached 7-13 days
+- **MEDIUM:** Volume in `available` state for ≥7 days (not attached to any instance)
 - Not flagged: < 7 days
 
 **Why this threshold:**
@@ -240,19 +239,19 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** Age ≥ 90 days (conservative — age alone is a moderate signal)
+- **LOW:** Age ≥ 90 days (conservative — age alone is a weak signal)
 
 **Detection logic:**
 ```python
 for snapshot in describe_snapshots(OwnerIds=["self"]):
     age_days = (now - snapshot.StartTime).days
     if age_days >= days_old:  # default 90
-        confidence = "MEDIUM"  # age alone is a moderate signal
+        confidence = "LOW"  # age alone is a weak signal
         risk = "LOW"
 ```
 
 **Limitations:**
-- Does NOT check AMI linkage (by design, avoids false positives)
+- Snapshots linked to registered AMIs are excluded (avoids false positives)
 - Does NOT verify snapshot is unused (conservative approach)
 
 **Common causes:**
@@ -260,7 +259,9 @@ for snapshot in describe_snapshots(OwnerIds=["self"]):
 - Snapshots from deleted volumes
 - Over-retention without cleanup
 
-**Required permission:** `ec2:DescribeSnapshots`
+**Required permissions:**
+- `ec2:DescribeSnapshots`
+- `ec2:DescribeSnapshotAttribute`
 
 ---
 
@@ -320,30 +321,24 @@ for ami in describe_images(Owners=["self"]):
 
 **Rule ID:** `aws.ec2.elastic_ip.unattached`
 
-**What it detects:** Elastic IPs allocated 30+ days ago and currently unattached
+**What it detects:** Elastic IPs currently not associated with any instance or network interface
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Allocated ≥ 30 days ago and currently unattached (deterministic state)
-
-**Important limitation:**
-- AWS does not expose "unattached since" timestamp
-- We measure allocation age as a proxy
-- An EIP could have been attached until recently (we can't tell)
+- **HIGH:** Currently not associated (all four AWS association fields absent per DescribeAddresses)
 
 **Why this matters:**
 - Unattached Elastic IPs incur small hourly charges
-- State is deterministic (no `AssociationId` means not attached)
+- State is deterministic (no `AssociationId`, `InstanceId`, `NetworkInterfaceId`, or `PrivateIpAddress` means not attached)
 - Clear cost optimization signal with zero ambiguity
 
 **Detection logic:**
 ```python
-if "AssociationId" not in eip:  # Not attached
-    age_days = (now - eip["AllocationTime"]).days  # Allocation age, NOT unattached duration
-    if age_days >= 30:
-        confidence = "HIGH"  # Deterministic state: no AssociationId
+if not any([eip.get("AssociationId"), eip.get("InstanceId"),
+            eip.get("NetworkInterfaceId"), eip.get("PrivateIpAddress")]):
+    confidence = "HIGH"  # Deterministic state: not associated
 ```
 
 **Common causes:**
@@ -353,9 +348,8 @@ if "AssociationId" not in eip:  # Not attached
 - Manual allocation without attachment
 
 **Edge cases handled:**
-- Classic EIPs without `AllocationTime` are flagged immediately (conservative) and annotated as `is_classic: true` in details
-- 30-day threshold avoids false positives from temporary allocations
-- Uses allocation age as proxy for unattached duration (unavoidable with AWS API)
+- Classic EIPs without `AllocationTime` are annotated as `is_classic: true` in details
+- Detection is purely state-based — no age threshold is applied
 
 **Required permission:** `ec2:DescribeAddresses`
 
@@ -365,18 +359,13 @@ if "AssociationId" not in eip:  # Not attached
 
 **Rule ID:** `aws.ec2.eni.detached`
 
-**What it detects:** Elastic Network Interfaces (ENIs) currently detached and 60+ days old
+**What it detects:** Elastic Network Interfaces (ENIs) currently not attached (Status=available)
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** ENI created ≥ 60 days ago and currently detached
-
-**Important limitation:**
-- AWS does not expose "detached since" timestamp
-- We measure ENI creation age as a conservative proxy
-- An ENI could have been attached until recently (we can't tell)
+- **HIGH:** Currently not attached — no temporal threshold; `Status=available` is the sole eligibility signal
 
 **Why this matters:**
 - Detached ENIs incur small hourly charges
@@ -386,23 +375,13 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 **Detection logic:**
 ```python
 if eni['Status'] == 'available':  # Currently detached
-    # Exclude AWS infrastructure using InterfaceType
-    if eni['InterfaceType'] not in ['nat_gateway', 'load_balancer', 'vpc_endpoint', ...]:
-        age_days = (now - eni['CreateTime']).days  # Creation age, NOT detached duration
-        if age_days >= 60:  # Conservative threshold
-            confidence = "MEDIUM"  # Medium because we can't measure detached duration
+    confidence = "HIGH"  # Deterministic state: not attached
 ```
 
 **What gets flagged:**
 - User-created ENIs (InterfaceType='interface')
 - **Lambda/ECS/RDS ENIs** (RequesterManaged=true but YOUR resources!) - explicitly annotated in evidence and details
 - Detached ENIs from deleted services
-
-**AWS infrastructure ENIs (excluded):**
-- NAT Gateways (InterfaceType='nat_gateway')
-- Load Balancers (InterfaceType='load_balancer')
-- VPC Endpoints (InterfaceType='vpc_endpoint')
-- Gateway Load Balancers
 
 **Key insight:** `RequesterManaged=true` means "AWS created this in YOUR VPC for YOUR resource" — these ARE your responsibility and often waste. RequesterManaged ENIs are included in findings with an explicit evidence signal and `requester_managed: true` in details for downstream filtering.
 
@@ -411,18 +390,6 @@ if eni['Status'] == 'available':  # Currently detached
 - Incomplete infrastructure teardown
 - Terminated instances with retained ENIs
 - Forgotten manual ENI creations
-
-**Edge cases handled:**
-- Uses creation age (60+ days) as proxy for detached duration
-- 60-day threshold is conservative to reduce false positives
-- Could flag ENIs that were attached until recently (unavoidable with AWS API)
-- Flags ENIs without tags (ownership unclear signal)
-- `interface_type` and `requester_managed` included in details for CI/CD filtering
-
-**Why 60 days (not 30):**
-- We measure creation age, not detached duration
-- Longer threshold reduces false positives
-- If an ENI is 60+ days old and currently detached, it's worth reviewing
 
 **Required permission:** `ec2:DescribeNetworkInterfaces`
 
@@ -454,16 +421,25 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 ```python
 for gw in describe_nat_gateways():
     if gw.state == "available" and age >= idle_threshold_days:
-        # Check CloudWatch metrics for traffic
-        bytes_out = get_metric(BytesOutToDestination, period=idle_threshold_days)
-        bytes_in = get_metric(BytesInFromSource, period=idle_threshold_days)
-        if bytes_out == 0 and bytes_in == 0:
-            confidence = "MEDIUM"
+        # All 5 metrics must return datapoints and all must be zero
+        # If any metric has no datapoints, the item is skipped
+        for metric in required_metrics:
+            value = get_metric(metric, period=idle_threshold_days)
+            if value is None:
+                skip  # Missing data is NOT treated as zero traffic
+            if value > 0:
+                skip  # Active traffic detected
+        confidence = "HIGH" if no_route_table_refs else "MEDIUM"
 ```
 
 **CloudWatch metrics checked:**
 - `AWS/NATGateway` → `BytesOutToDestination` (daily sum)
 - `AWS/NATGateway` → `BytesInFromSource` (daily sum)
+- `AWS/NATGateway` → `BytesInFromDestination` (daily sum)
+- `AWS/NATGateway` → `BytesOutToSource` (daily sum)
+- `AWS/NATGateway` → `ActiveConnectionCount` (daily sum)
+
+> **Note:** If any metric has no data for the period (e.g. newly created gateway), the item is skipped — missing data is NOT treated as zero traffic.
 
 **Common causes:**
 - VPC restructuring leaving orphaned NAT Gateways
@@ -560,18 +536,16 @@ for lb in describe_load_balancers():
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Zero connections for 14+ days (CloudWatch metrics checked, strong idle signal)
+- **MEDIUM:** Zero connections for 14+ days (CloudWatch metrics checked, strong but not conclusive signal)
 
-**Why HIGH confidence:**
-- Zero database connections is a very strong signal of non-use
-- Combined with age check and tag exclusions, false positive rate is low
+**Why MEDIUM confidence:**
+- Zero database connections is a strong signal of non-use, but cannot rule out Aurora-style architectures or scheduled workloads that connect infrequently
+- Connection pools and proxies (RDS Proxy, PgBouncer) can hide real usage while keeping observed client connection counts low or zero
 
-**Risk:** HIGH
+**Risk:** MEDIUM
 
-**Why HIGH risk:**
-- RDS instances are among the more expensive AWS resources
-- Even small instances cost $12-50+/month
-- Production-class instances can cost $100-700+/month
+**Why MEDIUM risk:**
+- RDS instances are among the more expensive AWS resources, but zero connections alone does not confirm the instance is safe to delete
 
 **Why this matters:**
 - RDS instances incur hourly charges regardless of usage
@@ -583,14 +557,14 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 for instance in describe_db_instances():
     if instance.status == "available" and age >= idle_threshold_days:
         if not instance.read_replica_source:  # Skip read replicas
-            connections = get_metric(DatabaseConnections, period=idle_threshold_days)
-            if connections == 0:
-                confidence = "HIGH"
-                risk = "HIGH"
+            connections_max = get_metric(DatabaseConnections, statistic="Maximum", period=idle_threshold_days)
+            if connections_max == 0:
+                confidence = "MEDIUM"
+                risk = "MEDIUM"
 ```
 
 **CloudWatch metrics checked:**
-- `AWS/RDS` -> `DatabaseConnections` (daily sum)
+- `AWS/RDS` -> `DatabaseConnections` (Maximum statistic)
 
 **Exclusions:**
 - Aurora cluster members (`DBClusterIdentifier` set) — Aurora instances are managed at cluster level and may show zero connections individually even when the cluster is active
@@ -619,7 +593,7 @@ for instance in describe_db_instances():
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Snapshot age is known and exceeds threshold (deterministic)
+- **LOW:** Snapshot age is known and exceeds threshold (age alone is a weak signal)
 
 **Risk:** LOW
 
@@ -634,7 +608,7 @@ for snapshot in describe_db_snapshots(SnapshotType="manual"):
     if snapshot.status == "available":
         age_days = (now - snapshot.create_time).days
         if age_days >= days_old:
-            confidence = "HIGH"
+            confidence = "LOW"
             risk = "LOW"
 ```
 
@@ -651,6 +625,7 @@ for snapshot in describe_db_snapshots(SnapshotType="manual"):
 
 **Required permissions:**
 - `rds:DescribeDBSnapshots`
+- `rds:DescribeDBSnapshotAttributes`
 
 ---
 
@@ -666,7 +641,12 @@ for snapshot in describe_db_snapshots(SnapshotType="manual"):
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** No retention policy configured
+- **HIGH:** No retention policy configured (directly observable configuration fact)
+
+**Risk tiers:**
+- **HIGH:** Log group has ≥1 GB stored bytes (significant ongoing cost)
+- **MEDIUM:** Log group has >0 stored bytes
+- **LOW:** Log group has 0 stored bytes (still flagged — retention should be set regardless)
 
 **Why this matters:**
 - Logs grow indefinitely without retention
@@ -699,7 +679,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** Zero tags (always MEDIUM, never HIGH)
+- **HIGH:** Zero tags (directly observable fact from authoritative tag source)
 
 **Why this matters:**
 - Ownership ambiguity
@@ -711,6 +691,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `s3:ListAllMyBuckets`
 - `s3:GetBucketTagging`
 - `logs:DescribeLogGroups`
+- `logs:ListTagsForResource`
 
 ### AI/ML Waste
 
@@ -720,30 +701,27 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 **Category:** `ai`
 
-**What it detects:** SageMaker inference endpoints in `InService` state with zero invocations over 14+ days. GPU-backed endpoints (`ml.g4dn`, `ml.g5`, `ml.p3`, `ml.p4d`, `ml.p5`, Inferentia, Trainium) are flagged as HIGH risk due to significantly higher hourly cost.
+**What it detects:** Real-time SageMaker endpoints in `InService` state with no observed `InvokeEndpoint` traffic across billable production variants for 14+ days (default, configurable). Async endpoints are excluded. Serverless variants without current provisioned concurrency are not treated as continuous idle-cost candidates.
 
 **Confidence:**
-- **HIGH:** Zero invocations for the full 14-day window (endpoint age ≥ 14 days)
-- **MEDIUM:** Zero invocations but endpoint is 7–13 days old
+- **HIGH:** All evaluated billable variants returned datapoints and zero summed invocations over the observation window
+- **MEDIUM:** At least one evaluated billable variant returned no CloudWatch datapoints, but no billable variant showed positive invocation traffic
 
 **Risk:**
-- **HIGH:** GPU/accelerator-backed instance (`ml.g4dn.*`, `ml.g5.*`, `ml.p3.*`, `ml.p4d.*`, etc.)
-- **MEDIUM:** CPU-backed instance
+- **HIGH:** Any billable variant is accelerator-backed (`ml.g*`, `ml.p*`, `ml.inf*`, `ml.trn*`)
+- **MEDIUM:** All billable variants are CPU-backed
 
 **Why this matters:**
 - SageMaker endpoints accrue charges continuously while `InService`, regardless of traffic
-- GPU-backed endpoints cost $500–$23K/month depending on instance type
 - Endpoints deployed for experiments or demos are frequently abandoned after initial testing
 - Multi-variant endpoints multiply the cost per variant
 
-**Estimated monthly cost:**
-- `ml.g4dn.xlarge` — ~$531/month
-- `ml.g5.xlarge` — ~$600/month
-- `ml.p3.2xlarge` — ~$2,754/month
-- `ml.p4d.24xlarge` — ~$23,596/month
-- `ml.p4de.24xlarge` — ~$29,908/month
-- `ml.p5.48xlarge` — ~$71,774/month
-- `ml.m5.xlarge` — ~$188/month
+**Detection signal:**
+- Inventory comes from `ListEndpoints(StatusEquals="InService")`
+- Runtime variants come from `DescribeEndpoint.ProductionVariants`
+- Async inference is excluded via `DescribeEndpointConfig.AsyncInferenceConfig`
+- Activity is evaluated from `AWS/SageMaker` `Invocations` using `EndpointName + VariantName`
+- `estimated_monthly_cost_usd` is intentionally left unset by this rule
 
 **Required permissions:**
 - `sagemaker:ListEndpoints`
@@ -751,7 +729,7 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 - `sagemaker:DescribeEndpointConfig`
 - `cloudwatch:GetMetricStatistics`
 
-> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). Validate access first with `cleancloud doctor --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
 
 ---
 
@@ -761,42 +739,32 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 
 **Category:** `ai`
 
-**What it detects:** SageMaker Notebook Instances in `InService` state with no control-plane activity for 14+ days, detected via `LastModifiedTime` from the SageMaker control plane. GPU-backed notebooks (`ml.g4dn`, `ml.g5`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, Inferentia, Trainium) idle for 2× the threshold are escalated to CRITICAL. Data scientists frequently leave notebook instances running between sprints, after project handovers, or when granted a new instance without stopping the old one.
+**What it detects:** SageMaker Notebook Instances in `InService` state whose `CreationTime` and `LastModifiedTime` are both at least 14 days old (default, configurable). This is a conservative stale control-plane heuristic, not a direct notebook-usage signal.
 
 **Detection signal — why `LastModifiedTime`:**
-SageMaker Notebook Instances do not publish utilisation metrics to CloudWatch by default (unlike endpoints, which emit `Invocations`). `LastModifiedTime` is updated by SageMaker when the notebook configuration changes, when the instance is stopped and restarted, or when a linked Git repository is synced. A notebook with `LastModifiedTime` older than the idle threshold has had no control-plane activity — this is the correct and standard signal used by AWS Cost Optimisation Hub for notebook idle detection.
+SageMaker Notebook Instances do not publish a native notebook-session activity metric for this rule. `LastModifiedTime` is the only canonical control-plane timestamp available, but it is a **weak signal**: it is **not** a direct indicator of Jupyter usage, kernel execution, or user access. The rule therefore emits only MEDIUM-confidence review candidates.
 
 **Confidence:**
-- **HIGH:** `LastModifiedTime` ≥ 14 days ago AND notebook age ≥ 14 days
-- **MEDIUM:** `LastModifiedTime` ≥ 10 days ago (75% of threshold) AND notebook age ≥ 10 days
+- **MEDIUM:** notebook age and stale control-plane age both meet or exceed the configured threshold
 
 **Risk:**
-- **CRITICAL:** GPU/accelerator-backed instance AND `idle_ratio ≥ 2.0` (idle for 2× the threshold, e.g. 28+ days at the default 14-day window)
 - **HIGH:** GPU/accelerator-backed instance (`ml.g4dn.*`, `ml.g5.*`, `ml.p3.*`, `ml.p4d.*`, `ml.p4de.*`, `ml.p5.*`, Inferentia, Trainium)
 - **MEDIUM:** CPU-backed instance
 
 **Why this matters:**
 - Notebook Instances bill continuously while `InService`, regardless of whether any kernels are running
-- GPU-backed notebooks cost $500–$71K+/month depending on instance type (ml.p5.48xlarge: ~$71,774/month)
 - Notebooks are commonly left running after a sprint ends, a project is deprioritised, or a team member leaves
-- Unlike endpoints, notebooks have no auto-scaling — an idle `ml.p3.8xlarge` at $11K/month runs indefinitely unless explicitly stopped
+- Unlike endpoints, notebooks have no auto-scaling — they remain billable until explicitly stopped
 
-**Estimated monthly cost:**
-- `ml.t3.medium` — ~$42/month
-- `ml.m5.xlarge` — ~$188/month
-- `ml.g4dn.xlarge` — ~$531/month
-- `ml.g5.xlarge` — ~$600/month
-- `ml.p3.2xlarge` — ~$2,754/month
-- `ml.p3.8xlarge` — ~$11,016/month
-- `ml.p4d.24xlarge` — ~$23,596/month
-- `ml.p4de.24xlarge` — ~$29,908/month
-- `ml.p5.48xlarge` — ~$71,774/month
+**Important scope note:**
+- `Stopped` notebook instances are intentionally out of scope for this rule
+- Their retained storage cost should be handled by a separate storage / cost-waste rule
+- `estimated_monthly_cost_usd` is intentionally left unset by this rule
 
 **Required permissions:**
 - `sagemaker:ListNotebookInstances`
-- `sagemaker:DescribeNotebookInstance`
 
-> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). If the permissions above are not granted, the rule is gracefully skipped and reported in the skipped rules section — it will not fail the scan. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
+> **Not run by default.** AI/ML rules are opt-in to avoid surprising users who don't use these services. Run with `cleancloud scan --provider aws --category ai` (or `--category all` to combine with hygiene rules). Validate access first with `cleancloud doctor --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) to your IAM role to enable this rule.
 
 ---
 
@@ -860,11 +828,9 @@ Detection uses two tiers based on metric availability:
 
 **Confidence:**
 - **HIGH:** Zero invocations confirmed for the full idle window (deployment age ≥ `idle_days`)
-- **MEDIUM:** Zero invocations, age ≥ ceil(75% of `idle_days`) but < `idle_days`
 
 **Risk:**
-- **CRITICAL:** `idle_ratio ≥ 2.0` — reservation has been idle for 2× the threshold
-- **HIGH:** all other cases (all MU reservations are always-on significant spend)
+- **HIGH:** All provisioned throughput reservations (significant always-on spend)
 
 **Why this matters:**
 - Provisioned Throughput bills per Model Unit per hour while `InService`, regardless of invocation count
@@ -902,17 +868,15 @@ Multiply by `desiredModelUnits` for total monthly idle cost.
 
 **Category:** `ai`
 
-**What it detects:** SageMaker Studio apps (`KernelGateway`, `JupyterLab`, `CodeEditor`) in `InService` state with no user activity for 7+ days (default, configurable). These app types attach to compute instances and bill at full instance rates — unlike `JupyterServer` (a low-cost domain-managed infra app, excluded). GPU-backed Studio apps cost $500–$23K+/month while InService, regardless of whether the user is actively working.
+**What it detects:** SageMaker Studio apps of type `KernelGateway`, `JupyterLab`, or `CodeEditor` in `InService` state with no usable recent activity signal for 7+ days (default, configurable). Other app types, including `JupyterServer`, are excluded from evaluation.
 
-**Detection signal:** `LastUserActivityTimestamp` from `sagemaker:DescribeApp`. If absent (app was created but never used), `CreationTime` from the list response is used as a conservative fallback — a never-used app is idle from birth.
+**Detection signal:** `LastUserActivityTimestamp` from `sagemaker:DescribeApp`, but only when it is usable. AWS documents that health checks can also update `LastUserActivityTimestamp`; if it exactly matches `LastHealthCheckTimestamp`, the app is skipped and not treated as idle.
 
 **Confidence:**
-- **HIGH:** `idle_since_days ≥ idle_days` AND `age_days ≥ idle_days`
-- **MEDIUM:** `idle_since_days ≥ ceil(75% of idle_days)` AND `age_days ≥ ceil(75% of idle_days)`
+- **HIGH:** `usable_activity_signal = true` and the last usable activity timestamp is at least the configured threshold old
 
 **Risk:**
-- **CRITICAL:** GPU/accelerator instance AND `idle_ratio ≥ 2.0` (idle for 2× the threshold)
-- **HIGH:** GPU/accelerator instance (`idle_ratio < 2.0`)
+- **HIGH:** GPU/accelerator instance (`ml.g*`, `ml.p*`, `ml.inf*`, `ml.trn*`)
 - **MEDIUM:** CPU instance
 
 GPU families: `ml.g4dn`, `ml.g5`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, `ml.trn1`, `ml.inf1`, `ml.inf2`
@@ -921,30 +885,19 @@ GPU families: `ml.g4dn`, `ml.g5`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`
 - Studio apps remain `InService` (and billing) until explicitly deleted — there is no auto-stop by default
 - KernelGateway, JupyterLab, and CodeEditor apps each launch a separate compute instance per user session or space
 - Teams frequently leave apps running after finishing a sprint, switching to a new space, or abandoning a project
-- GPU-backed apps ($500–$23K+/month) left idle for weeks are a common source of AI/ML waste
-
-**Estimated monthly cost (on-demand, us-east-1):**
-
-| Instance type | Monthly cost |
-|---|---|
-| ml.t3.medium | ~$42 |
-| ml.m5.xlarge | ~$188 |
-| ml.g4dn.xlarge | ~$531 |
-| ml.g5.xlarge | ~$600 |
-| ml.p3.2xlarge | ~$2,754 |
-| ml.p4d.24xlarge | ~$23,596 |
+- `estimated_monthly_cost_usd` is intentionally left unset by this rule
 
 **Configurable parameters:**
 
 | Parameter | Default | Description |
 |---|---|---|
-| `idle_days` | `7` | Days of no user activity before flagging |
+| `idle_days_threshold` | `7` | Days since the last usable activity timestamp before flagging |
 
 **Required permissions:**
 - `sagemaker:ListApps`
 - `sagemaker:DescribeApp`
 
-> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Validate access first with `cleancloud doctor --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
 
 ---
 
@@ -954,61 +907,40 @@ GPU families: `ml.g4dn`, `ml.g5`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`
 
 **Category:** `ai`
 
-**What it detects:** SageMaker training jobs in `InProgress` state that have been running longer than expected. The default threshold is 24 hours, but GPU/accelerator jobs raise an early warning at 75% of the threshold (18h at defaults) because GPU burn rates make runaway detection time-sensitive. Most training jobs complete in minutes to a few hours. A job still running well past the threshold is likely hung, stalled, or runaway — waiting on data, deadlocked in distributed training, caught in an OOM loop, or simply forgotten after a project was cancelled.
+**What it detects:** SageMaker training jobs still in `InProgress` beyond the configured threshold (default 24 hours). Runtime is measured from `TrainingStartTime` when present, otherwise from `CreationTime`.
 
-GPU-backed training is especially costly: a hung `ml.p3.16xlarge` runs at ~$28/hour; `ml.p4d.24xlarge` at ~$33/hour; `ml.p5.48xlarge` at ~$98/hour. Distributed jobs multiply cost linearly. Heterogeneous clusters (`ResourceConfig.InstanceGroups`) are handled correctly — cost and GPU detection are aggregated per group rather than inferred from the primary instance type.
-
-**Detection signal:** `ListTrainingJobs(StatusEquals=InProgress)` + `CreationTime`. Duration = `now − CreationTime`. `DescribeTrainingJob` is called for each long-running job to retrieve instance type, count, `SecondaryStatus`, `StoppingCondition`, `EnableManagedSpotTraining`, and `ResourceConfig.InstanceGroups` (heterogeneous clusters).
-
-**Cost reported:** Accrued cost so far (`duration_hours × total_hourly_rate`), not a monthly projection. Cost grows until the job is stopped. `estimated_monthly_cost_usd` is intentionally omitted — training jobs are transient expenses, not recurring monthly charges, so populating that field would corrupt monthly savings totals.
+**Detection signal:** Inventory is built by fully paginating `ListTrainingJobs` **without** relying on `StatusEquals` for completeness, then filtering `TrainingJobStatus` client-side. `DescribeTrainingJob` is used to confirm the current status, resolve the runtime anchor, and read `StoppingCondition`, `EnableManagedSpotTraining`, `ResourceConfig`, and optional heterogeneous `InstanceGroups`.
 
 **Confidence:**
-- **HIGH (deterministic):** Wall-clock duration exceeds the job's own configured stopping limit:
-  - On-demand jobs: `MaxRuntimeInSeconds` exceeded — SageMaker should have stopped the job; it has not
-  - Managed spot jobs: `MaxWaitTimeInSeconds` exceeded — the wall-clock limit for spot; `MaxRuntimeInSeconds` counts only active compute time (excluding wait) and is not a wall-clock signal for spot
-- **HIGH:** `duration ≥ long_running_hours × 3` — clearly excessive for almost any single training run
-- **HIGH:** `SecondaryStatus` is a stuck-early state (`Starting`, `LaunchingMLInstances`, `PreparingTrainingStack`, `Downloading`, `DownloadingTrainingImage`) at or beyond the threshold — job is not making any training progress
-- **MEDIUM:** `duration ≥ long_running_hours` — worth reviewing; could be legitimate large-scale training
-- **MEDIUM (early warning):** GPU/accelerator job at 75–100% of threshold — emitted before the threshold is crossed because GPU burn rates make early detection worthwhile; not emitted for CPU instances below threshold
+- **HIGH:** elapsed runtime exceeds the applicable SageMaker stopping-condition limit (`MaxWaitTimeInSeconds` for managed Spot when present, otherwise `MaxRuntimeInSeconds` when `TrainingStartTime` is present)
+- **MEDIUM:** elapsed runtime meets the threshold but no applicable stopping-condition limit was exceeded (or no such limit is configured)
 
 **Risk:**
-- **CRITICAL:** GPU/accelerator instance AND HIGH confidence (applies to all three HIGH paths: stop-limit exceeded, 3× threshold, and stuck-early at threshold)
-- **HIGH:** GPU/accelerator instance AND MEDIUM confidence (including early-warning GPU jobs below threshold); OR non-GPU instance AND HIGH confidence
-- **MEDIUM:** Non-GPU instance AND MEDIUM confidence
+- **HIGH:** GPU/accelerator instance (`ml.g*`, `ml.p*`, `ml.inf*`, `ml.trn*`)
+- **MEDIUM:** Non-GPU/accelerator instance
 
 GPU/accelerator families: `ml.g4dn`, `ml.g5`, `ml.g6`, `ml.g6e`, `ml.g7`, `ml.p2`, `ml.p3`, `ml.p4d`, `ml.p4de`, `ml.p5`, `ml.p5en`, `ml.p6`, `ml.trn1`, `ml.trn2`, `ml.inf1`, `ml.inf2`
 
 **Managed spot training:** `EnableManagedSpotTraining=true` changes the effective wall-clock stopping limit. `MaxRuntimeInSeconds` counts only active compute time (not spot wait time) and is not a reliable wall-clock signal. For spot jobs the rule uses `MaxWaitTimeInSeconds` as the stopping limit; the summary and signals explicitly label which limit was exceeded.
 
-**Heterogeneous clusters:** When `ResourceConfig.InstanceGroups` is present, cost, instance count, and GPU detection are aggregated across all groups. GPU detection uses the instance family (`_GPU_FAMILIES`) per group — not the total burn rate — so a large CPU-only cluster is never misclassified as GPU, and a cluster with even one cheap GPU group is correctly flagged.
+**Heterogeneous clusters:** When `ResourceConfig.InstanceGroups` is present, accelerator detection is evaluated across the groups rather than inferred from a single primary instance type.
 
 **Why this matters:**
-- Hung distributed training (e.g., a stalled AllReduce) keeps all worker instances running and billing with zero progress
-- OOM loops (job repeatedly crashes and restarts within the same run) can run indefinitely
-- Training jobs are not automatically stopped — they run until completion, failure, or manual intervention
-- A single runaway `ml.p5.48xlarge` job accumulates ~$2,360/day
-
-**Estimated hourly cost per instance (on-demand, us-east-1):**
-
-| Instance type | Hourly cost | Daily cost (1 instance) |
-|---|---|---|
-| ml.g4dn.xlarge | ~$0.74 | ~$18 |
-| ml.g5.12xlarge | ~$7.54 | ~$181 |
-| ml.p3.16xlarge | ~$28.15 | ~$676 |
-| ml.p4d.24xlarge | ~$32.77 | ~$787 |
-| ml.p5.48xlarge | ~$98.32 | ~$2,360 |
+- Long-running distributed training can keep all workers running and billing while producing limited or no useful progress
+- Training jobs are not automatically stopped just because they are unusually long
+- `estimated_monthly_cost_usd` is intentionally omitted — this is a transient runtime review rule, not a monthly-cost rule
 
 **Configurable parameters:**
 
 | Parameter | Default | Description |
 |---|---|---|
-| `long_running_hours` | `24` | Hours before a training job is considered long-running |
+| `long_running_hours_threshold` | `24` | Hours before a training job is considered long-running |
 
 **Required permissions:**
 - `sagemaker:ListTrainingJobs`
 - `sagemaker:DescribeTrainingJob`
 
-> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
+> **Not run by default.** Run with `cleancloud scan --provider aws --category ai`. Validate access first with `cleancloud doctor --provider aws --category ai`. Attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json) alongside `base-readonly.json` to your IAM role to enable this rule.
 
 ---
 

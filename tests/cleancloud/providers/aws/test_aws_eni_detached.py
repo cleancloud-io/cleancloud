@@ -177,13 +177,19 @@ class TestMustFailRule:
     def test_client_error_raises(self):
         """Scenario 11: DescribeNetworkInterfaces request failure → FAIL RULE (re-raise)."""
         ec2 = MagicMock()
-        ec2.get_paginator.return_value.paginate.side_effect = _client_error("AccessDenied")
+        ec2.get_paginator.return_value.paginate.side_effect = _client_error("ThrottlingException")
         with pytest.raises(ClientError):
             _run(_make_session(ec2))
 
     def test_unauthorized_operation_raises_permission_error(self):
         ec2 = MagicMock()
         ec2.get_paginator.return_value.paginate.side_effect = _client_error("UnauthorizedOperation")
+        with pytest.raises(PermissionError):
+            _run(_make_session(ec2))
+
+    def test_access_denied_raises_permission_error(self):
+        ec2 = MagicMock()
+        ec2.get_paginator.return_value.paginate.side_effect = _client_error("AccessDenied")
         with pytest.raises(PermissionError):
             _run(_make_session(ec2))
 
@@ -617,7 +623,7 @@ class TestRiskModel:
 class TestTitleAndReasonContract:
     def test_title_exact(self):
         ec2 = _setup_ec2([_eni("eni-title", "available")])
-        assert _run(_make_session(ec2))[0].title == "ENI not currently attached review candidate"
+        assert _run(_make_session(ec2))[0].title == "Detached ENI review candidate"
 
     def test_reason_exact(self):
         ec2 = _setup_ec2([_eni("eni-reason", "available")])
