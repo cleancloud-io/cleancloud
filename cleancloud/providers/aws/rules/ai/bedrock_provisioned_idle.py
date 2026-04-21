@@ -1,14 +1,89 @@
-import math
+"""
+Rule: aws.bedrock.provisioned_throughput.idle
+
+    (spec — docs/specs/aws/ai/bedrock_provisioned_idle.md)
+
+Intent:
+    Detect Amazon Bedrock Provisioned Throughputs that are currently InService
+    and show no observed runtime request activity for the configured observation
+    window, so they can be reviewed as potential FinOps cleanup or rightsizing
+    candidates.
+
+    This is a read-only review-candidate rule. Not proof that the throughput
+    is safe to delete, not proof that no one intends to use it, and not proof
+    that immediate savings are available if the throughput is under commitment.
+
+Exclusions:
+    - provisioned_model_arn absent (malformed identity)
+    - normalized_status absent or not "InService"
+    - creation_time_utc absent, naive, or in the future
+    - age_days < idle_days_threshold (too new to evaluate)
+    - any required activity metric returns no datapoints (insufficient evidence)
+    - any required activity metric has Sum > 0 (observed runtime activity)
+
+Detection:
+    - InService Provisioned Throughput older than threshold
+    - all 4 required CloudWatch activity metrics return datapoints
+    - all observed Sum values are exactly 0 over the observation window
+
+Key rules:
+    - Required metrics: Invocations, InvocationClientErrors,
+      InvocationServerErrors, InvocationThrottles (Sum).
+    - ModelId dimension must be provisionedModelArn only.
+    - Missing CloudWatch datapoints → SKIP ITEM (not zero).
+    - CloudWatch API failure → FAIL RULE.
+    - estimated_monthly_cost_usd = None.
+    - Confidence: HIGH always.
+    - Risk: HIGH always.
+
+Blind spots:
+    - Whether the throughput is intentionally kept warm for failover or rare
+      batch windows
+    - Whether a commitment term prevents immediate deletion
+    - Whether future traffic is expected soon
+    - Application/business criticality
+    - Exact current pricing and immediate avoidable savings
+
+APIs:
+    - bedrock:ListProvisionedModelThroughputs
+    - cloudwatch:GetMetricStatistics
+"""
+
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
+
+# --- Module-level constants ---
+
+_DEFAULT_IDLE_DAYS_THRESHOLD = 7
+_ELIGIBLE_STATUS = "InService"
+_CW_NAMESPACE = "AWS/Bedrock"
+_CW_DIM = "ModelId"
+
+# Required runtime-activity metrics in evaluation order
+_REQUIRED_METRICS: Tuple[str, ...] = (
+    "Invocations",
+    "InvocationClientErrors",
+    "InvocationServerErrors",
+    "InvocationThrottles",
+)
+
+_FINDING_TITLE = "Idle Bedrock Provisioned Throughput review candidate"
+
+_SIGNALS_NOT_CHECKED = (
+    "Whether the throughput is intentionally kept warm for failover or rare batch windows",
+    "Whether a commitment term prevents immediate deletion",
+    "Whether future traffic is expected soon",
+    "Application/business criticality",
+    "Exact current pricing and immediate avoidable savings",
+)
 
 RULE_METADATA = {
     "id": "aws.bedrock.provisioned_throughput.idle",
@@ -17,368 +92,274 @@ RULE_METADATA = {
     "cost_impact": "high",
 }
 
-# Upper-bound monthly cost per Model Unit (no-commitment, us-east-1).
-# Actual cost varies by region, commitment term, and AWS pricing changes.
-# Reserved (1-month / 6-month) pricing is 25–60% lower — no-commitment is the ceiling.
-# Match against the model ID prefix extracted from the foundation model ARN.
-_MONTHLY_COST_PER_MU = {
-    "anthropic.claude-3-opus": 7_300.0,
-    "anthropic.claude-3-5-sonnet": 2_600.0,
-    "anthropic.claude-3-sonnet": 2_600.0,
-    "anthropic.claude-3-5-haiku": 600.0,
-    "anthropic.claude-3-haiku": 600.0,
-    "meta.llama3": 1_000.0,
-    "meta.llama2": 500.0,
-    "amazon.titan": 200.0,
-    "mistral": 500.0,
-    "cohere": 400.0,
-}
-_DEFAULT_MONTHLY_COST_PER_MU = 600.0
+
+def _str(value: object) -> Optional[str]:
+    """Return value as str only when it is a non-empty string; else None."""
+    return value if isinstance(value, str) and value else None
+
+
+def _choose_period(idle_days: int) -> int:
+    """Return a deterministic Period compliant with CloudWatch retention rules.
+
+    idle_days * 86400 is a multiple of 60, 300, and 3600, satisfying all three
+    CloudWatch retention constraints for the chosen lookback window.
+    """
+    return idle_days * 86400
+
+
+def _normalize_provisioned_throughput(item: object, now_utc: datetime) -> Optional[dict]:
+    """Normalize a raw ListProvisionedModelThroughputs item to the canonical field shape.
+
+    Returns None when required identity/status/age fields are absent or invalid —
+    the caller must skip the item. All rule logic must operate only on the
+    returned normalized dict.
+    """
+    if not isinstance(item, dict):
+        return None
+
+    # --- Identity (required; absent → skip) ---
+    # resource_id must be provisionedModelArn, not the friendly name.
+    provisioned_model_arn = _str(item.get("provisionedModelArn"))
+    if provisioned_model_arn is None:
+        return None
+
+    # --- Status (required; absent → skip) ---
+    normalized_status = _str(item.get("status"))
+    if normalized_status is None:
+        return None
+
+    # --- creationTime (required; absent, naive, or future → skip) ---
+    raw_ct = item.get("creationTime")
+    if not isinstance(raw_ct, datetime):
+        return None
+    if raw_ct.tzinfo is None:
+        # Naive datetime — cannot safely compare to UTC; treat as absent → skip.
+        return None
+    creation_time_utc = raw_ct.astimezone(timezone.utc)
+    if creation_time_utc > now_utc:
+        # Future creationTime is invalid → skip.
+        return None
+    age_days = int((now_utc - creation_time_utc).total_seconds() // 86400)
+
+    # --- Optional context fields ---
+    provisioned_model_name = _str(item.get("provisionedModelName"))
+    model_arn = _str(item.get("modelArn"))
+    foundation_model_arn = _str(item.get("foundationModelArn"))
+    commitment_duration = _str(item.get("commitmentDuration"))
+
+    raw_model_units = item.get("modelUnits")
+    model_units = raw_model_units if isinstance(raw_model_units, int) else None
+
+    raw_desired = item.get("desiredModelUnits")
+    desired_model_units = raw_desired if isinstance(raw_desired, int) else None
+
+    # Contextual timestamps (naive → null; does not suppress detection)
+    commitment_expiration_time_utc = None
+    raw_exp = item.get("commitmentExpirationTime")
+    if isinstance(raw_exp, datetime) and raw_exp.tzinfo is not None:
+        commitment_expiration_time_utc = raw_exp.astimezone(timezone.utc)
+
+    last_modified_time_utc = None
+    raw_lmt = item.get("lastModifiedTime")
+    if isinstance(raw_lmt, datetime) and raw_lmt.tzinfo is not None:
+        last_modified_time_utc = raw_lmt.astimezone(timezone.utc)
+
+    return {
+        "resource_id": provisioned_model_arn,
+        "provisioned_model_arn": provisioned_model_arn,
+        "provisioned_model_name": provisioned_model_name,
+        "normalized_status": normalized_status,
+        "creation_time_utc": creation_time_utc,
+        "age_days": age_days,
+        "model_arn": model_arn,
+        "foundation_model_arn": foundation_model_arn,
+        "model_units": model_units,
+        "desired_model_units": desired_model_units,
+        "commitment_duration": commitment_duration,
+        "commitment_expiration_time_utc": commitment_expiration_time_utc,
+        "last_modified_time_utc": last_modified_time_utc,
+    }
+
+
+def _get_metric_sum(
+    cloudwatch,
+    provisioned_model_arn: str,
+    metric_name: str,
+    start_time: datetime,
+    end_time: datetime,
+    period: int,
+) -> Optional[float]:
+    """Fetch a single Bedrock runtime-activity metric Sum over the observation window.
+
+    Returns None if no datapoints (insufficient evidence → caller must SKIP ITEM).
+    Returns the aggregated Sum (>= 0.0) if datapoints are present.
+    Raises ClientError / BotoCoreError / PermissionError on API failure (caller → FAIL RULE).
+
+    ModelId dimension is always provisionedModelArn — no undocumented fallback dimensions.
+    """
+    try:
+        resp = cloudwatch.get_metric_statistics(
+            Namespace=_CW_NAMESPACE,
+            MetricName=metric_name,
+            Dimensions=[{"Name": _CW_DIM, "Value": provisioned_model_arn}],
+            StartTime=start_time,
+            EndTime=end_time,
+            Period=period,
+            Statistics=["Sum"],
+        )
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in (
+            "AccessDenied",
+            "UnauthorizedOperation",
+            "AccessDeniedException",
+        ):
+            raise PermissionError(
+                "Missing required IAM permission: cloudwatch:GetMetricStatistics"
+            ) from exc
+        raise
+    except BotoCoreError:
+        raise
+
+    datapoints = resp.get("Datapoints", [])
+    if not datapoints:
+        return None  # No datapoints → insufficient evidence → SKIP ITEM
+
+    return sum(dp.get("Sum", 0.0) for dp in datapoints)
 
 
 def find_idle_bedrock_provisioned_throughputs(
     session: boto3.Session,
     region: str,
-    idle_days: int = 7,
+    idle_days_threshold: int = _DEFAULT_IDLE_DAYS_THRESHOLD,
 ) -> List[Finding]:
-    """
-    Find AWS Bedrock Provisioned Throughput reservations with zero invocations.
-
-    Bedrock Provisioned Throughput reserves dedicated model capacity (Model Units)
-    and bills continuously at up to ~$7,300/MU/month (no-commitment Claude 3 Opus),
-    regardless of whether any inference requests are made. A provisioned throughput
-    with zero invocations is paying for model capacity delivering zero value —
-    typically an abandoned experiment, a proof-of-concept never decommissioned, or
-    a migration where traffic moved to on-demand but the reservation was left running.
-
-    This is the AWS equivalent of Azure OpenAI Provisioned Deployments and SageMaker
-    Provisioned Inference Endpoints: same always-on billing model, same abandonment
-    pattern.
-
-    Detection logic:
-    - Provisioned throughput is in InService state
-    - Zero Invocations over the effective idle window (CloudWatch AWS/Bedrock,
-      Invocations metric). Two ModelId dimension values are queried in order:
-      1. Provisioned model ARN (primary — most specific)
-      2. Base model ID with version suffix extracted from the foundation model ARN
-         (e.g. anthropic.claude-3-sonnet-20240229-v1:0) — AWS inconsistently emits
-         metrics under either dimension; if either shows traffic the reservation is
-         treated as active (conservative)
-    - CloudWatch does not publish Invocations data unless invocations occur —
-      empty datapoints (after the age guard) reliably indicate an idle reservation
-
-    Confidence:
-    - HIGH: Zero invocations over the full idle window (effective_window >= idle_days)
-    - MEDIUM: Zero invocations, effective_window >= ceil(75% of idle_days) but < idle_days
-
-    Risk:
-    - CRITICAL: idle_ratio >= 2.0 (reservation has been idle for 2× the threshold)
-    - HIGH: all other cases (all MU reservations are always-on significant spend)
-
-    IAM permissions:
-    - bedrock:ListProvisionedModelThroughputs
-    - cloudwatch:GetMetricStatistics
-    """
-    # Clamp to a minimum of 3 days so that effective_window never falls below the
-    # < 3 guard and silently returns no findings for very small idle_days values.
-    idle_days = max(idle_days, 3)
-
     bedrock = session.client("bedrock", region_name=region)
     cloudwatch = session.client("cloudwatch", region_name=region)
-    now = datetime.now(timezone.utc)
-    findings: List[Finding] = []
 
     try:
         paginator = bedrock.get_paginator("list_provisioned_model_throughputs")
-
-        for page in paginator.paginate(statusEquals="InService"):
-            for item in page.get("provisionedModelSummaries", []):
-                name = item["provisionedModelName"]
-                provisioned_arn = item["provisionedModelArn"]
-                model_arn = item.get("modelArn") or item.get("foundationModelArn", "")
-                desired_units = item.get("desiredModelUnits") or 0
-                commitment = item.get("commitmentDuration", "NoCommitment")
-
-                # Age guard — normalize timezone to handle boto3 returning tz-naive datetimes
-                create_time = item.get("creationTime")
-                age_days = 0
-                if create_time:
-                    if create_time.tzinfo is None:
-                        create_time = create_time.replace(tzinfo=timezone.utc)
-                    age_days = max((now - create_time).days, 0)
-
-                # Skip reservations too new to be classified.
-                # Use ceil(50%) consistent with the ceil(75%) MEDIUM threshold —
-                # avoids the off-by-one that integer division introduces for odd idle_days
-                # (e.g. 7//2=3 vs ceil(0.5×7)=4). Floor of 3 ensures we never skip
-                # on age alone when idle_days is very small.
-                if age_days < max(math.ceil(idle_days * 0.5), 3):
-                    continue
-
-                # Skip reservations with zero model units — InService with 0 units
-                # shouldn't happen in practice, but would produce a cost-less HIGH/CRITICAL
-                # finding which is misleading. Skip rather than flag.
-                if desired_units <= 0:
-                    continue
-
-                # Cap the observation window to the reservation's actual age
-                effective_window = min(idle_days, age_days)
-                if effective_window < 3:
-                    continue
-
-                # Check whether any invocations occurred over the effective window.
-                # Tries provisioned model ARN first, then base model ID fallback
-                # (AWS inconsistently emits metrics under either dimension).
-                has_invocations = _check_invocations(
-                    cloudwatch, provisioned_arn, model_arn, effective_window
-                )
-                if has_invocations:
-                    continue
-
-                # Confidence tied to the strength of the zero-invocation signal
-                if effective_window >= idle_days:
-                    confidence = ConfidenceLevel.HIGH
-                elif effective_window >= math.ceil(idle_days * 0.75):
-                    # ceil(75%): reservation is close to the full threshold but hasn't
-                    # crossed it yet. Surface as MEDIUM rather than skipping —
-                    # early idle spend is still spend.
-                    confidence = ConfidenceLevel.MEDIUM
-                else:
-                    # Too early to be confident — prefer false negatives over false positives.
-                    continue
-
-                monthly_cost_per_mu = _cost_per_mu(model_arn)
-                monthly_cost = monthly_cost_per_mu * desired_units if desired_units else None
-                model_family = _parse_model_family(model_arn)
-
-                idle_ratio = round(age_days / idle_days, 2) if idle_days > 0 else 0.0
-                risk = RiskLevel.CRITICAL if idle_ratio >= 2.0 else RiskLevel.HIGH
-
-                signals = [
-                    f"Zero invocations over {effective_window}+ days (CloudWatch AWS/Bedrock)",
-                    f"Reservation status: InService ({desired_units} Model Unit(s))",
-                    f"Commitment term: {commitment}",
-                    f"Reservation age: {age_days} days",
-                ]
-                if model_family:
-                    signals.append(f"Model family: {model_family}")
-                if monthly_cost:
-                    signals.append(
-                        f"Estimated upper-bound cost: ~${monthly_cost:,.0f}/month "
-                        f"({desired_units} MU × ${monthly_cost_per_mu:,.0f}/MU, no-commitment us-east-1 — "
-                        f"reserved terms and other regions may be lower; verify current rates)"
-                    )
-
-                evidence = Evidence(
-                    signals_used=signals,
-                    signals_not_checked=[
-                        "Committed reservation term — deleting may forfeit prepaid capacity",
-                        "Scheduled batch workloads with infrequent submission windows",
-                        "Failover or backup capacity intentionally kept warm",
-                        "Internal tooling with very low but non-zero request rates",
-                    ],
-                    time_window=f"{effective_window} days",
-                )
-
-                details = {
-                    "provisioned_model_name": name,
-                    "provisioned_model_arn": provisioned_arn,
-                    "model_arn": model_arn,
-                    "model_family": model_family,
-                    "desired_model_units": desired_units,
-                    "commitment_duration": commitment,
-                    "age_days": age_days,
-                    "idle_window_days": effective_window,
-                    "idle_days_threshold": idle_days,
-                    "idle_ratio": idle_ratio,
-                }
-                if monthly_cost:
-                    details["estimated_monthly_cost"] = (
-                        f"upper-bound ~${monthly_cost:,.0f}/month (no-commitment pricing)"
-                    )
-
-                title = (
-                    f"Idle Bedrock Provisioned Throughput "
-                    f"({desired_units} MU, No Invocations for {effective_window} Days)"
-                )
-                summary = (
-                    f"Bedrock Provisioned Throughput '{name}' ({desired_units} MU, "
-                    f"{model_family or model_arn}) has received zero invocations for "
-                    f"{effective_window} days but continues to accrue reservation charges."
-                )
-                reason = (
-                    f"Bedrock Provisioned Throughput has zero invocations for "
-                    f"{effective_window} days ({desired_units} MU billed continuously)"
-                )
-
-                findings.append(
-                    Finding(
-                        provider="aws",
-                        rule_id="aws.bedrock.provisioned_throughput.idle",
-                        resource_type="aws.bedrock.provisioned_throughput",
-                        resource_id=name,
-                        region=region,
-                        estimated_monthly_cost_usd=monthly_cost,
-                        title=title,
-                        summary=summary,
-                        reason=reason,
-                        risk=risk,
-                        confidence=confidence,
-                        detected_at=now,
-                        evidence=evidence,
-                        details=details,
-                    )
-                )
-
-    except ClientError as e:
-        code = e.response["Error"]["Code"]
-        if code in ("UnauthorizedOperation", "AccessDenied", "AccessDeniedException"):
+        pages = list(paginator.paginate(statusEquals=_ELIGIBLE_STATUS))
+    except ClientError as exc:
+        if exc.response["Error"]["Code"] in (
+            "AccessDenied",
+            "UnauthorizedOperation",
+            "AccessDeniedException",
+        ):
             raise PermissionError(
-                "Missing required IAM permissions: "
-                "bedrock:ListProvisionedModelThroughputs, "
-                "cloudwatch:GetMetricStatistics"
-            ) from e
+                "Missing required IAM permission: bedrock:ListProvisionedModelThroughputs"
+            ) from exc
+        raise
+    except BotoCoreError:
         raise
 
-    return findings
-
-
-def _check_invocations(cloudwatch, provisioned_arn: str, model_arn: str, days: int) -> bool:
-    """Return True if the provisioned throughput received any invocations in the past `days` days.
-
-    CloudWatch only publishes Bedrock Invocations data when invocations actually occur.
-    A reservation that has never been called will have no metric series — empty datapoints.
-    The age guard in the caller ensures the reservation is old enough before this is
-    called, so empty datapoints reliably indicates a genuinely idle reservation.
-
-    AWS may emit metrics under the provisioned model ARN or (inconsistently) under the
-    base foundation model ID. We query with the provisioned ARN first; if that returns
-    no datapoints we retry with the base model ID extracted from model_arn. If either
-    query shows activity we treat the reservation as active (conservative).
-
-    The window is widened by 1 day to reduce boundary misses when a sparse datapoint
-    falls just outside the nominal period end.
-
-    Returns True (assume active) on any CloudWatch API failure — better to miss a true
-    idle reservation than to flag an active one.
-    """
     now = datetime.now(timezone.utc)
-    # +1 day buffer: CloudWatch may place a sparse datapoint just outside the
-    # nominal window boundary. Widening avoids classifying it as idle.
-    start_time = now - timedelta(days=max(days, 1) + 1)
+    window_start = now - timedelta(seconds=idle_days_threshold * 86400)
+    period = _choose_period(idle_days_threshold)
+    findings: List[Finding] = []
 
-    def _query(model_id_value: str) -> Optional[bool]:
-        """Query one ModelId dimension value. Returns True=active, False=idle, None=transient error.
+    for page in pages:
+        for raw_item in page.get("provisionedModelSummaries", []):
+            # --- Step 1: Normalize ---
+            n = _normalize_provisioned_throughput(raw_item, now)
+            if n is None:
+                continue
 
-        Auth errors (AccessDenied / AccessDeniedException / UnauthorizedOperation) are
-        re-raised as PermissionError so the scan framework can surface the missing
-        cloudwatch:GetMetricStatistics permission rather than silently skipping resources.
-        """
-        try:
-            response = cloudwatch.get_metric_statistics(
-                Namespace="AWS/Bedrock",
-                MetricName="Invocations",
-                Dimensions=[{"Name": "ModelId", "Value": model_id_value}],
-                StartTime=start_time,
-                EndTime=now,
-                Period=86400,
-                Statistics=["Sum"],
+            # --- Step 2: EXCLUSION RULES ---
+
+            # EXCLUSION: status must be InService
+            if n["normalized_status"] != _ELIGIBLE_STATUS:
+                continue
+
+            # EXCLUSION: too young to evaluate
+            if n["age_days"] < idle_days_threshold:
+                continue
+
+            # --- Step 3: CloudWatch activity metrics ---
+            # All 4 required metrics must return datapoints and all Sums must be zero.
+            # Missing datapoints → SKIP ITEM. API failure → FAIL RULE (propagates).
+            skip_item = False
+            for metric_name in _REQUIRED_METRICS:
+                metric_sum = _get_metric_sum(
+                    cloudwatch,
+                    n["provisioned_model_arn"],
+                    metric_name,
+                    window_start,
+                    now,
+                    period,
+                )
+                if metric_sum is None:
+                    # No datapoints → insufficient trusted evidence → SKIP ITEM
+                    skip_item = True
+                    break
+                if metric_sum > 0:
+                    # Observed runtime activity → not idle → SKIP ITEM
+                    skip_item = True
+                    break
+
+            if skip_item:
+                continue
+
+            # --- Step 4: EMIT ---
+            signals_used = [
+                f"Provisioned Throughput status is '{_ELIGIBLE_STATUS}' (serving capacity)",
+                f"Age is {n['age_days']} days, meeting the {idle_days_threshold}-day threshold",
+                f"All required Bedrock runtime activity metrics queried under "
+                f"ModelId = {n['provisioned_model_arn']}",
+                f"No observed runtime request activity over the {idle_days_threshold}-day "
+                f"observation window for metrics: {', '.join(_REQUIRED_METRICS)}",
+            ]
+
+            findings.append(
+                Finding(
+                    provider="aws",
+                    rule_id="aws.bedrock.provisioned_throughput.idle",
+                    resource_type="aws.bedrock.provisioned_throughput",
+                    resource_id=n["provisioned_model_arn"],
+                    region=region,
+                    estimated_monthly_cost_usd=None,
+                    title=_FINDING_TITLE,
+                    summary=(
+                        f"Bedrock Provisioned Throughput {n['provisioned_model_arn']} "
+                        f"has no observed runtime request activity in the last "
+                        f"{idle_days_threshold} days"
+                    ),
+                    reason=(
+                        f"Provisioned Throughput has no observed Bedrock runtime request "
+                        f"activity over the {idle_days_threshold}-day observation window"
+                    ),
+                    risk=RiskLevel.HIGH,
+                    confidence=ConfidenceLevel.HIGH,
+                    detected_at=now,
+                    evidence=Evidence(
+                        signals_used=signals_used,
+                        signals_not_checked=list(_SIGNALS_NOT_CHECKED),
+                        time_window=f"{idle_days_threshold} days",
+                    ),
+                    details={
+                        "evaluation_path": "idle-bedrock-provisioned-throughput-review-candidate",
+                        "provisioned_model_arn": n["provisioned_model_arn"],
+                        "provisioned_model_name": n["provisioned_model_name"],
+                        "normalized_status": n["normalized_status"],
+                        "creation_time": n["creation_time_utc"].isoformat(),
+                        "age_days": n["age_days"],
+                        "idle_days_threshold": idle_days_threshold,
+                        "model_arn": n["model_arn"],
+                        "foundation_model_arn": n["foundation_model_arn"],
+                        "model_units": n["model_units"],
+                        "desired_model_units": n["desired_model_units"],
+                        "commitment_duration": n["commitment_duration"],
+                        "commitment_expiration_time": (
+                            n["commitment_expiration_time_utc"].isoformat()
+                            if n["commitment_expiration_time_utc"]
+                            else None
+                        ),
+                        "activity_metrics_checked": list(_REQUIRED_METRICS),
+                        "last_modified_time": (
+                            n["last_modified_time_utc"].isoformat()
+                            if n["last_modified_time_utc"]
+                            else None
+                        ),
+                    },
+                )
             )
-            datapoints = response.get("Datapoints", [])
-            if not datapoints:
-                return False  # no data = zero invocations for this dimension value
-            return any(dp.get("Sum", 0) > 0 for dp in datapoints)
-        except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code in (
-                "UnauthorizedOperation",
-                "AccessDenied",
-                "AccessDeniedException",
-            ):
-                raise PermissionError(
-                    "Missing required IAM permissions: cloudwatch:GetMetricStatistics"
-                ) from e
-            return None  # transient error (throttle, outage) — caller treats as active
 
-    # Primary: provisioned model ARN (most specific, preferred)
-    result = _query(provisioned_arn)
-    if result is None:
-        return True  # conservative on API failure
-    if result:
-        return True  # active — has traffic under provisioned ARN
-
-    # Fallback: base model ID (AWS inconsistently emits under foundation model ID).
-    # Use _extract_model_id_for_cw (preserves :0 version suffix) rather than
-    # _extract_model_id (strips version) so the CloudWatch dimension value matches
-    # what AWS actually emits (e.g. "anthropic.claude-3-sonnet-20240229-v1:0").
-    base_model_id = _extract_model_id_for_cw(model_arn)
-    if base_model_id and base_model_id != provisioned_arn:
-        result = _query(base_model_id)
-        if result is None:
-            return True  # conservative on API failure
-        if result:
-            return True  # active — metrics found under base model ID
-
-    return False  # neither dimension shows activity
-
-
-def _extract_model_id(model_arn: str) -> Optional[str]:
-    """Safely extract the bare model ID from a Bedrock model ARN or model ID string.
-
-    Foundation model ARN format:
-        arn:aws:bedrock:REGION::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0
-    Returns:
-        anthropic.claude-3-sonnet-20240229-v1   (lowercase, no version suffix)
-        None if extraction fails or input is empty
-
-    Used for family-prefix matching and cost lookup — version suffix not needed.
-    For CloudWatch dimension queries use _extract_model_id_for_cw instead.
-    """
-    if not model_arn:
-        return None
-    try:
-        return model_arn.rsplit("/", 1)[-1].split(":")[0].lower() or None
-    except Exception:
-        return None
-
-
-def _extract_model_id_for_cw(model_arn: str) -> Optional[str]:
-    """Extract the model ID for use as a CloudWatch ModelId dimension value.
-
-    Unlike _extract_model_id, this preserves the version suffix (e.g. :0) so the
-    dimension value matches what AWS actually emits in CloudWatch metrics:
-        anthropic.claude-3-sonnet-20240229-v1:0  (not anthropic.claude-3-sonnet-20240229-v1)
-
-    Foundation model ARN format:
-        arn:aws:bedrock:REGION::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0
-    Returns:
-        anthropic.claude-3-sonnet-20240229-v1:0  (lowercase, version suffix retained)
-        None if extraction fails or input is empty
-    """
-    if not model_arn:
-        return None
-    try:
-        return model_arn.rsplit("/", 1)[-1].lower() or None
-    except Exception:
-        return None
-
-
-def _parse_model_family(model_arn: str) -> Optional[str]:
-    """Extract a human-readable model family label from a Bedrock model ARN or model ID."""
-    model_id = _extract_model_id(model_arn)
-    if not model_id:
-        return None
-    # Match known prefixes — longest first to avoid partial matches
-    # (e.g. anthropic.claude-3-5-sonnet before anthropic.claude-3-sonnet)
-    for prefix in sorted(_MONTHLY_COST_PER_MU, key=len, reverse=True):
-        if model_id.startswith(prefix):
-            return prefix
-    return model_id
-
-
-def _cost_per_mu(model_arn: str) -> float:
-    """Return approximate monthly cost per Model Unit for the given model ARN."""
-    family = _parse_model_family(model_arn)
-    if family:
-        return _MONTHLY_COST_PER_MU.get(family, _DEFAULT_MONTHLY_COST_PER_MU)
-    return _DEFAULT_MONTHLY_COST_PER_MU
+    return findings

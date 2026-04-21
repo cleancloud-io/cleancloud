@@ -1,65 +1,100 @@
+"""
+Tests for aws.bedrock.provisioned_throughput.idle rule.
+
+Test class overview:
+    TestMustEmit                — canonical detection path
+    TestMustSkip                — all exclusion rules
+    TestMustFailRule            — required API failure behaviour
+    TestNormalization           — _normalize_provisioned_throughput field extraction
+    TestCloudWatchContract      — metric names, dimension, period, datapoint semantics
+    TestConfidenceModel         — always HIGH
+    TestRiskModel               — always HIGH
+    TestCostModel               — estimated_monthly_cost_usd always None
+    TestDetailsContract         — evaluation_path and all required detail fields
+    TestEvidenceContract        — signals_used, signals_not_checked
+    TestPagination              — multi-page exhaustion
+"""
+
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
+from cleancloud.core.confidence import ConfidenceLevel
+from cleancloud.core.risk import RiskLevel
 from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
-    _extract_model_id,
-    _extract_model_id_for_cw,
-    _parse_model_family,
+    _normalize_provisioned_throughput,
     find_idle_bedrock_provisioned_throughputs,
 )
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 _REGION = "us-east-1"
-_SONNET_ARN = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0"
-_HAIKU_ARN = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-haiku-20240307-v1:0"
-_OPUS_ARN = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-opus-20240229-v1:0"
-_LLAMA_ARN = "arn:aws:bedrock:us-east-1::foundation-model/meta.llama3-70b-instruct-v1:0"
-_TITAN_ARN = "arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-express-v1"
+_DEFAULT_THRESHOLD = 7
+_PROVISIONED_ARN = "arn:aws:bedrock:us-east-1:123456789012:provisioned-model/my-throughput"
+_FOUNDATION_ARN = (
+    "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-sonnet-20240229-v1:0"
+)
 
 
-def _make_provisioned(
-    name="my-throughput",
-    model_arn=_SONNET_ARN,
-    desired_units=2,
-    commitment="NoCommitment",
-    age_days=30,
-):
-    provisioned_arn = f"arn:aws:bedrock:{_REGION}:123456789012:provisioned-model/{name}"
-    now = datetime.now(timezone.utc)
-    create_time = now - timedelta(days=age_days)
-    return {
-        "provisionedModelName": name,
-        "provisionedModelArn": provisioned_arn,
-        "modelArn": model_arn,
-        "foundationModelArn": model_arn,
-        "desiredModelUnits": desired_units,
-        "currentModelUnits": desired_units,
-        "commitmentDuration": commitment,
-        "creationTime": create_time,
-        "lastModifiedTime": create_time,
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _old() -> datetime:
+    """30 days ago — always older than the default 7-day threshold."""
+    return datetime.now(timezone.utc) - timedelta(days=30)
+
+
+def _young() -> datetime:
+    """3 days ago — always younger than the default 7-day threshold."""
+    return datetime.now(timezone.utc) - timedelta(days=3)
+
+
+def _client_error(code: str) -> ClientError:
+    return ClientError({"Error": {"Code": code, "Message": code}}, "op")
+
+
+def _botocore_error() -> BotoCoreError:
+    return BotoCoreError()
+
+
+def _make_item(**overrides) -> dict:
+    """Return a minimal valid ListProvisionedModelThroughputs item."""
+    base = {
+        "provisionedModelArn": _PROVISIONED_ARN,
+        "provisionedModelName": "my-throughput",
         "status": "InService",
+        "creationTime": _old(),
+        "modelArn": _FOUNDATION_ARN,
+        "foundationModelArn": _FOUNDATION_ARN,
+        "modelUnits": 2,
+        "desiredModelUnits": 2,
+        "commitmentDuration": "NoCommitment",
     }
+    base.update(overrides)
+    return base
 
 
-def _make_session(provisioned_items=None, cw_datapoints=None):
-    """Return (session, bedrock_client, cloudwatch_client) mocks."""
+def _make_session(items=None):
+    """Return (session, bedrock_client, cloudwatch_client) mocks.
+
+    CloudWatch is configured to return a single zero-Sum datapoint for every
+    metric call by default — representing the canonical idle state.
+    """
     session = MagicMock()
-
     bedrock = MagicMock()
+    cloudwatch = MagicMock()
+
     paginator = MagicMock()
-    paginator.paginate.return_value = [{"provisionedModelSummaries": provisioned_items or []}]
+    paginator.paginate.return_value = [{"provisionedModelSummaries": items or []}]
     bedrock.get_paginator.return_value = paginator
 
-    cloudwatch = MagicMock()
-    cloudwatch.get_metric_statistics.return_value = {
-        "Datapoints": cw_datapoints if cw_datapoints is not None else []
-    }
+    # Default: all metrics return one zero-Sum datapoint → idle
+    cloudwatch.get_metric_statistics.return_value = {"Datapoints": [{"Sum": 0.0, "Timestamp": "x"}]}
 
     def _client(service, **kwargs):
         if service == "bedrock":
@@ -73,497 +108,665 @@ def _make_session(provisioned_items=None, cw_datapoints=None):
 
 
 # ---------------------------------------------------------------------------
-# Basic detection
+# TestMustEmit
 # ---------------------------------------------------------------------------
 
 
-def test_idle_provisioned_throughput_detected():
-    """Idle InService throughput with zero invocations is flagged."""
-    item = _make_provisioned(age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+class TestMustEmit:
+    def test_canonical_emit(self):
+        session, _, _ = _make_session([_make_item()])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.rule_id == "aws.bedrock.provisioned_throughput.idle"
-    assert f.resource_id == "my-throughput"
-    assert f.provider == "aws"
-    assert f.region == _REGION
-    assert f.confidence.value == "high"
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.rule_id == "aws.bedrock.provisioned_throughput.idle"
+        assert f.provider == "aws"
+        assert f.region == _REGION
 
+    def test_resource_id_is_provisioned_model_arn(self):
+        """resource_id must be provisionedModelArn, not the friendly name."""
+        session, _, _ = _make_session([_make_item()])
 
-def test_active_throughput_skipped():
-    """Throughput with actual invocations is not flagged."""
-    item = _make_provisioned(age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[{"Sum": 5.0, "Timestamp": "x"}])
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        assert findings[0].resource_id == _PROVISIONED_ARN
 
-    assert findings == []
+    def test_exactly_at_threshold_emitted(self):
+        session, _, _ = _make_session(
+            [_make_item(creationTime=_now() - timedelta(days=_DEFAULT_THRESHOLD))]
+        )
 
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-def test_no_provisioned_throughputs_returns_empty():
-    """Account with no provisioned throughput returns no findings."""
-    session, _, _ = _make_session([], cw_datapoints=[])
+        assert len(findings) == 1
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+    def test_empty_account_emits_nothing(self):
+        session, _, _ = _make_session([])
 
-    assert findings == []
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
+    def test_custom_threshold_respected(self):
+        session, _, _ = _make_session([_make_item(creationTime=_now() - timedelta(days=10))])
 
-# ---------------------------------------------------------------------------
-# Age guard
-# ---------------------------------------------------------------------------
+        # 10 days old, threshold=14 → too young
+        assert (
+            find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days_threshold=14)
+            == []
+        )
 
-
-def test_young_throughput_skipped():
-    """Reservations younger than max(idle_days//2, 3) days are skipped."""
-    # idle_days=7 → guard=max(3,3)=3; age=2 < 3 → blocked by age guard
-    item = _make_provisioned(age_days=2)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings == []
-
-
-def test_below_confidence_threshold_skipped():
-    """age passes guard but effective_window < ceil(75%) → skipped by confidence logic."""
-    # idle_days=7, guard=3: age=5 passes guard (5>=3), effective_window=5 < ceil(5.25)=6 → skip
-    item = _make_provisioned(age_days=5)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings == []
-
-
-def test_medium_confidence_reachable_at_default_idle_days():
-    """With idle_days=7 (default), age=6 should produce MEDIUM (regression guard for age-guard fix)."""
-    # guard=max(3,3)=3; age=6>=3 passes; effective_window=6; ceil(7*0.75)=6 → MEDIUM
-    item = _make_provisioned(age_days=6)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
+        # 10 days old, threshold=7 → old enough
+        findings = find_idle_bedrock_provisioned_throughputs(
+            session, _REGION, idle_days_threshold=7
+        )
+        assert len(findings) == 1
 
 
 # ---------------------------------------------------------------------------
-# Confidence levels
+# TestMustSkip
 # ---------------------------------------------------------------------------
 
 
-def test_high_confidence_full_window():
-    """effective_window >= idle_days → HIGH confidence."""
-    item = _make_provisioned(age_days=14)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+class TestMustSkip:
+    def test_skip_missing_provisioned_model_arn(self):
+        item = _make_item()
+        del item["provisionedModelArn"]
+        session, _, _ = _make_session([item])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=7)
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
+    def test_skip_empty_provisioned_model_arn(self):
+        session, _, _ = _make_session([_make_item(provisionedModelArn="")])
 
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-def test_medium_confidence_borderline_age():
-    """effective_window at ceil(75% of idle_days) → MEDIUM confidence."""
-    # idle_days=14, ceil(14*0.75)=ceil(10.5)=11 → age=12 → effective_window=12 → MEDIUM
-    # (age guard = max(7,7)=7, 12 >= 7 ✓; 12 >= 11 but < 14 → MEDIUM)
-    item = _make_provisioned(age_days=12)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_skip_creating_status(self):
+        session, _, _ = _make_session([_make_item(status="Creating")])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=14)
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
+    def test_skip_updating_status(self):
+        session, _, _ = _make_session([_make_item(status="Updating")])
 
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-def test_below_75pct_age_skipped():
-    """effective_window < ceil(75%) of idle_days → skipped."""
-    # idle_days=14, ceil(14*0.75)=11 → age=10 → effective_window=10 < 11 → skip
-    # (age guard = 7, 10 >= 7 ✓)
-    item = _make_provisioned(age_days=10)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_skip_failed_status(self):
+        session, _, _ = _make_session([_make_item(status="Failed")])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=14)
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-    assert findings == []
+    def test_skip_missing_status(self):
+        item = _make_item()
+        del item["status"]
+        session, _, _ = _make_session([item])
 
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-def test_effective_window_capped_to_age():
-    """effective_window = min(idle_days, age_days) is reflected in evidence."""
-    # idle_days=14, age=10 → effective_window=10; ceil(14*0.75)=11 → 10<11 → MEDIUM
-    # Adjust so age qualifies: idle_days=10, age=8, ceil(10*0.75)=ceil(7.5)=8 → MEDIUM
-    item = _make_provisioned(age_days=8)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_skip_too_young(self):
+        session, _, _ = _make_session([_make_item(creationTime=_young())])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=10)
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
-    assert len(findings) == 1
-    assert findings[0].evidence.time_window == "8 days"
+    def test_skip_missing_creation_time(self):
+        item = _make_item()
+        del item["creationTime"]
+        session, _, _ = _make_session([item])
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_naive_creation_time(self):
+        naive = datetime.now() - timedelta(days=30)
+        session, _, _ = _make_session([_make_item(creationTime=naive)])
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_future_creation_time(self):
+        future = _now() + timedelta(days=10)
+        session, _, _ = _make_session([_make_item(creationTime=future)])
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_invocations_sum_positive(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.return_value = {
+            "Datapoints": [{"Sum": 5.0, "Timestamp": "x"}]
+        }
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_invocation_client_errors_sum_positive(self):
+        """InvocationClientErrors > 0 → not idle."""
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        def _cw(**kwargs):
+            metric = kwargs["MetricName"]
+            if metric == "InvocationClientErrors":
+                return {"Datapoints": [{"Sum": 1.0}]}
+            return {"Datapoints": [{"Sum": 0.0}]}
+
+        cloudwatch.get_metric_statistics.side_effect = _cw
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_invocation_server_errors_sum_positive(self):
+        """InvocationServerErrors > 0 → not idle."""
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        def _cw(**kwargs):
+            metric = kwargs["MetricName"]
+            if metric == "InvocationServerErrors":
+                return {"Datapoints": [{"Sum": 2.0}]}
+            return {"Datapoints": [{"Sum": 0.0}]}
+
+        cloudwatch.get_metric_statistics.side_effect = _cw
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_invocation_throttles_sum_positive(self):
+        """InvocationThrottles > 0 → not idle."""
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        def _cw(**kwargs):
+            metric = kwargs["MetricName"]
+            if metric == "InvocationThrottles":
+                return {"Datapoints": [{"Sum": 3.0}]}
+            return {"Datapoints": [{"Sum": 0.0}]}
+
+        cloudwatch.get_metric_statistics.side_effect = _cw
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_any_metric_no_datapoints(self):
+        """Any required metric with no datapoints → insufficient evidence → SKIP ITEM."""
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        def _cw(**kwargs):
+            metric = kwargs["MetricName"]
+            if metric == "InvocationServerErrors":
+                return {"Datapoints": []}  # no datapoints
+            return {"Datapoints": [{"Sum": 0.0}]}
+
+        cloudwatch.get_metric_statistics.side_effect = _cw
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_skip_all_metrics_no_datapoints(self):
+        """All metrics returning no datapoints → SKIP ITEM."""
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.return_value = {"Datapoints": []}
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
 
 
 # ---------------------------------------------------------------------------
-# Risk levels
+# TestMustFailRule
 # ---------------------------------------------------------------------------
 
 
-def test_critical_risk_when_idle_ratio_gte_2():
-    """idle_ratio >= 2.0 → CRITICAL risk."""
-    item = _make_provisioned(age_days=30)  # idle_days=7, ratio=30/7≈4.3 → CRITICAL
-    session, _, _ = _make_session([item], cw_datapoints=[])
+class TestMustFailRule:
+    def test_list_provisioned_access_denied_raises_permission_error(self):
+        session, bedrock, _ = _make_session()
+        bedrock.get_paginator.return_value.paginate.side_effect = _client_error(
+            "AccessDeniedException"
+        )
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        with pytest.raises(PermissionError, match="bedrock:ListProvisionedModelThroughputs"):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    assert findings[0].risk.value == "critical"
+    def test_list_provisioned_unauthorized_raises_permission_error(self):
+        session, bedrock, _ = _make_session()
+        bedrock.get_paginator.return_value.paginate.side_effect = _client_error(
+            "UnauthorizedOperation"
+        )
 
+        with pytest.raises(PermissionError, match="bedrock:ListProvisionedModelThroughputs"):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-def test_high_risk_when_idle_ratio_lt_2():
-    """idle_ratio < 2.0 → HIGH risk."""
-    item = _make_provisioned(age_days=10)  # idle_days=7, ratio=10/7≈1.43 → HIGH
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_list_provisioned_other_client_error_propagates(self):
+        session, bedrock, _ = _make_session()
+        bedrock.get_paginator.return_value.paginate.side_effect = _client_error("InternalError")
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        with pytest.raises(ClientError):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    assert findings[0].risk.value == "high"
+    def test_list_provisioned_botocore_error_propagates(self):
+        session, bedrock, _ = _make_session()
+        bedrock.get_paginator.return_value.paginate.side_effect = _botocore_error()
 
+        with pytest.raises(BotoCoreError):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-# ---------------------------------------------------------------------------
-# Cost estimation
-# ---------------------------------------------------------------------------
+    def test_cloudwatch_access_denied_raises_permission_error(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.side_effect = _client_error("AccessDeniedException")
 
+        with pytest.raises(PermissionError, match="cloudwatch:GetMetricStatistics"):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-def test_cost_scales_with_model_units():
-    """Estimated cost = cost_per_MU × desired_units."""
-    item = _make_provisioned(model_arn=_SONNET_ARN, desired_units=3, age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_cloudwatch_unauthorized_raises_permission_error(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.side_effect = _client_error("UnauthorizedOperation")
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        with pytest.raises(PermissionError, match="cloudwatch:GetMetricStatistics"):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    # Sonnet: $2,600/MU × 3 MU = $7,800/month
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(7_800.0)
+    def test_cloudwatch_transient_error_fails_rule(self):
+        """Transient CloudWatch error → FAIL RULE (not conservative skip)."""
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.side_effect = _client_error("ThrottlingException")
 
+        with pytest.raises(ClientError):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-def test_opus_cost_per_mu():
-    """Claude 3 Opus uses the correct per-MU cost."""
-    item = _make_provisioned(model_arn=_OPUS_ARN, desired_units=1, age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+    def test_cloudwatch_botocore_error_fails_rule(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.side_effect = _botocore_error()
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(7_300.0)
-
-
-def test_haiku_cost_per_mu():
-    """Claude 3 Haiku uses the correct per-MU cost."""
-    item = _make_provisioned(model_arn=_HAIKU_ARN, desired_units=2, age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(1_200.0)
-
-
-def test_llama_cost_per_mu():
-    """Meta Llama 3 uses the correct per-MU cost."""
-    item = _make_provisioned(model_arn=_LLAMA_ARN, desired_units=2, age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(2_000.0)
-
-
-def test_zero_model_units_skipped():
-    """desired_units=0 (shouldn't happen for InService) → skipped to avoid cost-less HIGH finding."""
-    item = _make_provisioned(desired_units=0, age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings == []
+        with pytest.raises(BotoCoreError):
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
 
 # ---------------------------------------------------------------------------
-# Model family parsing
+# TestNormalization
 # ---------------------------------------------------------------------------
 
 
-def test_model_family_sonnet():
-    assert _parse_model_family(_SONNET_ARN) == "anthropic.claude-3-sonnet"
+class TestNormalization:
+    def test_non_dict_returns_none(self):
+        assert _normalize_provisioned_throughput("bad", _now()) is None
+        assert _normalize_provisioned_throughput(None, _now()) is None
 
+    def test_missing_arn_returns_none(self):
+        item = _make_item()
+        del item["provisionedModelArn"]
+        assert _normalize_provisioned_throughput(item, _now()) is None
 
-def test_model_family_sonnet35():
-    arn = "arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20241022-v2:0"
-    assert _parse_model_family(arn) == "anthropic.claude-3-5-sonnet"
+    def test_empty_arn_returns_none(self):
+        assert _normalize_provisioned_throughput(_make_item(provisionedModelArn=""), _now()) is None
 
+    def test_missing_status_returns_none(self):
+        item = _make_item()
+        del item["status"]
+        assert _normalize_provisioned_throughput(item, _now()) is None
 
-def test_model_family_opus():
-    assert _parse_model_family(_OPUS_ARN) == "anthropic.claude-3-opus"
+    def test_missing_creation_time_returns_none(self):
+        item = _make_item()
+        del item["creationTime"]
+        assert _normalize_provisioned_throughput(item, _now()) is None
 
+    def test_naive_creation_time_returns_none(self):
+        naive = datetime.now() - timedelta(days=30)
+        assert _normalize_provisioned_throughput(_make_item(creationTime=naive), _now()) is None
 
-def test_model_family_llama():
-    assert _parse_model_family(_LLAMA_ARN) == "meta.llama3"
+    def test_future_creation_time_returns_none(self):
+        future = _now() + timedelta(days=5)
+        assert _normalize_provisioned_throughput(_make_item(creationTime=future), _now()) is None
 
+    def test_resource_id_equals_provisioned_model_arn(self):
+        n = _normalize_provisioned_throughput(_make_item(), _now())
+        assert n["resource_id"] == _PROVISIONED_ARN
+        assert n["provisioned_model_arn"] == _PROVISIONED_ARN
 
-def test_model_family_unknown_returns_model_id():
-    arn = "arn:aws:bedrock:us-east-1::foundation-model/acme.newmodel-v1"
-    result = _parse_model_family(arn)
-    assert result == "acme.newmodel-v1"
+    def test_age_days_computed(self):
+        ct = _now() - timedelta(days=45)
+        n = _normalize_provisioned_throughput(_make_item(creationTime=ct), _now())
+        assert n["age_days"] == 45
 
+    def test_model_units_int_only(self):
+        n = _normalize_provisioned_throughput(_make_item(modelUnits=4), _now())
+        assert n["model_units"] == 4
 
-def test_model_family_empty_arn():
-    assert _parse_model_family("") is None
+        n2 = _normalize_provisioned_throughput(_make_item(modelUnits="4"), _now())
+        assert n2["model_units"] is None
 
+    def test_optional_fields_null_when_absent(self):
+        item = _make_item()
+        for key in [
+            "modelArn",
+            "foundationModelArn",
+            "commitmentDuration",
+            "commitmentExpirationTime",
+            "lastModifiedTime",
+        ]:
+            item.pop(key, None)
+        n = _normalize_provisioned_throughput(item, _now())
+        assert n["model_arn"] is None
+        assert n["foundation_model_arn"] is None
+        assert n["commitment_duration"] is None
+        assert n["commitment_expiration_time_utc"] is None
+        assert n["last_modified_time_utc"] is None
 
-def test_extract_model_id_normal():
-    assert _extract_model_id(_SONNET_ARN) == "anthropic.claude-3-sonnet-20240229-v1"
-
-
-def test_extract_model_id_empty():
-    assert _extract_model_id("") is None
-
-
-def test_extract_model_id_no_slash():
-    """Plain model ID string (no ARN prefix) is returned as-is."""
-    assert _extract_model_id("anthropic.claude-3-haiku-20240307-v1") == (
-        "anthropic.claude-3-haiku-20240307-v1"
-    )
-
-
-def test_extract_model_id_for_cw_preserves_version_suffix():
-    """_extract_model_id_for_cw preserves the :0 version suffix for CloudWatch dimensions."""
-    assert _extract_model_id_for_cw(_SONNET_ARN) == "anthropic.claude-3-sonnet-20240229-v1:0"
-
-
-def test_extract_model_id_for_cw_strips_arn_prefix():
-    """_extract_model_id_for_cw strips the ARN prefix but keeps version."""
-    assert _extract_model_id_for_cw(_HAIKU_ARN) == "anthropic.claude-3-haiku-20240307-v1:0"
-
-
-def test_extract_model_id_for_cw_empty():
-    assert _extract_model_id_for_cw("") is None
-
-
-def test_extract_model_id_for_cw_no_version_suffix():
-    """ARN without :N version suffix (e.g. Titan) is extracted cleanly."""
-    assert _extract_model_id_for_cw(_TITAN_ARN) == "amazon.titan-text-express-v1"
-
-
-# ---------------------------------------------------------------------------
-# Commitment term in finding details
-# ---------------------------------------------------------------------------
-
-
-def test_commitment_term_in_details():
-    """Commitment duration is recorded in finding details."""
-    item = _make_provisioned(commitment="OneMonth", age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings[0].details["commitment_duration"] == "OneMonth"
-
-
-def test_commitment_in_signals():
-    """Commitment term appears in the evidence signals."""
-    item = _make_provisioned(commitment="SixMonths", age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert any("SixMonths" in s for s in findings[0].evidence.signals_used)
+    def test_contextual_naive_timestamp_null(self):
+        naive_exp = datetime.now() + timedelta(days=30)
+        n = _normalize_provisioned_throughput(
+            _make_item(commitmentExpirationTime=naive_exp), _now()
+        )
+        assert n["commitment_expiration_time_utc"] is None
 
 
 # ---------------------------------------------------------------------------
-# CloudWatch behaviour
+# TestCloudWatchContract
 # ---------------------------------------------------------------------------
 
 
-def test_cloudwatch_failure_assumes_active():
-    """Transient CloudWatch error (throttling) → conservative skip (assume active)."""
-    item = _make_provisioned(age_days=30)
-    session, _, cloudwatch = _make_session([item])
-    cloudwatch.get_metric_statistics.side_effect = ClientError(
-        {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
-        "GetMetricStatistics",
-    )
+class TestCloudWatchContract:
+    def test_all_four_metrics_queried(self):
+        """All 4 required metrics must be queried per candidate."""
+        session, _, cloudwatch = _make_session([_make_item()])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings == []
-
-
-def test_cloudwatch_auth_error_raises_permission_error():
-    """AccessDeniedException from CloudWatch → PermissionError (not silent skip)."""
-    item = _make_provisioned(age_days=30)
-    session, _, cloudwatch = _make_session([item])
-    cloudwatch.get_metric_statistics.side_effect = ClientError(
-        {
-            "Error": {
-                "Code": "AccessDeniedException",
-                "Message": "User is not authorized",
-            }
-        },
-        "GetMetricStatistics",
-    )
-
-    with pytest.raises(PermissionError, match="cloudwatch:GetMetricStatistics"):
         find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
+        called_metrics = [
+            c.kwargs["MetricName"] for c in cloudwatch.get_metric_statistics.call_args_list
+        ]
+        assert "Invocations" in called_metrics
+        assert "InvocationClientErrors" in called_metrics
+        assert "InvocationServerErrors" in called_metrics
+        assert "InvocationThrottles" in called_metrics
+        assert cloudwatch.get_metric_statistics.call_count == 4
 
-def test_cloudwatch_primary_dimension_uses_provisioned_arn():
-    """First CloudWatch query uses the provisioned model ARN as the ModelId dimension."""
-    item = _make_provisioned(age_days=30)
-    session, _, cloudwatch = _make_session([item], cw_datapoints=[])
+    def test_dimension_uses_provisioned_model_arn_only(self):
+        """Dimension must be ModelId = provisionedModelArn — no fallback dimensions."""
+        session, _, cloudwatch = _make_session([_make_item()])
 
-    find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    # First call must target the provisioned model ARN
-    first_call_kwargs = cloudwatch.get_metric_statistics.call_args_list[0][1]
-    dims = first_call_kwargs["Dimensions"]
-    expected_arn = item["provisionedModelArn"]
-    assert dims == [{"Name": "ModelId", "Value": expected_arn}]
-
-
-def test_cloudwatch_fallback_to_base_model_id_when_active():
-    """If provisioned ARN has no data but base model ID shows traffic, treated as active.
-
-    The fallback dimension value must preserve the version suffix (:0) so it matches
-    what AWS actually emits in CloudWatch (e.g. anthropic.claude-3-sonnet-20240229-v1:0,
-    not anthropic.claude-3-sonnet-20240229-v1).
-    """
-    item = _make_provisioned(age_days=30, model_arn=_SONNET_ARN)
-    session, _, cloudwatch = _make_session([item])
-
-    # Versioned model ID — what AWS emits in CloudWatch (preserves :0 suffix)
-    base_model_id_cw = "anthropic.claude-3-sonnet-20240229-v1:0"
-
-    def _cw(**kwargs):
-        dims = kwargs.get("Dimensions", [])
-        val = dims[0]["Value"] if dims else ""
-        if val == item["provisionedModelArn"]:
-            return {"Datapoints": []}  # no data under provisioned ARN
-        if val == base_model_id_cw:
-            return {"Datapoints": [{"Sum": 2.0}]}  # traffic under versioned model ID
-        return {"Datapoints": []}
-
-    cloudwatch.get_metric_statistics.side_effect = _cw
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert findings == []  # conservative: versioned-model-ID traffic → active
-
-
-def test_cloudwatch_namespace_is_bedrock():
-    """CloudWatch query targets the AWS/Bedrock namespace."""
-    item = _make_provisioned(age_days=30)
-    session, _, cloudwatch = _make_session([item], cw_datapoints=[])
-
-    find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    call_kwargs = cloudwatch.get_metric_statistics.call_args[1]
-    assert call_kwargs["Namespace"] == "AWS/Bedrock"
-    assert call_kwargs["MetricName"] == "Invocations"
-
-
-# ---------------------------------------------------------------------------
-# Permission errors
-# ---------------------------------------------------------------------------
-
-
-def test_bedrock_auth_error_raises_permission_error():
-    """AccessDeniedException from ListProvisionedModelThroughputs raises PermissionError."""
-    session = MagicMock()
-    bedrock = MagicMock()
-    paginator = MagicMock()
-    paginator.paginate.side_effect = ClientError(
-        {
-            "Error": {
-                "Code": "AccessDeniedException",
-                "Message": "User is not authorized",
-            }
-        },
-        "ListProvisionedModelThroughputs",
-    )
-    bedrock.get_paginator.return_value = paginator
-    cloudwatch = MagicMock()
-
-    def _client(service, **kwargs):
-        return bedrock if service == "bedrock" else cloudwatch
-
-    session.client.side_effect = _client
-
-    with pytest.raises(PermissionError, match="bedrock:ListProvisionedModelThroughputs"):
         find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
+        for c in cloudwatch.get_metric_statistics.call_args_list:
+            dims = c.kwargs["Dimensions"]
+            assert dims == [{"Name": "ModelId", "Value": _PROVISIONED_ARN}]
+
+    def test_namespace_is_aws_bedrock(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        for c in cloudwatch.get_metric_statistics.call_args_list:
+            assert c.kwargs["Namespace"] == "AWS/Bedrock"
+
+    def test_statistic_is_sum(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        for c in cloudwatch.get_metric_statistics.call_args_list:
+            assert "Sum" in c.kwargs["Statistics"]
+
+    def test_period_equals_threshold_times_86400(self):
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days_threshold=7)
+
+        for c in cloudwatch.get_metric_statistics.call_args_list:
+            assert c.kwargs["Period"] == 7 * 86400
+
+    def test_missing_datapoints_skips_item(self):
+        """Any metric returning no datapoints → SKIP ITEM (insufficient evidence)."""
+        session, _, cloudwatch = _make_session([_make_item()])
+        cloudwatch.get_metric_statistics.return_value = {"Datapoints": []}
+
+        assert find_idle_bedrock_provisioned_throughputs(session, _REGION) == []
+
+    def test_cloudwatch_not_called_for_excluded_items(self):
+        """CloudWatch must not be called for items excluded by age or status."""
+        session, _, cloudwatch = _make_session([_make_item(status="Creating")])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        cloudwatch.get_metric_statistics.assert_not_called()
+
+    def test_metrics_queried_in_spec_order(self):
+        """Metrics must be queried in the spec-defined order."""
+        session, _, cloudwatch = _make_session([_make_item()])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        called_metrics = [
+            c.kwargs["MetricName"] for c in cloudwatch.get_metric_statistics.call_args_list
+        ]
+        assert called_metrics == [
+            "Invocations",
+            "InvocationClientErrors",
+            "InvocationServerErrors",
+            "InvocationThrottles",
+        ]
+
+    def test_short_circuits_on_first_active_metric(self):
+        """Once a metric shows activity, remaining metrics must not be queried."""
+        session, _, cloudwatch = _make_session([_make_item()])
+        # Invocations > 0 → should stop immediately
+        cloudwatch.get_metric_statistics.return_value = {"Datapoints": [{"Sum": 10.0}]}
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        # Only 1 call — stopped after Invocations showed activity
+        assert cloudwatch.get_metric_statistics.call_count == 1
+
 
 # ---------------------------------------------------------------------------
-# idle_days clamping and edge cases
+# TestConfidenceModel
 # ---------------------------------------------------------------------------
 
 
-def test_idle_days_minimum_guard():
-    """Age guard floor is 3 regardless of idle_days; age below floor is skipped."""
-    # idle_days=4 → guard = max(ceil(4*0.5), 3) = max(2, 3) = 3; age=2 < 3 → skipped
-    item = _make_provisioned(age_days=2)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+class TestConfidenceModel:
+    def test_confidence_always_high(self):
+        session, _, _ = _make_session([_make_item()])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=4)
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    assert findings == []
+        assert findings[0].confidence == ConfidenceLevel.HIGH
 
+    def test_no_medium_confidence(self):
+        """Rule never emits MEDIUM confidence — only HIGH."""
+        session, _, _ = _make_session([_make_item()])
 
-def test_idle_days_clamped_to_minimum():
-    """idle_days below 3 is clamped to 3 so effective_window < 3 guard never kills all findings."""
-    # Without clamping, idle_days=1 → effective_window=min(1,30)=1 < 3 → every resource skipped.
-    # With clamping, idle_days=1 → clamped to 3 → effective_window=3 → detection works.
-    item = _make_provisioned(age_days=30)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION, idle_days=1)
-
-    assert len(findings) == 1  # found despite tiny idle_days input
-    assert findings[0].details["idle_days_threshold"] == 3  # clamped value recorded
+        assert findings[0].confidence != ConfidenceLevel.MEDIUM
 
 
-def test_multiple_throughputs_independent():
-    """Each throughput is evaluated independently; one active does not suppress others."""
-    idle_item = _make_provisioned(name="idle-tp", age_days=30)
-    active_item = _make_provisioned(name="active-tp", age_days=30)
-
-    session, _, cloudwatch = _make_session([idle_item, active_item])
-    # idle-tp → no datapoints; active-tp → has invocations
-    active_arn = active_item["provisionedModelArn"]
-
-    def _cw(**kwargs):
-        dims = kwargs.get("Dimensions", [])
-        if dims and dims[0]["Value"] == active_arn:
-            return {"Datapoints": [{"Sum": 3.0}]}
-        return {"Datapoints": []}
-
-    cloudwatch.get_metric_statistics.side_effect = _cw
-
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
-
-    assert len(findings) == 1
-    assert findings[0].resource_id == "idle-tp"
+# ---------------------------------------------------------------------------
+# TestRiskModel
+# ---------------------------------------------------------------------------
 
 
-def test_finding_details_complete():
-    """Finding details dict contains all expected fields."""
-    item = _make_provisioned(age_days=30, desired_units=5)
-    session, _, _ = _make_session([item], cw_datapoints=[])
+class TestRiskModel:
+    def test_risk_always_high(self):
+        session, _, _ = _make_session([_make_item()])
 
-    findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
 
-    d = findings[0].details
-    assert "provisioned_model_name" in d
-    assert "provisioned_model_arn" in d
-    assert "desired_model_units" in d
-    assert "commitment_duration" in d
-    assert "age_days" in d
-    assert "idle_ratio" in d
-    assert d["desired_model_units"] == 5
+        assert findings[0].risk == RiskLevel.HIGH
+
+    def test_no_critical_risk(self):
+        """Rule never emits CRITICAL risk — only HIGH."""
+        session, _, _ = _make_session([_make_item()])
+
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        assert findings[0].risk != RiskLevel.CRITICAL
+
+
+# ---------------------------------------------------------------------------
+# TestCostModel
+# ---------------------------------------------------------------------------
+
+
+class TestCostModel:
+    def test_estimated_monthly_cost_always_none(self):
+        session, _, _ = _make_session([_make_item(desiredModelUnits=10)])
+
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        assert findings[0].estimated_monthly_cost_usd is None
+
+
+# ---------------------------------------------------------------------------
+# TestDetailsContract
+# ---------------------------------------------------------------------------
+
+
+class TestDetailsContract:
+    def _details(self) -> dict:
+        session, _, _ = _make_session([_make_item()])
+        return find_idle_bedrock_provisioned_throughputs(session, _REGION)[0].details
+
+    def test_evaluation_path(self):
+        assert self._details()["evaluation_path"] == (
+            "idle-bedrock-provisioned-throughput-review-candidate"
+        )
+
+    def test_provisioned_model_arn_present(self):
+        assert self._details()["provisioned_model_arn"] == _PROVISIONED_ARN
+
+    def test_normalized_status_present(self):
+        assert self._details()["normalized_status"] == "InService"
+
+    def test_creation_time_present(self):
+        d = self._details()
+        assert "creation_time" in d
+        assert isinstance(d["creation_time"], str)
+
+    def test_age_days_present(self):
+        d = self._details()
+        assert "age_days" in d
+        assert isinstance(d["age_days"], int)
+        assert d["age_days"] > 0
+
+    def test_idle_days_threshold_present(self):
+        assert self._details()["idle_days_threshold"] == _DEFAULT_THRESHOLD
+
+    def test_activity_metrics_checked_contains_all_four(self):
+        metrics = self._details()["activity_metrics_checked"]
+        assert "Invocations" in metrics
+        assert "InvocationClientErrors" in metrics
+        assert "InvocationServerErrors" in metrics
+        assert "InvocationThrottles" in metrics
+
+    def test_model_units_present(self):
+        d = self._details()
+        assert "model_units" in d
+
+    def test_foundation_model_arn_present(self):
+        d = self._details()
+        assert "foundation_model_arn" in d
+
+    def test_commitment_expiration_time_present(self):
+        d = self._details()
+        assert "commitment_expiration_time" in d
+
+    def test_commitment_duration_present(self):
+        d = self._details()
+        assert "commitment_duration" in d
+
+    def test_provisioned_model_name_present(self):
+        session, _, _ = _make_session([_make_item(provisionedModelName="my-tp")])
+        d = find_idle_bedrock_provisioned_throughputs(session, _REGION)[0].details
+        assert d["provisioned_model_name"] == "my-tp"
+
+
+# ---------------------------------------------------------------------------
+# TestEvidenceContract
+# ---------------------------------------------------------------------------
+
+
+class TestEvidenceContract:
+    def test_signals_used_mention_in_service(self):
+        session, _, _ = _make_session([_make_item()])
+        signals = find_idle_bedrock_provisioned_throughputs(session, _REGION)[
+            0
+        ].evidence.signals_used
+        assert any("InService" in s for s in signals)
+
+    def test_signals_used_mention_model_id_dimension(self):
+        session, _, _ = _make_session([_make_item()])
+        signals = find_idle_bedrock_provisioned_throughputs(session, _REGION)[
+            0
+        ].evidence.signals_used
+        assert any("ModelId" in s or _PROVISIONED_ARN in s for s in signals)
+
+    def test_signals_used_mention_all_required_metrics(self):
+        session, _, _ = _make_session([_make_item()])
+        signals = " ".join(
+            find_idle_bedrock_provisioned_throughputs(session, _REGION)[0].evidence.signals_used
+        )
+        assert "Invocations" in signals
+        assert "InvocationClientErrors" in signals
+        assert "InvocationServerErrors" in signals
+        assert "InvocationThrottles" in signals
+
+    def test_signals_not_checked_populated(self):
+        session, _, _ = _make_session([_make_item()])
+        not_checked = find_idle_bedrock_provisioned_throughputs(session, _REGION)[
+            0
+        ].evidence.signals_not_checked
+        assert len(not_checked) > 0
+
+    def test_signals_not_checked_mention_commitment(self):
+        session, _, _ = _make_session([_make_item()])
+        not_checked = find_idle_bedrock_provisioned_throughputs(session, _REGION)[
+            0
+        ].evidence.signals_not_checked
+        assert any("commitment" in s.lower() for s in not_checked)
+
+
+# ---------------------------------------------------------------------------
+# TestPagination
+# ---------------------------------------------------------------------------
+
+
+class TestPagination:
+    def test_multi_page_exhausted(self):
+        session, bedrock, cloudwatch = _make_session()
+
+        arn1 = "arn:aws:bedrock:us-east-1:123:provisioned-model/tp-1"
+        arn2 = "arn:aws:bedrock:us-east-1:123:provisioned-model/tp-2"
+        bedrock.get_paginator.return_value.paginate.return_value = [
+            {"provisionedModelSummaries": [_make_item(provisionedModelArn=arn1)]},
+            {"provisionedModelSummaries": [_make_item(provisionedModelArn=arn2)]},
+        ]
+        cloudwatch.get_metric_statistics.return_value = {"Datapoints": [{"Sum": 0.0}]}
+
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        assert len(findings) == 2
+        arns = {f.resource_id for f in findings}
+        assert arn1 in arns
+        assert arn2 in arns
+
+    def test_paginator_filtered_to_in_service(self):
+        session, bedrock, _ = _make_session([])
+
+        find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        bedrock.get_paginator.return_value.paginate.assert_called_once_with(
+            statusEquals="InService"
+        )
+
+    def test_multiple_items_evaluated_independently(self):
+        """One item with activity does not suppress other idle items."""
+        arn_idle = "arn:aws:bedrock:us-east-1:123:provisioned-model/idle"
+        arn_active = "arn:aws:bedrock:us-east-1:123:provisioned-model/active"
+
+        session, bedrock, cloudwatch = _make_session()
+        bedrock.get_paginator.return_value.paginate.return_value = [
+            {
+                "provisionedModelSummaries": [
+                    _make_item(provisionedModelArn=arn_idle),
+                    _make_item(provisionedModelArn=arn_active),
+                ]
+            }
+        ]
+
+        def _cw(**kwargs):
+            dims = kwargs.get("Dimensions", [])
+            val = dims[0]["Value"] if dims else ""
+            if val == arn_active and kwargs.get("MetricName") == "Invocations":
+                return {"Datapoints": [{"Sum": 5.0}]}
+            return {"Datapoints": [{"Sum": 0.0}]}
+
+        cloudwatch.get_metric_statistics.side_effect = _cw
+
+        findings = find_idle_bedrock_provisioned_throughputs(session, _REGION)
+
+        assert len(findings) == 1
+        assert findings[0].resource_id == arn_idle
