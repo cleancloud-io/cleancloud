@@ -10,6 +10,7 @@ from cleancloud.config.accounts import AccountConfig, MultiAccountConfig
 from cleancloud.core.finding import Finding
 from cleancloud.providers.aws.scan import (
     _get_active_aws_regions,
+    rules_include_ai,
     scan_aws_regions_with_session,
 )
 from cleancloud.providers.aws.session import (
@@ -62,7 +63,10 @@ def scan_account(
             regions_to_scan = [region]
         else:
             # Per-account discovery (opt-in via --per-account-regions)
-            regions_to_scan = _get_active_aws_regions(assumed_session) or ["us-east-1"]
+            include_ai = rules_include_ai(rules)
+            regions_to_scan = _get_active_aws_regions(assumed_session, include_ai=include_ai) or [
+                "us-east-1"
+            ]
             click.echo(
                 f"  {account.name}: {len(regions_to_scan)} active region(s): {', '.join(regions_to_scan)}"
             )
@@ -139,7 +143,10 @@ def scan_multiple_accounts(
     regions_override: Optional[List[str]] = None
     if all_regions and not per_account_regions:
         click.echo("Detecting active regions (hub account)...")
-        regions_override = _get_active_aws_regions(hub_session) or ["us-east-1"]
+        include_ai = rules_include_ai(rules)
+        regions_override = _get_active_aws_regions(hub_session, include_ai=include_ai) or [
+            "us-east-1"
+        ]
         click.echo(f"Regions to scan: {', '.join(regions_override)}")
         click.echo()
 

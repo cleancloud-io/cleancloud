@@ -1,3 +1,4 @@
+import functools
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -76,6 +77,25 @@ AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
 AWS_AI_RULES: List[Callable] = list(AWS_RULE_MAP_AI.values())
 
 
+def _unwrap_rule_callable(rule: Callable) -> Callable:
+    while isinstance(rule, functools.partial):
+        rule = rule.func
+    return rule
+
+
+def _rule_name(rule: Callable) -> str:
+    return getattr(
+        rule, "__name__", getattr(_unwrap_rule_callable(rule), "__name__", "unknown_rule")
+    )
+
+
+def rules_include_ai(rules: Optional[List[Callable]]) -> bool:
+    if rules is None:
+        return True
+    ai_rules = set(AWS_AI_RULES)
+    return any(_unwrap_rule_callable(rule) in ai_rules for rule in rules)
+
+
 def scan_aws_with_region_selection(
     *,
     profile: Optional[str],
@@ -106,9 +126,9 @@ def scan_aws_with_region_selection(
 
     else:
         click.echo("Auto-detecting regions with resources...")
-        # rules=None means "run everything" — treat as including AI rules so
+        # rules=None means "run everything" — include AI probes so
         # Bedrock/SageMaker-only regions are not skipped during auto-discovery.
-        include_ai = rules is None or bool(set(rules) & set(AWS_AI_RULES))
+        include_ai = rules_include_ai(rules)
         regions_to_scan = _get_active_aws_regions(base_session, include_ai=include_ai)
 
         if regions_to_scan:
@@ -141,7 +161,7 @@ def scan_aws_with_region_selection(
 def _get_active_aws_regions(session, include_ai: bool = False) -> List[str]:
     try:
         account_id = session.client("sts").get_caller_identity()["Account"]
-        cached = get_cached_regions(account_id)
+        cached = get_cached_regions(account_id, include_ai=include_ai)
         if cached is not None:
             click.echo(
                 f"Using cached regions (account {account_id}) — delete ~/.cleancloud/region_cache.json to refresh"
@@ -194,9 +214,9 @@ def _get_active_aws_regions(session, include_ai: bool = False) -> List[str]:
         click.echo()
 
     result = sorted(active_regions)
-    if account_id and result:
+    if account_id and result and not errors:
         try:
-            set_cached_regions(account_id, result)
+            set_cached_regions(account_id, result, include_ai=include_ai)
         except OSError:
             pass  # cache write failure is non-fatal
 
@@ -406,20 +426,19 @@ def _scan_aws_region_with_session(
 
         for future in as_completed(futures):
             rule = futures[future]
+            rule_name = _rule_name(rule)
             try:
                 rule_findings = future.result()
                 findings.extend(rule_findings)
             except botocore.exceptions.NoCredentialsError:
                 raise
             except PermissionError as e:
-                skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
+                skipped_rules.append({"rule": rule_name, "missing_permissions": str(e)})
             except botocore.exceptions.EndpointConnectionError as e:
-                skipped_rules.append(
-                    {"rule": rule.__name__, "error": f"EndpointConnectionError: {e}"}
-                )
+                skipped_rules.append({"rule": rule_name, "error": f"EndpointConnectionError: {e}"})
             except Exception as e:
-                skipped_rules.append({"rule": rule.__name__, "error": f"{type(e).__name__}: {e}"})
-                click.echo(f"    Rule {rule.__name__} failed in {region}: {type(e).__name__}: {e}")
+                skipped_rules.append({"rule": rule_name, "error": f"{type(e).__name__}: {e}"})
+                click.echo(f"    Rule {rule_name} failed in {region}: {type(e).__name__}: {e}")
 
     for f in findings:
         f.region = region
@@ -448,6 +467,7 @@ def _scan_aws_region(
 
             for future in as_completed(futures):
                 rule = futures[future]
+                rule_name = _rule_name(rule)
                 try:
                     rule_findings = future.result()
                     findings.extend(rule_findings)
@@ -459,22 +479,18 @@ def _scan_aws_region(
                     raise
                 except PermissionError as e:
                     # Graceful degradation — missing permissions skip this rule
-                    skipped_rules.append({"rule": rule.__name__, "missing_permissions": str(e)})
+                    skipped_rules.append({"rule": rule_name, "missing_permissions": str(e)})
                 except botocore.exceptions.EndpointConnectionError as e:
                     rules_failed += 1
                     endpoint_errors += 1
                     skipped_rules.append(
-                        {"rule": rule.__name__, "error": f"EndpointConnectionError: {e}"}
+                        {"rule": rule_name, "error": f"EndpointConnectionError: {e}"}
                     )
-                    click.echo(f"Rule failed in {region} [{rule.__name__}]: {e}")
+                    click.echo(f"Rule failed in {region} [{rule_name}]: {e}")
                 except Exception as e:
                     rules_failed += 1
-                    skipped_rules.append(
-                        {"rule": rule.__name__, "error": f"{type(e).__name__}: {e}"}
-                    )
-                    click.echo(
-                        f"Rule failed in {region} [{rule.__name__}]: {type(e).__name__}: {e}"
-                    )
+                    skipped_rules.append({"rule": rule_name, "error": f"{type(e).__name__}: {e}"})
+                    click.echo(f"Rule failed in {region} [{rule_name}]: {type(e).__name__}: {e}")
                 finally:
                     advance(bar)
 

@@ -3,13 +3,20 @@ Tests for graceful degradation when AWS rules encounter missing permissions.
 Rules that raise PermissionError should be skipped, not counted as failures.
 """
 
+import functools
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.finding import Evidence, Finding
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.aws.scan import _scan_aws_region, scan_aws_regions
+from cleancloud.providers.aws.scan import (
+    AWS_AI_RULES,
+    _get_active_aws_regions,
+    _scan_aws_region,
+    scan_aws_regions,
+    scan_aws_with_region_selection,
+)
 
 
 def _make_finding(resource_id="vol-1", region="us-east-1"):
@@ -130,3 +137,76 @@ def test_region_still_stamped_on_findings(mock_session):
     )
 
     assert all(f.region == "ap-southeast-1" for f in findings)
+
+
+@patch("cleancloud.providers.aws.scan.create_aws_session")
+def test_parameterized_rule_uses_original_name_in_skipped_rules(mock_session):
+    findings, skipped_rules = _scan_aws_region(
+        profile=None,
+        region="us-east-1",
+        rules=[functools.partial(_permission_error_rule)],
+    )
+
+    assert findings == []
+    assert len(skipped_rules) == 1
+    assert skipped_rules[0]["rule"] == "_permission_error_rule"
+
+
+@patch("cleancloud.providers.aws.scan.scan_aws_regions")
+@patch("cleancloud.providers.aws.scan._get_active_aws_regions")
+@patch("cleancloud.providers.aws.scan.create_aws_session")
+def test_region_selection_detects_parameterized_ai_rules(
+    mock_create_session, mock_get_regions, mock_scan_regions
+):
+    session = mock_create_session.return_value
+    session.client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
+    mock_get_regions.return_value = ["us-east-1"]
+    mock_scan_regions.return_value = ([], [])
+
+    parameterized_rule = functools.partial(AWS_AI_RULES[0], idle_days_threshold=21)
+
+    scan_aws_with_region_selection(
+        profile=None,
+        region=None,
+        all_regions=True,
+        rules=[parameterized_rule],
+    )
+
+    mock_get_regions.assert_called_once_with(session, include_ai=True)
+
+
+@patch("cleancloud.providers.aws.scan.set_cached_regions")
+@patch("cleancloud.providers.aws.scan.get_cached_regions")
+def test_region_discovery_does_not_cache_partial_results_after_errors(
+    mock_get_cached_regions, mock_set_cached_regions
+):
+    class _StsClient:
+        def get_caller_identity(self):
+            return {"Account": "123456789012"}
+
+    class _Ec2Client:
+        def describe_regions(self, **kwargs):
+            return {"Regions": [{"RegionName": "us-east-1"}, {"RegionName": "us-west-2"}]}
+
+    class _Session:
+        def client(self, service_name, **kwargs):
+            if service_name == "sts":
+                return _StsClient()
+            if service_name == "ec2":
+                return _Ec2Client()
+            raise AssertionError(service_name)
+
+    def _region_probe(session, region, include_ai=False):
+        if region == "us-east-1":
+            return True, None
+        return False, "Error: throttled"
+
+    mock_get_cached_regions.return_value = None
+
+    with patch(
+        "cleancloud.providers.aws.scan._region_has_cleancloud_resources", side_effect=_region_probe
+    ):
+        regions = _get_active_aws_regions(_Session(), include_ai=True)
+
+    assert regions == ["us-east-1"]
+    mock_set_cached_regions.assert_not_called()
