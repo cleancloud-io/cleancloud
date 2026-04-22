@@ -165,7 +165,7 @@ class TestMustEmit:
         assert findings[0].details["database_connections_max"] == 0.0
 
     def test_details_required_fields_present(self, mock_boto3_session):
-        """All required details fields from spec §11.1 must be present."""
+        """All required details fields from spec 11.1 must be present."""
         _setup(
             mock_boto3_session,
             [_make_instance()],
@@ -188,7 +188,7 @@ class TestMustEmit:
             assert key in d, f"Missing required detail key: {key}"
 
     def test_optional_context_fields_present(self, mock_boto3_session):
-        """Optional context fields from spec §11.1 must be present in details."""
+        """Optional context fields from spec 11.1 must be present in details."""
         _setup(
             mock_boto3_session,
             [_make_instance()],
@@ -732,7 +732,7 @@ class TestEvidenceContract:
 
 class TestConfidenceModel:
     def test_always_medium_confidence(self, mock_boto3_session):
-        """Spec §12: MEDIUM confidence when datapoints present and all zero."""
+        """Spec 12: MEDIUM confidence when datapoints present and all zero."""
         _setup(
             mock_boto3_session,
             [_make_instance()],
@@ -760,7 +760,7 @@ class TestConfidenceModel:
 
 class TestCostModel:
     def test_estimated_monthly_cost_usd_is_none(self, mock_boto3_session):
-        """Spec §7: no hardcoded cost estimates → estimated_monthly_cost_usd = None."""
+        """Spec 7: no hardcoded cost estimates → estimated_monthly_cost_usd = None."""
         _setup(
             mock_boto3_session,
             [_make_instance()],

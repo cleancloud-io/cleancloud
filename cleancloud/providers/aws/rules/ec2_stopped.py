@@ -347,7 +347,7 @@ def find_stopped_ec2_instances(
     now = datetime.now(timezone.utc)
     findings: List[Finding] = []
 
-    # Guard: lookup window must cover at least the threshold (spec §4).
+    # Guard: lookup window must cover at least the threshold (spec 4).
     # A shorter window cannot prove the required stopped duration.
     if cloudtrail_lookup_days < stopped_age_threshold_days:
         return findings

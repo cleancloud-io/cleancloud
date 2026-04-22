@@ -688,7 +688,7 @@ class TestRouteIdFormat:
 
     def test_url_path_map_default_ldp_route_id_format(self):
         """
-        urlPathMap defaultLoadDistributionPolicy (spec §4 canonical):
+        urlPathMap defaultLoadDistributionPolicy (spec 4 canonical):
         {rule_id}::urlPathMap:{map_id}:defaultLoadDistributionPolicy:{pol_id}:target:{target_key}::{pool_id}
 
         Note capital 'L' in defaultLoadDistributionPolicy — this is the canonical
@@ -716,7 +716,7 @@ class TestRouteIdFormat:
         rid = _rule_id("rule-def-ldp")
         pol = _policy_id("policy-def")
         pid = _pool_id("pool-def-ldp")
-        # Capital 'L' in defaultLoadDistributionPolicy (spec §4)
+        # Capital 'L' in defaultLoadDistributionPolicy (spec 4)
         expected = (
             f"{rid}::urlPathMap:{mid}:defaultLoadDistributionPolicy:{pol}:target:tgt-def::{pid}"
         )
@@ -724,7 +724,7 @@ class TestRouteIdFormat:
 
     def test_url_path_map_path_rule_ldp_route_id_format(self):
         """
-        urlPathMap pathRule loadDistributionPolicy (spec §4 canonical):
+        urlPathMap pathRule loadDistributionPolicy (spec 4 canonical):
         {rule_id}::urlPathMap:{map_id}:pathRule:{pr_key}:loadDistributionPolicy:{pol_id}:target:{target_key}::{pool_id}
 
         Note lowercase 'l' in loadDistributionPolicy for pathRule context.
@@ -748,7 +748,7 @@ class TestRouteIdFormat:
         rid = _rule_id("rule-pr-ldp")
         pol = _policy_id("policy-pr")
         pid = _pool_id("pool-pr-ldp")
-        # Lowercase 'l' in loadDistributionPolicy for pathRule context (spec §4)
+        # Lowercase 'l' in loadDistributionPolicy for pathRule context (spec 4)
         expected = f"{rid}::urlPathMap:{mid}:pathRule:pr-beta:loadDistributionPolicy:{pol}:target:tgt-pr::{pid}"
         assert findings[0].details["referencing_route_ids"] == [expected]
 
@@ -807,7 +807,7 @@ class TestFindingShape:
         assert self._get_single_finding().confidence == ConfidenceLevel.HIGH
 
     def test_estimated_monthly_cost_is_none(self):
-        """Spec §9: no cost model; estimated_monthly_cost_usd must be None."""
+        """Spec 9: no cost model; estimated_monthly_cost_usd must be None."""
         assert self._get_single_finding().estimated_monthly_cost_usd is None
 
     def test_resource_id_is_pool_id(self):
@@ -1048,7 +1048,7 @@ class TestDiagnostics:
         )
 
     def test_synthetic_ids_are_lowercase(self):
-        """Fallback synthetic ids (for objects with name but no id) must be lowercase (spec §5)."""
+        """Fallback synthetic ids (for objects with name but no id) must be lowercase (spec 5)."""
         pool = _make_pool("pool-synth")
         # Routing rule with no id but mixed-case name
         rule = _ns(
@@ -1099,7 +1099,7 @@ class TestDiagnostics:
     def test_malformed_redirect_ref_counts_as_redirect_present(self):
         """
         A rule with a redirectConfiguration that has no usable id but no backend selection
-        path must still be treated as redirect-only and skipped (spec §6).
+        path must still be treated as redirect-only and skipped (spec 6).
         Presence of the field is sufficient — a malformed id does not fall through.
         """
         pool = _make_pool("pool-redir-bad")

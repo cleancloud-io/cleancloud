@@ -44,7 +44,7 @@ from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
 # ---------------------------------------------------------------------------
-# Module constants  (spec §17)
+# Module constants  (spec 17)
 # ---------------------------------------------------------------------------
 
 _EVALUATION_PATH = "app-gateway-no-backends"
@@ -125,11 +125,11 @@ def _normalize_pool(pool) -> Optional[dict]:
     raw_name = _get_str(pool, "name")
     pool_name = raw_name or _name_from_id(pool_id)
 
-    # backendAddresses — canonical target source (spec §2)
+    # backendAddresses — canonical target source (spec 2)
     backend_addresses = _get_list(pool, "backend_addresses") or _get_list(pool, "backendAddresses")
     backend_addresses = [a for a in backend_addresses if a is not None]
 
-    # backendIPConfigurations — optional legacy/read-only field (spec §2)
+    # backendIPConfigurations — optional legacy/read-only field (spec 2)
     legacy_cfgs = _get_list(pool, "backend_ip_configurations") or _get_list(
         pool, "backendIPConfigurations"
     )
@@ -421,7 +421,7 @@ def _traverse_url_path_map(
             pool_route_refs,
             pool_rule_ids,
             diags,
-            ldp_keyword="LoadDistributionPolicy",  # spec §4 canonical
+            ldp_keyword="LoadDistributionPolicy",  # spec 4 canonical
         )
 
     # Path rules
@@ -627,7 +627,7 @@ def _traverse_gateway(
             or getattr(rule, "loadDistributionPolicy", None)
         )
 
-        # Redirect presence: spec §6 — presence of the field is sufficient; a malformed
+        # Redirect presence: spec 6 — presence of the field is sufficient; a malformed
         # (non-null, non-resolvable) redirectConfiguration ref still counts as present.
         redirect_present = redirect_ref is not None
         if redirect_present and _norm_id(redirect_ref) is None:
@@ -728,7 +728,7 @@ def _traverse_gateway(
     now = datetime.now(timezone.utc)
 
     # Build signals_not_checked: blind-spot strings + structured diagnostic dicts
-    # (spec §5 diagnostics contract requires minimum structured shape)
+    # (spec 5 diagnostics contract requires minimum structured shape)
     def _diag_key(diag) -> tuple:
         if isinstance(diag, dict):
             return (

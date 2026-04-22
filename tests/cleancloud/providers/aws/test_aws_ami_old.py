@@ -123,13 +123,13 @@ def _lc_check_fails(autoscaling) -> None:
 
 
 # ---------------------------------------------------------------------------
-# §18 — MUST EMIT
+# 18 — MUST EMIT
 # ---------------------------------------------------------------------------
 
 
 class TestMustEmit:
     def test_deprecated_available_no_active_instances(self, mock_boto3_session):
-        """Spec §18: deprecated, available, no active instances → finding emitted."""
+        """Spec 18: deprecated, available, no active instances → finding emitted."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -143,12 +143,12 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "high"  # spec §8
-        assert f.risk.value == "medium"  # spec §9: deprecated without active → MEDIUM
-        assert f.title == "Deprecated AMI"  # spec §16
+        assert f.confidence.value == "high"  # spec 8
+        assert f.risk.value == "medium"  # spec 9: deprecated without active → MEDIUM
+        assert f.title == "Deprecated AMI"  # spec 16
 
     def test_deprecated_available_with_active_instances(self, mock_boto3_session):
-        """Spec §18: deprecated, available, active instances → HIGH confidence, HIGH risk."""
+        """Spec 18: deprecated, available, active instances → HIGH confidence, HIGH risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -162,12 +162,12 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "high"  # spec §8
-        assert f.risk.value == "high"  # spec §9: deprecated + active
-        assert f.title == "Deprecated AMI Still In Use"  # spec §16
+        assert f.confidence.value == "high"  # spec 8
+        assert f.risk.value == "high"  # spec 9: deprecated + active
+        assert f.title == "Deprecated AMI Still In Use"  # spec 16
 
     def test_non_deprecated_age_and_stale_launch(self, mock_boto3_session):
-        """Spec §18: non-deprecated, age >= 180, stale launch >= 180, no exclusions → finding."""
+        """Spec 18: non-deprecated, age >= 180, stale launch >= 180, no exclusions → finding."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -181,12 +181,12 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "medium"  # spec §8: score 2, no contextual downgrade
-        assert f.risk.value == "medium"  # spec §9: score 2 guardrail
-        assert f.title == "Unused AMI"  # spec §16
+        assert f.confidence.value == "medium"  # spec 8: score 2, no contextual downgrade
+        assert f.risk.value == "medium"  # spec 9: score 2 guardrail
+        assert f.title == "Unused AMI"  # spec 16
 
     def test_non_deprecated_age_only(self, mock_boto3_session):
-        """Spec §18: non-deprecated, age-only stale (score 1) → LOW confidence, LOW risk."""
+        """Spec 18: non-deprecated, age-only stale (score 1) → LOW confidence, LOW risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -200,19 +200,19 @@ class TestMustEmit:
 
         assert len(findings) == 1
         f = findings[0]
-        assert f.confidence.value == "low"  # spec §8: score 1
-        assert f.risk.value == "low"  # spec §9
-        assert f.title == "AMI Older Than 180 Days"  # spec §16
+        assert f.confidence.value == "low"  # spec 8: score 1
+        assert f.risk.value == "low"  # spec 9
+        assert f.title == "AMI Older Than 180 Days"  # spec 16
 
 
 # ---------------------------------------------------------------------------
-# §18 — MUST SKIP
+# 18 — MUST SKIP
 # ---------------------------------------------------------------------------
 
 
 class TestMustSkip:
     def test_non_deprecated_recently_launched(self, mock_boto3_session):
-        """Spec §18: non-deprecated, recently launched → skip."""
+        """Spec 18: non-deprecated, recently launched → skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -226,7 +226,7 @@ class TestMustSkip:
         assert findings == []
 
     def test_non_deprecated_active_instances_exist(self, mock_boto3_session):
-        """Spec §18: non-deprecated, active instances exist → skip (hard exclusion)."""
+        """Spec 18: non-deprecated, active instances exist → skip (hard exclusion)."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -240,7 +240,7 @@ class TestMustSkip:
         assert findings == []
 
     def test_non_deprecated_score_zero(self, mock_boto3_session):
-        """Spec §18: non-deprecated, score == 0 (age < threshold, no stale launch) → skip."""
+        """Spec 18: non-deprecated, score == 0 (age < threshold, no stale launch) → skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -254,7 +254,7 @@ class TestMustSkip:
         assert findings == []
 
     def test_malformed_ami_without_image_id(self, mock_boto3_session):
-        """Spec §18: malformed AMI without ImageId → skip."""
+        """Spec 18: malformed AMI without ImageId → skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -268,7 +268,7 @@ class TestMustSkip:
         assert findings == []
 
     def test_non_available_state_skipped(self, mock_boto3_session):
-        """Spec §3: only state=available is evaluated."""
+        """Spec 3: only state=available is evaluated."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -279,7 +279,7 @@ class TestMustSkip:
             assert find_old_amis(mock_boto3_session, "us-east-1") == [], state
 
     def test_missing_creation_date_skipped(self, mock_boto3_session):
-        """Spec §3: AMI with missing CreationDate → skip."""
+        """Spec 3: AMI with missing CreationDate → skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -293,13 +293,13 @@ class TestMustSkip:
 
 
 # ---------------------------------------------------------------------------
-# §18 — MUST NOT HAPPEN
+# 18 — MUST NOT HAPPEN
 # ---------------------------------------------------------------------------
 
 
 class TestMustNotHappen:
     def test_lt_alone_does_not_create_finding(self, mock_boto3_session):
-        """Spec §18: LT/LC alone must never create a finding (score == 0 → skip)."""
+        """Spec 18: LT/LC alone must never create a finding (score == 0 → skip)."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -312,7 +312,7 @@ class TestMustNotHappen:
         assert find_old_amis(mock_boto3_session, "us-east-1") == []
 
     def test_missing_last_launched_does_not_trigger_exclusion(self, mock_boto3_session):
-        """Spec §18 / §5.A: missing lastLaunchedTime must NOT exclude a finding."""
+        """Spec 18 / 5.A: missing lastLaunchedTime must NOT exclude a finding."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -326,7 +326,7 @@ class TestMustNotHappen:
         assert len(findings) == 1  # must emit despite missing lastLaunchedTime
 
     def test_contextual_signals_do_not_stack_multiple_downgrades(self, mock_boto3_session):
-        """Spec §18: contextual signals max 1 downgrade total — LT + LC together = still 1."""
+        """Spec 18: contextual signals max 1 downgrade total — LT + LC together = still 1."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -343,7 +343,7 @@ class TestMustNotHappen:
         assert findings[0].confidence.value == "low"
 
     def test_cost_does_not_affect_risk(self, mock_boto3_session):
-        """Spec §12: cost is informational only — large snapshot must NOT change risk."""
+        """Spec 12: cost is informational only — large snapshot must NOT change risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -360,7 +360,7 @@ class TestMustNotHappen:
         assert findings[0].risk.value == "low"
 
     def test_absence_of_active_instance_data_not_treated_as_none(self, mock_boto3_session):
-        """Spec §13: instance check failure ≠ 'no instances'. Borderline score → skip."""
+        """Spec 13: instance check failure ≠ 'no instances'. Borderline score → skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -376,13 +376,13 @@ class TestMustNotHappen:
 
 
 # ---------------------------------------------------------------------------
-# §18 — MUST DEGRADE
+# 18 — MUST DEGRADE
 # ---------------------------------------------------------------------------
 
 
 class TestMustDegrade:
     def test_describe_image_attribute_unavailable(self, mock_boto3_session):
-        """Spec §13: DescribeImageAttribute failure → finding still emitted, noted in evidence."""
+        """Spec 13: DescribeImageAttribute failure → finding still emitted, noted in evidence."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -403,7 +403,7 @@ class TestMustDegrade:
         )
 
     def test_describe_instances_unavailable_score_2_still_emits(self, mock_boto3_session):
-        """Spec §13: instance check failure + score 2 → emit (not borderline), apply downgrade."""
+        """Spec 13: instance check failure + score 2 → emit (not borderline), apply downgrade."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -423,7 +423,7 @@ class TestMustDegrade:
         assert any("ec2:DescribeInstances" in s for s in f.evidence.signals_not_checked)
 
     def test_lt_lookup_unavailable(self, mock_boto3_session):
-        """Spec §13: LT lookup failure → finding still emitted, noted in evidence."""
+        """Spec 13: LT lookup failure → finding still emitted, noted in evidence."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -440,7 +440,7 @@ class TestMustDegrade:
         assert findings[0].details["launch_template_refs"] == []
 
     def test_lc_lookup_unavailable(self, mock_boto3_session):
-        """Spec §13: LC lookup failure → finding still emitted, noted in evidence."""
+        """Spec 13: LC lookup failure → finding still emitted, noted in evidence."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -459,7 +459,7 @@ class TestMustDegrade:
         assert findings[0].details["launch_config_refs"] == []
 
     def test_describe_images_failure_raises_permission_error(self, mock_boto3_session):
-        """Spec §13: DescribeImages failure → PermissionError raised."""
+        """Spec 13: DescribeImages failure → PermissionError raised."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -476,13 +476,13 @@ class TestMustDegrade:
 
 
 # ---------------------------------------------------------------------------
-# §5 — Signal model details
+# 5 — Signal model details
 # ---------------------------------------------------------------------------
 
 
 class TestSignalModel:
     def test_deprecated_path_ignores_recently_launched(self, mock_boto3_session):
-        """Spec §5.A / §7: EXCLUSION_RULES do NOT apply to deprecated AMIs."""
+        """Spec 5.A / 7: EXCLUSION_RULES do NOT apply to deprecated AMIs."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -497,7 +497,7 @@ class TestSignalModel:
         assert findings[0].confidence.value == "high"
 
     def test_deprecated_path_ignores_active_instance_exclusion(self, mock_boto3_session):
-        """Spec §7: deprecated + active instances → emit HIGH, not skip."""
+        """Spec 7: deprecated + active instances → emit HIGH, not skip."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -513,7 +513,7 @@ class TestSignalModel:
         assert findings[0].risk.value == "high"
 
     def test_future_deprecation_time_is_path_b(self, mock_boto3_session):
-        """Spec §7: DeprecationTime in the future → treat as non-deprecated (Path B)."""
+        """Spec 7: DeprecationTime in the future → treat as non-deprecated (Path B)."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -530,7 +530,7 @@ class TestSignalModel:
         assert findings[0].confidence.value != "high"  # Path B, not Path A
 
     def test_invalid_deprecation_time_is_path_b(self, mock_boto3_session):
-        """Spec §7: invalid/unparseable DeprecationTime → treat as non-deprecated."""
+        """Spec 7: invalid/unparseable DeprecationTime → treat as non-deprecated."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -547,7 +547,7 @@ class TestSignalModel:
         assert findings[0].confidence.value != "high"
 
     def test_lt_refs_cause_contextual_downgrade(self, mock_boto3_session):
-        """Spec §11: LT refs → max 1 confidence downgrade (MEDIUM → LOW)."""
+        """Spec 11: LT refs → max 1 confidence downgrade (MEDIUM → LOW)."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -562,7 +562,7 @@ class TestSignalModel:
         assert findings[0].confidence.value == "low"  # downgraded from MEDIUM
 
     def test_lc_refs_cause_contextual_downgrade(self, mock_boto3_session):
-        """Spec §11: LC refs → max 1 confidence downgrade (MEDIUM → LOW)."""
+        """Spec 11: LC refs → max 1 confidence downgrade (MEDIUM → LOW)."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -577,7 +577,7 @@ class TestSignalModel:
         assert findings[0].confidence.value == "low"  # downgraded from MEDIUM
 
     def test_lt_refs_on_score_1_does_not_downgrade_below_low(self, mock_boto3_session):
-        """Spec §8: contextual signals never increase confidence; LOW stays LOW."""
+        """Spec 8: contextual signals never increase confidence; LOW stays LOW."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -592,7 +592,7 @@ class TestSignalModel:
         assert findings[0].confidence.value == "low"  # already LOW, cannot go lower
 
     def test_deprecated_contextual_signals_do_not_change_confidence(self, mock_boto3_session):
-        """Spec §7: contextual signals do NOT modify confidence for deprecated AMIs."""
+        """Spec 7: contextual signals do NOT modify confidence for deprecated AMIs."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -609,13 +609,13 @@ class TestSignalModel:
 
 
 # ---------------------------------------------------------------------------
-# §9 — Risk model
+# 9 — Risk model
 # ---------------------------------------------------------------------------
 
 
 class TestRiskModel:
     def test_deprecated_active_is_high_risk(self, mock_boto3_session):
-        """Spec §9: deprecated + active instances → HIGH risk."""
+        """Spec 9: deprecated + active instances → HIGH risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -629,7 +629,7 @@ class TestRiskModel:
         assert f.risk.value == "high"
 
     def test_deprecated_no_active_is_medium_risk(self, mock_boto3_session):
-        """Spec §9: deprecated + no active instances → MEDIUM risk."""
+        """Spec 9: deprecated + no active instances → MEDIUM risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -643,7 +643,7 @@ class TestRiskModel:
         assert f.risk.value == "medium"
 
     def test_score_2_guardrail_risk_is_medium(self, mock_boto3_session):
-        """Spec §9 guardrail: score == 2 → risk MUST be >= MEDIUM."""
+        """Spec 9 guardrail: score == 2 → risk MUST be >= MEDIUM."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -657,7 +657,7 @@ class TestRiskModel:
         assert f.risk.value == "medium"
 
     def test_score_1_is_low_risk(self, mock_boto3_session):
-        """Spec §9: score 1 → LOW risk."""
+        """Spec 9: score 1 → LOW risk."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -672,7 +672,7 @@ class TestRiskModel:
 
 
 # ---------------------------------------------------------------------------
-# §16 — Title contract
+# 16 — Title contract
 # ---------------------------------------------------------------------------
 
 
@@ -721,7 +721,7 @@ class TestTitleContract:
 
 
 # ---------------------------------------------------------------------------
-# §15 — Evidence contract
+# 15 — Evidence contract
 # ---------------------------------------------------------------------------
 
 
@@ -737,12 +737,12 @@ class TestEvidenceContract:
         return find_old_amis(mock_boto3_session, "us-east-1")[0]
 
     def test_evaluation_path_is_exactly_scored(self, mock_boto3_session):
-        """Spec §17: evaluation path must be exactly 'scored' for Path B."""
+        """Spec 17: evaluation path must be exactly 'scored' for Path B."""
         f = self._base_finding(mock_boto3_session)
         assert any("evaluation_path: scored" in s for s in f.evidence.signals_used)
 
     def test_evaluation_path_is_exactly_deprecated(self, mock_boto3_session):
-        """Spec §17: evaluation path must be exactly 'deprecated' for Path A."""
+        """Spec 17: evaluation path must be exactly 'deprecated' for Path A."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
         _setup_images(ec2, [_ami(deprecated_days_ago=5)])
@@ -754,7 +754,7 @@ class TestEvidenceContract:
         assert any("evaluation_path: deprecated" in s for s in f.evidence.signals_used)
 
     def test_all_evidence_fields_present(self, mock_boto3_session):
-        """Spec §15: all fields must exist (null allowed, never omitted)."""
+        """Spec 15: all fields must exist (null allowed, never omitted)."""
         f = self._base_finding(mock_boto3_session)
         required = [
             "evaluation_path",
@@ -770,14 +770,14 @@ class TestEvidenceContract:
             assert any(keyword in s for s in f.evidence.signals_used), keyword
 
     def test_permanent_blind_spots_always_present(self, mock_boto3_session):
-        """Spec §14: blind spots must always be in signals_not_checked."""
+        """Spec 14: blind spots must always be in signals_not_checked."""
         f = self._base_finding(mock_boto3_session)
         combined = " ".join(f.evidence.signals_not_checked)
         assert "LT/LC reference does not prove active ASG usage" in combined
         assert "compliance" in combined.lower()
 
     def test_last_launched_unknown_phrasing(self, mock_boto3_session):
-        """Spec §14: 'no record' must not imply 'never launched'."""
+        """Spec 14: 'no record' must not imply 'never launched'."""
         f = self._base_finding(mock_boto3_session)
         last_launched_signal = next(s for s in f.evidence.signals_used if "last_launched" in s)
         assert "unknown" in last_launched_signal or "null" in last_launched_signal
@@ -788,7 +788,7 @@ class TestEvidenceContract:
         )
 
     def test_instance_check_failure_phrasing(self, mock_boto3_session):
-        """Spec §13: instance check failure must not imply 'no instances'."""
+        """Spec 13: instance check failure must not imply 'no instances'."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -806,13 +806,13 @@ class TestEvidenceContract:
 
 
 # ---------------------------------------------------------------------------
-# §12 — Cost model
+# 12 — Cost model
 # ---------------------------------------------------------------------------
 
 
 class TestCostModel:
     def test_cost_is_upper_bound_estimate(self, mock_boto3_session):
-        """Spec §12: cost uses declared EBS volume size; required warning included."""
+        """Spec 12: cost uses declared EBS volume size; required warning included."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -831,7 +831,7 @@ class TestCostModel:
         assert "≠" in cost_str or "actual" in cost_str  # billing disclaimer
 
     def test_no_snapshots_cost_is_none(self, mock_boto3_session):
-        """Spec §12: no EBS snapshots → cost is None."""
+        """Spec 12: no EBS snapshots → cost is None."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -847,13 +847,13 @@ class TestCostModel:
 
 
 # ---------------------------------------------------------------------------
-# §3 — Scope / parametrize
+# 3 — Scope / parametrize
 # ---------------------------------------------------------------------------
 
 
 class TestScope:
     def test_custom_threshold(self, mock_boto3_session):
-        """Spec §4: max_age_days is configurable."""
+        """Spec 4: max_age_days is configurable."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 
@@ -875,7 +875,7 @@ class TestScope:
         assert find_old_amis(mock_boto3_session, "us-east-1") == []
 
     def test_finding_fields(self, mock_boto3_session):
-        """Core finding fields match spec §4 canonical definitions."""
+        """Core finding fields match spec 4 canonical definitions."""
         ec2 = mock_boto3_session._ec2
         autoscaling = mock_boto3_session._autoscaling
 

@@ -279,7 +279,7 @@ def find_long_running_sagemaker_training_jobs(
 ) -> List[Finding]:
     sagemaker = session.client("sagemaker", region_name=region)
 
-    # Spec §8: paginate WITHOUT StatusEquals — filter InProgress client-side.
+    # Spec 8: paginate WITHOUT StatusEquals — filter InProgress client-side.
     # AWS documents that StatusEquals + MaxResults filters after paging, which can
     # silently miss InProgress jobs when pagination is truncated.
     try:
@@ -360,7 +360,7 @@ def find_long_running_sagemaker_training_jobs(
                 active_training_hours = None
                 elapsed_runtime_hours = nl["job_age_hours"]
 
-            # applicable_runtime_limit_seconds per spec §3
+            # applicable_runtime_limit_seconds per spec 3
             if nd["enable_managed_spot_training"] and nd["max_wait_time_seconds"] is not None:
                 applicable_runtime_limit_seconds = nd["max_wait_time_seconds"]
             elif training_start_time is not None and nd["max_runtime_seconds"] is not None:

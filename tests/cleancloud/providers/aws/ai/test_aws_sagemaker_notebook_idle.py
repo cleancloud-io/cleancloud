@@ -313,7 +313,7 @@ class TestConfidenceModel:
             assert f.confidence.value != "high"
 
     def test_lifecycle_config_does_not_affect_confidence(self):
-        """Lifecycle config must not affect eligibility or confidence (spec §4)."""
+        """Lifecycle config must not affect eligibility or confidence (spec 4)."""
         nb = _make_nb(age_days=30, lifecycle_config="auto-stop")
         findings = _run([nb])
         assert len(findings) == 1
@@ -382,7 +382,7 @@ class TestRiskModel:
 
 class TestCostModel:
     def test_estimated_cost_is_none(self):
-        """Spec §7: estimated_monthly_cost_usd = null."""
+        """Spec 7: estimated_monthly_cost_usd = null."""
         findings = _run([_make_nb(age_days=30)])
         assert findings[0].estimated_monthly_cost_usd is None
 
