@@ -359,7 +359,7 @@ def find_unused_security_groups(
                     "and the default-group exclusion did not match"
                 ),
                 risk=RiskLevel.LOW,
-                confidence=ConfidenceLevel.MEDIUM,  # spec §7: MEDIUM mandatory; HIGH not recommended
+                confidence=ConfidenceLevel.MEDIUM,  # spec 7: MEDIUM mandatory; HIGH not recommended
                 detected_at=now,
                 evidence=evidence,
                 details=details,

@@ -217,7 +217,7 @@ Every finding **must** include all of the following (null allowed, never omitted
 | `stored_bytes` | Present OR null |
 | `stored_gb` | Present OR null |
 
-`signals_not_checked` must include all blind spots listed in §11.
+`signals_not_checked` must include all blind spots listed in 11.
 
 ---
 

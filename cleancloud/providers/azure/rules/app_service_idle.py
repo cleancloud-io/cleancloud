@@ -1,5 +1,35 @@
+"""
+Rule: azure.app_service.idle
+
+Intent:
+    Detect top-level Azure App Service apps on paid plans that have shown no
+    meaningful site activity over the configured idle window.
+
+Exclusions:
+    - resource_id absent
+    - outside region filter
+    - state != Running
+    - enabled == false
+    - deployment slot (ARM id contains /slots/, or slotName/parentSiteName present)
+    - kind contains functionapp or workflowapp
+    - plan tier is Free, Shared, Dynamic, or unknown
+    - WebJobs exist or WebJobs enumeration fails
+    - any required activity metric is non-zero or unavailable
+
+Detection:
+    - All four activity metrics zero over the idle window:
+      Requests, CpuTime, BytesReceived, BytesSent
+    - Zero WebJobs
+
+APIs:
+    - Microsoft.Web/sites/read
+    - Microsoft.Web/serverfarms/read
+    - Microsoft.Web/sites/webJobs/read
+    - Microsoft.Insights/metrics/read
+"""
+
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from azure.core.exceptions import AzureError, HttpResponseError
 from azure.mgmt.monitor import MonitorManagementClient
@@ -10,36 +40,62 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
-# Approximate monthly cost per App Service tier (single instance, Standard S1)
-# App Service Plans bill even when apps receive no traffic.
-_TIER_COST_USD = {
-    "Basic": 55.0,
-    "Standard": 73.0,
-    "Premium": 146.0,
-    "PremiumV2": 146.0,
-    "PremiumV3": 146.0,
-    "Isolated": 298.0,
-    "IsolatedV2": 298.0,
+_RULE_ID = "azure.app_service.idle"
+_RESOURCE_TYPE = "azure.app_service"
+
+# Spec 8.8: skip Free, Shared, Dynamic, or unusable/unknown tier.
+# Allowlist of known paid dedicated-compute tiers; anything not recognized
+# is treated as unknown and skipped (conservative, low-noise contract).
+_PAID_TIERS = {
+    "basic",
+    "standard",
+    "premium",
+    "premiumv2",
+    "premiumv3",
+    "isolated",
+    "isolatedv2",
 }
 
-_SKIP_TIERS = {
-    "Free",
-    "Shared",
-    "Dynamic",
-}  # Dynamic = Consumption/serverless, no idle cost
+# Required activity metrics (spec 9) — all must be zero for emission
+_ACTIVITY_METRICS = ("Requests", "CpuTime", "BytesReceived", "BytesSent")
+
+# Plan cost floor for informational context (single-instance, approx $/month)
+# Not used as estimated_monthly_cost_usd (which must be None per spec 11)
+_TIER_COST_FLOOR_USD: Dict[str, float] = {
+    "basic": 55.0,
+    "standard": 73.0,
+    "premium": 146.0,
+    "premiumv2": 146.0,
+    "premiumv3": 146.0,
+    "isolated": 298.0,
+    "isolatedv2": 298.0,
+}
 
 
-def _get_metric_sum(
+def _norm_region(s: str) -> str:
+    """Normalize region: lowercase, remove spaces and hyphens."""
+    return s.lower().replace(" ", "").replace("-", "") if s else ""
+
+
+def _norm_arm_id(arm_id: str) -> str:
+    """Normalize an ARM id for consistent key matching: lowercase, strip whitespace and trailing slashes."""
+    return arm_id.lower().strip().rstrip("/") if arm_id else ""
+
+
+def _get_metric_total(
     monitor_client: MonitorManagementClient,
     resource_uri: str,
     metric_name: str,
     start_time: datetime,
     end_time: datetime,
-) -> int:
+) -> Optional[int]:
     """
     Query Azure Monitor for the total of a metric over the time period.
 
-    Returns 1 (non-zero) on any failure to avoid false positives.
+    Returns:
+        None  — unavailable / query failed / response unusable → caller must skip
+        0     — all datapoints are 0 or absent (metric is zero for the window)
+        1     — at least one non-zero datapoint found (app is active)
     """
     try:
         fmt = "%Y-%m-%dT%H:%M:%SZ"
@@ -51,14 +107,41 @@ def _get_metric_sum(
             interval="P1D",
             aggregation="Total",
         )
+        if not hasattr(response, "value") or response.value is None:
+            return None  # unusable response shape
         for metric in response.value:
-            for ts in metric.timeseries:
-                for data in ts.data:
+            for ts in metric.timeseries or []:
+                for data in ts.data or []:
                     if data.total is not None and data.total > 0:
-                        return 1
+                        return 1  # non-zero found → active
         return 0
     except Exception:
-        return 1  # conservative: assume active if metrics unavailable
+        return None  # unavailable → caller must skip
+
+
+def _is_deployment_slot(app) -> bool:
+    """True if the app is a deployment slot rather than a top-level site."""
+    arm_id = (getattr(app, "id", "") or "").lower()
+    if "/slots/" in arm_id:
+        return True
+    if getattr(app, "slot_name", None) or getattr(app, "parent_site_name", None):
+        return True
+    return False
+
+
+def _kind_tokens(app) -> frozenset:
+    """Return lowercase kind tokens split on comma."""
+    kind = (getattr(app, "kind", "") or "").lower()
+    return frozenset(t.strip() for t in kind.split(",")) if kind else frozenset()
+
+
+def _resource_group_from_id(arm_id: str) -> str:
+    """Extract the resource group name from an ARM id, preserving original casing."""
+    parts = arm_id.split("/")
+    for i, part in enumerate(parts):
+        if part.lower() == "resourcegroups" and i + 1 < len(parts):
+            return parts[i + 1]
+    return ""
 
 
 def find_idle_app_services(
@@ -71,23 +154,19 @@ def find_idle_app_services(
     idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find Azure App Service web apps with zero HTTP requests for `idle_days` days.
+    Find Azure App Service web apps with no meaningful activity for `idle_days` days.
 
-    App Services on paid plans (Basic and above) incur compute charges regardless
-    of traffic. An app with zero requests for 14+ days is a strong signal of
-    abandonment — dev/staging apps that were never decommissioned, or features
-    that were turned off without removing the hosting.
+    Detection requires all four activity metrics to be zero over the idle window:
+    Requests, CpuTime, BytesReceived, BytesSent — plus zero WebJobs.
 
-    Only apps on paid App Service Plans are flagged. Free/Shared/Consumption
-    tiers are excluded — no meaningful idle cost.
-
-    Detection logic:
-    - App is in a Running state
-    - Hosted on a paid App Service Plan (Basic or above)
-    - Azure Monitor `Requests` metric sum is 0 over `idle_days` days
+    Only top-level apps (not deployment slots) on paid App Service Plans are
+    evaluated. Function Apps, Workflow Apps, disabled apps, and apps with
+    WebJobs are excluded to minimize false positives.
 
     IAM permissions:
     - Microsoft.Web/sites/read
+    - Microsoft.Web/serverfarms/read
+    - Microsoft.Web/sites/webJobs/read
     - Microsoft.Insights/metrics/read
     """
     findings: List[Finding] = []
@@ -102,127 +181,186 @@ def find_idle_app_services(
     )
 
     now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=idle_days)
 
-    # Build plan tier lookup once — web_apps.list() does not populate app.sku,
-    # so we resolve tiers from the App Service Plans directly.
-    plan_tiers: dict = {}
+    # Build plan tier + site count lookup once.
+    # If the plan list call fails mid-iteration, clear any partial data so
+    # that all apps fall back to their embedded SKU attribute consistently
+    # rather than some apps using cached plan tier and others not.
+    plan_tiers: Dict[str, str] = {}
+    plan_site_counts: Dict[str, int] = {}
+    _plan_list_complete = False
     try:
         for plan in web_client.app_service_plans.list():
+            if not getattr(plan, "id", None):
+                continue
+            pid = _norm_arm_id(plan.id)
             tier = getattr(plan.sku, "tier", None) if plan.sku else None
-            if plan.id and tier:
-                plan_tiers[plan.id.lower()] = tier
+            if tier:
+                plan_tiers[pid] = tier
+            count = getattr(plan, "number_of_sites", None)
+            if count is not None:
+                plan_site_counts[pid] = count
+        _plan_list_complete = True
     except (AzureError, HttpResponseError):
-        pass  # conservative: fall back to per-app tier detection below
-
-    def _norm(s: str) -> str:
-        return s.lower().replace(" ", "").replace("-", "")
+        pass
+    if not _plan_list_complete:
+        plan_tiers.clear()
+        plan_site_counts.clear()
 
     for app in web_client.web_apps.list():
-        # Normalize location
-        location = _norm(app.location or "")
-        if region_filter and location != _norm(region_filter):
+        # spec 8.1: resource_id must be present
+        app_id = getattr(app, "id", None)
+        if not app_id:
             continue
 
-        # Only check running apps
+        # spec 8.2: region filter
+        location = _norm_region(getattr(app, "location", "") or "")
+        if region_filter and location != _norm_region(region_filter):
+            continue
+
+        # spec 8.3: must be Running
         if getattr(app, "state", None) != "Running":
             continue
 
-        # Determine App Service Plan tier — prefer plan lookup, fall back to app object
+        # spec 8.4: must be enabled
+        if getattr(app, "enabled", True) is False:
+            continue
+
+        # spec 8.5: skip deployment slots
+        if _is_deployment_slot(app):
+            continue
+
+        # spec 8.6 + 8.7: skip Function Apps and Workflow Apps
+        tokens = _kind_tokens(app)
+        if "functionapp" in tokens or "workflowapp" in tokens:
+            continue
+
+        # spec 8.8: skip free/shared/dynamic and unknown tiers
         server_farm_id = getattr(app, "server_farm_id", None) or ""
-        sku_tier = plan_tiers.get(server_farm_id.lower()) or _get_plan_tier(app)
-        if sku_tier in _SKIP_TIERS or sku_tier is None:
+        sku_tier_raw = plan_tiers.get(_norm_arm_id(server_farm_id))
+        if sku_tier_raw is None:
+            # Fallback to sku embedded in app object
+            sku = getattr(app, "sku", None)
+            sku_tier_raw = getattr(sku, "tier", None) if sku else None
+        if sku_tier_raw is None or sku_tier_raw.lower() not in _PAID_TIERS:
             continue
 
-        # Query request count over the idle window
-        total_requests = _get_metric_sum(
-            mon_client,
-            app.id,
-            "Requests",
-            now - timedelta(days=idle_days),
-            now,
-        )
+        # spec 9: all four activity metrics must be zero
+        metrics_all_zero = True
+        for metric_name in _ACTIVITY_METRICS:
+            v = _get_metric_total(mon_client, app_id, metric_name, window_start, now)
+            if v is None:
+                metrics_all_zero = False  # unavailable → skip (spec 8.11)
+                break
+            if v > 0:
+                metrics_all_zero = False  # active → skip (spec 8.12)
+                break
 
-        if total_requests > 0:
+        if not metrics_all_zero:
             continue
 
-        kind = getattr(app, "kind", "app") or "app"
+        # spec 10: enumerate WebJobs — skip if call fails or any exist
+        # Extract resource group first; an empty result means we cannot form a
+        # reliable query, so the inventory would be unusable (spec 10).
+        resource_group = _resource_group_from_id(app_id)
+        if not resource_group:
+            continue  # can't form reliable WebJobs query → skip (spec 10)
+
+        # spec 10: inventory is only trustworthy if iteration completes cleanly.
+        # An exception at any point (including mid-page) leaves inventory_complete
+        # False, which means we cannot assert zero WebJobs and must skip.
+        inventory_complete = False
+        webjobs: list = []
+        try:
+            for _job in web_client.web_apps.list_web_jobs(
+                resource_group_name=resource_group,
+                name=app.name,
+            ):
+                webjobs.append(_job)
+            inventory_complete = True
+        except Exception:
+            pass
+
+        if not inventory_complete:
+            continue  # spec 10: partial/incomplete/failed inventory → skip (spec 8.9)
+
+        if webjobs:
+            continue  # spec 10: WebJobs exist → skip (spec 8.10)
+
+        # --- EMIT ---
+        kind_str = ",".join(sorted(tokens)) or "app"
+        plan_id_norm = _norm_arm_id(server_farm_id) if server_farm_id else None
+        plan_site_count = plan_site_counts.get(plan_id_norm) if plan_id_norm else None
+        cost_floor = _TIER_COST_FLOOR_USD.get(sku_tier_raw.lower())
         tags = app.tags or {}
 
-        cost_usd = _TIER_COST_USD.get(sku_tier)
-
-        signals = [
-            f"Zero HTTP requests for {idle_days} days (Azure Monitor: Requests metric)",
-            "App state: Running",
-            f"App Service Plan tier: {sku_tier}",
-            f"Kind: {kind}",
+        signals_used = [
+            "app state: Running",
+            f"app kind: {kind_str}",
+            f"App Service Plan tier: {sku_tier_raw} (paid, not Free/Shared/Dynamic)",
+            "zero WebJobs detected",
+            f"Requests == 0 over {idle_days}-day window",
+            f"CpuTime == 0 over {idle_days}-day window",
+            f"BytesReceived == 0 over {idle_days}-day window",
+            f"BytesSent == 0 over {idle_days}-day window",
         ]
-        if cost_usd:
-            signals.append(
-                f"App Service Plan tier '{sku_tier}' costs ~${cost_usd}/month per instance"
+        if cost_floor is not None:
+            signals_used.append(
+                f"App Service billing is plan-scoped; plan cost floor "
+                f"~${cost_floor:.0f}/month per instance (informational only)"
             )
 
         evidence = Evidence(
-            signals_used=signals,
+            signals_used=signals_used,
             signals_not_checked=[
-                "Non-HTTP workloads (WebJobs, background services)",
-                "Planned reactivation or seasonal use",
-                "IaC-managed placeholder deployment",
-                "Blue/green deployment staging slot",
+                "Planned seasonal or reactivation intent not checked",
+                "Undeclared business intent not checked",
+                "Workload activity outside documented App Service / Azure Monitor signals not checked",
             ],
             time_window=f"{idle_days} days",
         )
 
-        details = {
+        details: dict = {
             "app_name": app.name,
-            "kind": kind,
-            "sku_tier": sku_tier,
+            "kind": kind_str,
+            "sku_tier": sku_tier_raw,
             "location": location,
             "idle_days_threshold": idle_days,
         }
+        if server_farm_id:
+            details["server_farm_id"] = server_farm_id
+        if plan_site_count is not None:
+            details["app_service_plan_site_count"] = plan_site_count
+        if cost_floor is not None:
+            details["plan_monthly_cost_floor_usd"] = cost_floor
         if tags:
             details["tags"] = tags
 
         findings.append(
             Finding(
                 provider="azure",
-                rule_id="azure.app_service.idle",
-                resource_type="azure.app_service",
-                resource_id=app.id,
+                rule_id=_RULE_ID,
+                resource_type=_RESOURCE_TYPE,
+                resource_id=app_id,
                 region=location,
-                title=f"Idle App Service (No Requests for {idle_days}+ Days)",
+                title=f"Idle App Service: no activity for {idle_days}+ days",
                 summary=(
-                    f"App Service '{app.name}' ({sku_tier}) has received zero HTTP requests "
-                    f"for {idle_days}+ days but continues to accrue compute charges."
+                    f"App Service '{app.name}' ({sku_tier_raw}) has had zero "
+                    f"Requests, CpuTime, BytesReceived, and BytesSent "
+                    f"for {idle_days}+ days"
                 ),
-                reason=f"App Service has zero HTTP requests for {idle_days}+ days",
+                reason=(
+                    f"All four activity metrics (Requests, CpuTime, BytesReceived, "
+                    f"BytesSent) are zero over a {idle_days}-day window with zero WebJobs"
+                ),
                 risk=RiskLevel.MEDIUM,
                 confidence=ConfidenceLevel.HIGH,
                 detected_at=now,
                 evidence=evidence,
                 details=details,
-                estimated_monthly_cost_usd=cost_usd,
+                estimated_monthly_cost_usd=None,  # spec 11: plan-level billing, not app-level
             )
         )
 
     return findings
-
-
-def _get_plan_tier(app) -> Optional[str]:
-    """Extract the App Service Plan tier from the app object."""
-    # The web_apps.list() response doesn't always include the full plan SKU,
-    # but server_farm_id and the app's kind give enough signal.
-    # We use app_service_plan_id to look it up if needed, but for simplicity
-    # rely on the sku info embedded in the app object when available.
-    try:
-        sku = getattr(app, "sku", None)
-        if sku:
-            return getattr(sku, "tier", None)
-    except (AzureError, AttributeError):
-        pass
-
-    # Fallback: infer from kind — "functionapp" on Consumption = Dynamic (skip)
-    kind = (getattr(app, "kind", "") or "").lower()
-    if "functionapp" in kind:
-        return "Dynamic"  # will be skipped
-
-    return None

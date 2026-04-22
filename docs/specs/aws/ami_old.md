@@ -278,7 +278,7 @@ Every finding **must** include all of the following (null allowed, never omitted
 
 | Field | Requirement |
 |---|---|
-| `evaluation_path` | Exactly `"deprecated"` or `"scored"` (see §17) |
+| `evaluation_path` | Exactly `"deprecated"` or `"scored"` (see 17) |
 | `age_days` | Always present |
 | `state` | Always present |
 | `deprecation status` | Always present |

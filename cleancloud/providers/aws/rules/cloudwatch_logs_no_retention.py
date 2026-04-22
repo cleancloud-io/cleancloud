@@ -40,13 +40,13 @@ from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
 # Approximate CloudWatch Logs storage cost per GB-month (us-east-1, 2024).
-# Informational only — must NOT influence detection or confidence (spec §9).
+# Informational only — must NOT influence detection or confidence (spec 9).
 _STORAGE_COST_PER_GB_APPROX = 0.03
 
-# Risk thresholds by stored size (spec §8)
+# Risk thresholds by stored size (spec 8)
 _HIGH_RISK_GB = 1.0  # ≥ 1 GB → HIGH; < 1 GB → MEDIUM; 0 bytes → LOW
 
-# Only these classes are eligible (spec §2). Allowlist — unknown/missing class is NOT in scope.
+# Only these classes are eligible (spec 2). Allowlist — unknown/missing class is NOT in scope.
 _ELIGIBLE_CLASSES = {"STANDARD", "INFREQUENT_ACCESS"}
 
 
@@ -62,16 +62,16 @@ def find_cloudwatch_logs_no_retention(
 
     for page in paginator.paginate():
         for lg in page.get("logGroups", []):
-            # EXCLUSION: malformed record (spec §2)
+            # EXCLUSION: malformed record (spec 2)
             if not lg.get("logGroupName"):
                 continue
 
-            # EXCLUSION: only STANDARD and INFREQUENT_ACCESS are in scope (spec §2, §4A).
+            # EXCLUSION: only STANDARD and INFREQUENT_ACCESS are in scope (spec 2, 4A).
             # DELIVERY is service-managed; unknown/missing class is not eligible.
             if lg.get("logGroupClass") not in _ELIGIBLE_CLASSES:
                 continue
 
-            # EXCLUSION: retention policy is set — key presence check, not value check (spec §4A).
+            # EXCLUSION: retention policy is set — key presence check, not value check (spec 4A).
             # "retentionInDays is not present in the returned log group object" means
             # key absent, not value null. An explicit null would still mean the key was
             # returned and should be treated as set.
@@ -91,14 +91,14 @@ def find_cloudwatch_logs_no_retention(
                 creation_time = None
                 age_days = None
 
-            # storedBytes is a non-billing, eventually-consistent storage metric (spec §3, §9).
+            # storedBytes is a non-billing, eventually-consistent storage metric (spec 3, 9).
             # It must NOT be used as an activity signal.
             stored_bytes: Optional[int] = lg.get("storedBytes")
             stored_gb: Optional[float] = (
                 (stored_bytes / (1024**3)) if stored_bytes is not None else None
             )
 
-            # Risk is proportional to stored size as a proxy for current storage exposure (spec §8)
+            # Risk is proportional to stored size as a proxy for current storage exposure (spec 8)
             if stored_gb is not None and stored_gb >= _HIGH_RISK_GB:
                 risk = RiskLevel.HIGH
             elif stored_bytes is not None and stored_bytes > 0:
@@ -106,7 +106,7 @@ def find_cloudwatch_logs_no_retention(
             else:
                 risk = RiskLevel.LOW
 
-            # Cost estimate — informational only (spec §9)
+            # Cost estimate — informational only (spec 9)
             monthly_storage_cost: Optional[float] = None
             if stored_bytes is not None and stored_bytes > 0 and stored_gb is not None:
                 monthly_storage_cost = round(stored_gb * _STORAGE_COST_PER_GB_APPROX, 2)

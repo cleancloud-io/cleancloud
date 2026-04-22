@@ -45,7 +45,7 @@ from cleancloud.core.risk import RiskLevel
 
 _DEFAULT_MAX_AGE_DAYS: int = 90
 
-# Tag key prefix that indicates explicit AWS Backup management (spec §4, §5A.6).
+# Tag key prefix that indicates explicit AWS Backup management (spec 4, 5A.6).
 # Only aws:backup: is defined by this spec. DLM is not in scope.
 _BACKUP_TAG_PREFIX: str = "aws:backup:"
 
@@ -95,7 +95,7 @@ def _check_external_sharing(ec2, snap_id: str) -> Tuple[bool, bool]:
 
 
 def _is_backup_managed(snap: dict) -> bool:
-    """Return True if the snapshot has an explicit aws:backup: tag (spec §4, §5A.6).
+    """Return True if the snapshot has an explicit aws:backup: tag (spec 4, 5A.6).
 
     Only tag-based detection; full AWS Backup API integration is not in this spec.
     A negative result means UNKNOWN (no tag evidence found), not confirmed non-Backup.
@@ -113,7 +113,7 @@ def find_old_ebs_snapshots(
 ) -> List[Finding]:
     ec2 = session.client("ec2", region_name=region)
 
-    # Build AMI snapshot index before evaluating snapshots (spec §5A.4, §6, §10).
+    # Build AMI snapshot index before evaluating snapshots (spec 5A.4, 6, 10).
     # If this fails, AMI linkage cannot be verified → all candidates are skipped.
     ami_snapshot_ids, ami_index_failed = _build_ami_snapshot_index(ec2)
 
@@ -127,26 +127,26 @@ def find_old_ebs_snapshots(
             snap_id = snap.get("SnapshotId")
             start_time = snap.get("StartTime")
 
-            # EXCLUSION: malformed record (spec §3)
+            # EXCLUSION: malformed record (spec 3)
             if not snap_id or start_time is None:
                 continue
 
-            # EXCLUSION: status != completed (spec §5A.1)
+            # EXCLUSION: status != completed (spec 5A.1)
             if snap.get("State") != "completed":
                 continue
 
-            # EXCLUSION: non-standard storage tier (spec §5A.2)
+            # EXCLUSION: non-standard storage tier (spec 5A.2)
             # StorageTier absent → treated as standard per AWS default.
             storage_tier = snap.get("StorageTier", "standard")
             if storage_tier != "standard":
                 continue
 
-            # EXCLUSION: age threshold (spec §5A.3)
+            # EXCLUSION: age threshold (spec 5A.3)
             age_days = (now - start_time).days
             if age_days < max_age_days:
                 continue
 
-            # EXCLUSION: AMI linkage (spec §5A.4, §10)
+            # EXCLUSION: AMI linkage (spec 5A.4, 10)
             # If the index build failed, AMI linkage cannot be verified → SKIP.
             # Never treat missing visibility as "no AMI links".
             if ami_index_failed:
@@ -154,7 +154,7 @@ def find_old_ebs_snapshots(
             if snap_id in ami_snapshot_ids:
                 continue
 
-            # EXCLUSION: external sharing (spec §5A.5, §10)
+            # EXCLUSION: external sharing (spec 5A.5, 10)
             # Per-snapshot check. If the check fails → SKIP that snapshot.
             shared_externally, sharing_check_failed = _check_external_sharing(ec2, snap_id)
             if sharing_check_failed:
@@ -162,7 +162,7 @@ def find_old_ebs_snapshots(
             if shared_externally:
                 continue
 
-            # EXCLUSION: explicit AWS Backup-managed (spec §5A.6)
+            # EXCLUSION: explicit AWS Backup-managed (spec 5A.6)
             # Tag-based heuristic (aws:backup: prefix only). Only explicit True suppresses;
             # unknown (no tag evidence) does not block.
             if _is_backup_managed(snap):
@@ -201,7 +201,7 @@ def find_old_ebs_snapshots(
                     resource_type="aws.ebs.snapshot",
                     resource_id=snap_id,
                     region=region,
-                    estimated_monthly_cost_usd=None,  # spec §9: no cost from volumeSize
+                    estimated_monthly_cost_usd=None,  # spec 9: no cost from volumeSize
                     title="Old EBS snapshot review candidate",
                     summary=(
                         f"EBS snapshot is {age_days} days old "

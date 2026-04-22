@@ -63,7 +63,7 @@ Every finding includes a confidence level:
 |---|---|---|
 | `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
 | `azure.compute.disk.unattached` | Storage | Managed disks not attached to any VM |
-| `azure.compute.snapshot.old` | Storage | Snapshots older than 30–90 days |
+| `azure.compute.snapshot.old` | Storage | Old managed snapshots as conservative review candidates |
 | `azure.network.public_ip.unused` | Network | Public IPs not attached to any interface |
 | `azure.load_balancer.no_backends` | Network | Standard LBs with zero backend members |
 | `azure.application_gateway.no_backends` | Network | App Gateways with zero backend targets |
@@ -71,7 +71,7 @@ Every finding includes a confidence level:
 | `azure.app_service_plan.empty` | Platform | Paid App Service Plans with zero apps |
 | `azure.app_service.idle` | Platform | App Services with zero HTTP requests 14+ days |
 | `azure.sql.database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
-| `azure.container_registry.unused` | Platform | Container registries with no pulls 90+ days |
+| `azure.container_registry.unused` | Platform | Container registries with zero successful pulls and pushes 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days *(opt-in: `--category ai`)* |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no control-plane activity 14+ days *(opt-in: `--category ai`)* |
@@ -1266,35 +1266,45 @@ for disk in disks.list():
 
 **Rule ID:** `azure.compute.snapshot.old`
 
-**What it detects:** Snapshots older than configured thresholds
+**What it detects:** Old managed snapshots that meet the conservative review threshold (default: 30 days) and are surfaced as review candidates only
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **MEDIUM:** Age ≥ 30 days (conservative for all ages — age alone is a moderate signal)
+- **LOW:** Age ≥ 30 days and < `max_age_days` (default 90) — conservative review candidate
+- **MEDIUM:** Age ≥ `max_age_days` (default 90) — very old snapshot, higher review priority
 - Not flagged: < 30 days
+- `HIGH` is never used — age alone cannot establish HIGH confidence
+
+**Configurable params:**
+- `max_age_days` (default: `90`) — age threshold for the MEDIUM confidence band
 
 **Detection logic:**
 ```python
 for snapshot in snapshots.list():
+    if not snapshot.id or snapshot.provisioning_state != "Succeeded":
+        continue
+    if snapshot.completion_percent is not None and snapshot.completion_percent < 100:
+        continue
     age_days = (now - snapshot.time_created).days
-    if age_days >= 90:
-        confidence = "MEDIUM"  # conservative even at high age
-    elif age_days >= 30:
-        confidence = "MEDIUM"
-    else:
-        continue  # too new to flag
+    if age_days < 30:
+        continue
+    confidence = "MEDIUM" if age_days >= max_age_days else "LOW"
 ```
 
+**Cost model:** `estimated_monthly_cost_usd` is always `None`. Azure bills snapshots on **used size**, not `diskSizeGB`, so no per-snapshot cost estimate is possible from the API response alone.
+
 **Limitations:**
-- Does NOT check if snapshot is referenced by images
-- Conservative to avoid false positives
+- Age alone does not prove a snapshot is unused, orphaned, or safe to delete
+- Does not check backup ownership, DR retention intent, or application restore references
+- If Azure surfaces `completionPercent`, incomplete background-copy snapshots are skipped conservatively
+- Conservative by design — flags review candidates only
 
 **Common causes:**
-- Snapshots from backup jobs
+- Snapshots from backup jobs retained beyond their useful life
 - Over-retention without lifecycle policies
-- Snapshots from deleted disks
+- Snapshots from deleted or migrated disks
 
 **Required permission:** `Microsoft.Compute/snapshots/read`
 
@@ -1658,7 +1668,7 @@ Cost assumes one instance. Scaled-out plans (multiple instances) will cost propo
 
 **Rule ID:** `azure.container_registry.unused`
 
-**What it detects:** Container registries with zero image pulls for 90+ days (default, configurable)
+**What it detects:** Container registries with zero **successful** pulls and pushes for 90+ days (default, configurable), after the registry is old enough to cover the full inactivity window
 
 **Confidence:**
 
@@ -1676,15 +1686,19 @@ Confidence thresholds and signal weighting are documented in [confidence.md](con
 **Detection logic:**
 ```python
 for registry in registries.list():
-    if registry.provisioning_state == "Succeeded":
-        pulls = monitor.metrics("SuccessfulPullCount", period=days_unused)
-        pushes = monitor.metrics("SuccessfulPushCount", period=days_unused)
-        if pulls == 0 and pushes == 0:
-            confidence = "HIGH"
-            risk = "LOW"
+    if registry.provisioning_state != "Succeeded":
+        continue
+    if registry.creation_date is None or registry.creation_date > window_start:
+        continue
+
+    pulls = evaluate_metric("SuccessfulPullCount", interval="PT1H")
+    pushes = evaluate_metric("SuccessfulPushCount", interval="PT1H")
+    if pulls == "ZERO" and pushes == "ZERO":
+        confidence = "HIGH"
+        risk = "LOW"
 ```
 
-Registries with active push activity (e.g. CI pipelines writing images) but zero pulls are **not** flagged — they are in active use.
+Registries with active push activity (for example CI pipelines writing images) but zero pulls are **not** flagged. Registries with sparse, failed, or low-coverage metrics are skipped rather than emitted.
 
 **Common causes:**
 - Workloads migrated to another registry (e.g., Docker Hub → ACR → GHCR)
@@ -1696,7 +1710,9 @@ Registries with active push activity (e.g. CI pipelines writing images) but zero
 - Standard: ~$20/month + storage
 - Premium: ~$50/month + storage
 
-These are floor estimates. ACR also charges per GB of stored images (~$0.003/GB-day). For registries with large image layers, storage can exceed the base fee — actual cost may be significantly higher.
+Unknown or future SKU labels are still evaluated for inactivity, but `estimated_monthly_cost_usd` is left unset when the SKU is not one of `Basic`, `Standard`, or `Premium`.
+
+These are base monthly registry fees only. Storage charges and related Azure costs are not included.
 
 **Required permissions:**
 - `Microsoft.ContainerRegistry/registries/read`

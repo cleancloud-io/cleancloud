@@ -76,42 +76,42 @@ def _find(findings, volume_id):
 
 
 # ---------------------------------------------------------------------------
-# §15 Must emit
+# 15 Must emit
 # ---------------------------------------------------------------------------
 
 
 class TestMustEmit:
     def test_emit_available_unattached_old_volume(self, mock_boto3_session):
-        """Spec §15: available, attachment_count==0, age>=threshold, service_managed false."""
+        """Spec 15: available, attachment_count==0, age>=threshold, service_managed false."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert len(findings) == 1
         assert findings[0].resource_id == "vol-abc123"
 
     def test_emit_when_service_managed_check_false(self, mock_boto3_session):
-        """Spec §4: service_managed_check == false → continue evaluation → emit."""
+        """Spec 4: service_managed_check == false → continue evaluation → emit."""
         vol = _vol(operator={"Managed": False, "Principal": "some-service"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
 
     def test_emit_when_service_managed_check_unknown(self, mock_boto3_session):
-        """Spec §4: service_managed_check == unknown (no Operator key) → not excluded → emit."""
+        """Spec 4: service_managed_check == unknown (no Operator key) → not excluded → emit."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         f = findings[0]
         assert f.details["service_managed_check"] == "unknown"
 
     def test_emit_at_exactly_threshold_age(self, mock_boto3_session):
-        """Spec §4: age == threshold exactly should emit."""
+        """Spec 4: age == threshold exactly should emit."""
         findings = _run(mock_boto3_session, [_vol(age_days=_MIN_AGE)])
         assert len(findings) == 1
 
     def test_emit_with_custom_threshold(self, mock_boto3_session):
-        """Spec §3: min_unattached_age_days is configurable."""
+        """Spec 3: min_unattached_age_days is configurable."""
         findings = _run(mock_boto3_session, [_vol(age_days=3)], min_age_days=3)
         assert len(findings) == 1
 
 
 # ---------------------------------------------------------------------------
-# §15 Must skip
+# 15 Must skip
 # ---------------------------------------------------------------------------
 
 
@@ -121,12 +121,12 @@ class TestMustSkip:
         ["creating", "in-use", "deleting", "deleted", "error"],
     )
     def test_skip_non_available_states(self, mock_boto3_session, state):
-        """Spec §5A: normalized_status != available → SKIP."""
+        """Spec 5A: normalized_status != available → SKIP."""
         findings = _run(mock_boto3_session, [_vol(state=state, age_days=30)])
         assert findings == []
 
     def test_skip_attachment_count_greater_than_zero(self, mock_boto3_session):
-        """Spec §5A: any returned attachment entry → SKIP."""
+        """Spec 5A: any returned attachment entry → SKIP."""
         attachment = {
             "VolumeId": "vol-abc123",
             "InstanceId": "i-12345",
@@ -138,44 +138,44 @@ class TestMustSkip:
         assert findings == []
 
     def test_skip_service_managed_true(self, mock_boto3_session):
-        """Spec §5A: service_managed_check == True → SKIP."""
+        """Spec 5A: service_managed_check == True → SKIP."""
         vol = _vol(operator={"Managed": True, "Principal": "ec2.amazonaws.com"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_skip_younger_than_threshold(self, mock_boto3_session):
-        """Spec §5A: age < threshold → SKIP."""
+        """Spec 5A: age < threshold → SKIP."""
         findings = _run(mock_boto3_session, [_vol(age_days=_MIN_AGE - 1)])
         assert findings == []
 
     def test_skip_age_zero(self, mock_boto3_session):
-        """Spec §5A: brand-new volume → SKIP."""
+        """Spec 5A: brand-new volume → SKIP."""
         findings = _run(mock_boto3_session, [_vol(age_days=0)])
         assert findings == []
 
     def test_skip_malformed_missing_volume_id(self, mock_boto3_session):
-        """Spec §10: VolumeId absent → SKIP item."""
+        """Spec 10: VolumeId absent → SKIP item."""
         vol = _vol(age_days=30)
         del vol["VolumeId"]
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_skip_malformed_missing_state(self, mock_boto3_session):
-        """Spec §10: State absent → SKIP item."""
+        """Spec 10: State absent → SKIP item."""
         vol = _vol(age_days=30)
         del vol["State"]
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_skip_malformed_missing_create_time(self, mock_boto3_session):
-        """Spec §10: CreateTime absent → SKIP item."""
+        """Spec 10: CreateTime absent → SKIP item."""
         vol = _vol(age_days=30)
         del vol["CreateTime"]
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_skip_create_time_not_datetime(self, mock_boto3_session):
-        """Spec §10: CreateTime is not a datetime (e.g. ISO string) → SKIP item.
+        """Spec 10: CreateTime is not a datetime (e.g. ISO string) → SKIP item.
 
         Prevents crash in (now - create_time).days and create_time.isoformat().
         """
@@ -185,9 +185,9 @@ class TestMustSkip:
         assert findings == []
 
     def test_skip_attachment_with_null_instance_id(self, mock_boto3_session):
-        """Spec §5C: attachment entry present even with null instanceId → attachment_count > 0 → SKIP.
+        """Spec 5C: attachment entry present even with null instanceId → attachment_count > 0 → SKIP.
 
-        Must NOT treat missing instanceId as proof of no attachment (spec §5C hard rule).
+        Must NOT treat missing instanceId as proof of no attachment (spec 5C hard rule).
         """
         attachment = {
             "VolumeId": "vol-abc123",
@@ -212,48 +212,48 @@ class TestMustSkip:
 
 
 # ---------------------------------------------------------------------------
-# §15 Must not happen
+# 15 Must not happen
 # ---------------------------------------------------------------------------
 
 
 class TestMustNotHappen:
     def test_no_flat_cost_estimate(self, mock_boto3_session):
-        """Spec §9: estimated_monthly_cost_usd must be None (flat rate invalid across types)."""
+        """Spec 9: estimated_monthly_cost_usd must be None (flat rate invalid across types)."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].estimated_monthly_cost_usd is None
 
     def test_missing_instance_id_in_attachment_not_treated_as_unattached(self, mock_boto3_session):
-        """Spec §5C: attachment entry with null instanceId must cause SKIP, not emit."""
+        """Spec 5C: attachment entry with null instanceId must cause SKIP, not emit."""
         attachment = {"VolumeId": "vol-abc123", "InstanceId": None, "State": "attached"}
         findings = _run(mock_boto3_session, [_vol(attachments=[attachment], age_days=30)])
         assert findings == []
 
     def test_missing_operator_key_yields_unknown_not_false(self, mock_boto3_session):
-        """Spec §12: operator absent → service_managed_check must be 'unknown', not False."""
+        """Spec 12: operator absent → service_managed_check must be 'unknown', not False."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_service_managed_true_never_emitted(self, mock_boto3_session):
-        """Spec §15 must not happen: service-managed volumes are not emitted."""
+        """Spec 15 must not happen: service-managed volumes are not emitted."""
         vol = _vol(operator={"Managed": True}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_non_available_state_never_emitted(self, mock_boto3_session):
-        """Spec §15: attached/transitional volumes not emitted."""
+        """Spec 15: attached/transitional volumes not emitted."""
         for state in ["in-use", "creating", "deleting", "deleted", "error"]:
             findings = _run(mock_boto3_session, [_vol(state=state, age_days=30)])
             assert findings == [], f"Expected no findings for state={state!r}"
 
 
 # ---------------------------------------------------------------------------
-# §4 Normalization contract
+# 4 Normalization contract
 # ---------------------------------------------------------------------------
 
 
 class TestNormalization:
     def test_attachments_key_absent_normalizes_to_empty(self, mock_boto3_session):
-        """Spec §4: missing Attachments key → normalized_attachments=[] → attachment_count=0."""
+        """Spec 4: missing Attachments key → normalized_attachments=[] → attachment_count=0."""
         vol = _vol(age_days=30)
         del vol["Attachments"]
         findings = _run(mock_boto3_session, [vol])
@@ -261,7 +261,7 @@ class TestNormalization:
         assert findings[0].details["attachment_count"] == 0
 
     def test_attachments_null_normalizes_to_empty(self, mock_boto3_session):
-        """Spec §4: Attachments=None → normalized to [] → attachment_count=0."""
+        """Spec 4: Attachments=None → normalized to [] → attachment_count=0."""
         vol = _vol(age_days=30)
         vol["Attachments"] = None
         findings = _run(mock_boto3_session, [vol])
@@ -269,36 +269,36 @@ class TestNormalization:
         assert findings[0].details["attachment_count"] == 0
 
     def test_operator_absent_gives_unknown(self, mock_boto3_session):
-        """Spec §4: Operator key absent → service_managed_check='unknown'."""
+        """Spec 4: Operator key absent → service_managed_check='unknown'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_operator_managed_true_gives_true(self, mock_boto3_session):
-        """Spec §4: Operator.Managed==True → service_managed_check=True → SKIP."""
+        """Spec 4: Operator.Managed==True → service_managed_check=True → SKIP."""
         vol = _vol(operator={"Managed": True}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_operator_managed_false_gives_false(self, mock_boto3_session):
-        """Spec §4: Operator.Managed==False → service_managed_check=False → emit."""
+        """Spec 4: Operator.Managed==False → service_managed_check=False → emit."""
         vol = _vol(operator={"Managed": False, "Principal": "svc"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
         assert findings[0].details["service_managed_check"] is False
 
     def test_operator_principal_captured(self, mock_boto3_session):
-        """Spec §12: operator_principal must be captured in details."""
+        """Spec 12: operator_principal must be captured in details."""
         vol = _vol(operator={"Managed": False, "Principal": "ec2.amazonaws.com"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert findings[0].details["operator_principal"] == "ec2.amazonaws.com"
 
     def test_operator_principal_null_when_absent(self, mock_boto3_session):
-        """Spec §12: operator_principal must be null when not in operator block."""
+        """Spec 12: operator_principal must be null when not in operator block."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["operator_principal"] is None
 
     def test_contextual_fields_null_when_absent(self, mock_boto3_session):
-        """Spec §12: optional contextual fields must be explicit null, not omitted."""
+        """Spec 12: optional contextual fields must be explicit null, not omitted."""
         vol = _vol(age_days=30)
         # Remove optional contextual fields
         for key in ("Iops", "Throughput", "SnapshotId", "MultiAttachEnabled"):
@@ -311,21 +311,21 @@ class TestNormalization:
         assert "multi_attach_enabled" in d
 
     def test_throughput_captured_when_present(self, mock_boto3_session):
-        """Spec §12: throughput_mibps captured from Throughput field."""
+        """Spec 12: throughput_mibps captured from Throughput field."""
         vol = _vol(age_days=30, throughput=125)
         findings = _run(mock_boto3_session, [vol])
         assert findings[0].details["throughput_mibps"] == 125
 
     def test_snapshot_id_captured_when_present(self, mock_boto3_session):
-        """Spec §12: snapshot_id captured from SnapshotId field."""
+        """Spec 12: snapshot_id captured from SnapshotId field."""
         vol = _vol(age_days=30, snapshot_id="snap-abc")
         findings = _run(mock_boto3_session, [vol])
         assert findings[0].details["snapshot_id"] == "snap-abc"
 
-    # --- Attachment flattening (spec §4 normalization contract) ---
+    # --- Attachment flattening (spec 4 normalization contract) ---
 
     def test_dict_attachment_flattened_to_one_element_list(self, mock_boto3_session):
-        """Spec §4: Attachments is a dict (single-attachment or wrapper) → flatten to [dict]
+        """Spec 4: Attachments is a dict (single-attachment or wrapper) → flatten to [dict]
         → attachment_count=1 → excluded by attachment_count > 0 rule, not normalization skip."""
         vol = _vol(age_days=30)
         vol["Attachments"] = {"VolumeId": "vol-abc123", "State": "attached"}
@@ -333,16 +333,16 @@ class TestNormalization:
         assert findings == []
 
     def test_skip_scalar_attachments(self, mock_boto3_session):
-        """Spec §4/§10: Attachments is a scalar (string) → cannot flatten → SKIP item."""
+        """Spec 4/10: Attachments is a scalar (string) → cannot flatten → SKIP item."""
         vol = _vol(age_days=30)
         vol["Attachments"] = "attaching"
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
-    # --- Operator metadata unwrapping (spec §4 normalization contract) ---
+    # --- Operator metadata unwrapping (spec 4 normalization contract) ---
 
     def test_operator_not_dict_gives_unknown(self, mock_boto3_session):
-        """Spec §4: Operator value is not a dict → service_managed_check='unknown', not skip."""
+        """Spec 4: Operator value is not a dict → service_managed_check='unknown', not skip."""
         vol = _vol(age_days=30)
         vol["Operator"] = "ec2.amazonaws.com"  # non-dict string
         findings = _run(mock_boto3_session, [vol])
@@ -350,27 +350,27 @@ class TestNormalization:
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_operator_managed_wrapped_true(self, mock_boto3_session):
-        """Spec §4: Operator.Managed is wrapped dict with Value=True → True → SKIP."""
+        """Spec 4: Operator.Managed is wrapped dict with Value=True → True → SKIP."""
         vol = _vol(operator={"Managed": {"Value": True}}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert findings == []
 
     def test_operator_managed_wrapped_false(self, mock_boto3_session):
-        """Spec §4: Operator.Managed is wrapped dict with Value=False → False → emit."""
+        """Spec 4: Operator.Managed is wrapped dict with Value=False → False → emit."""
         vol = _vol(operator={"Managed": {"Value": False}}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
         assert findings[0].details["service_managed_check"] is False
 
     def test_operator_managed_wrapped_ambiguous_gives_unknown(self, mock_boto3_session):
-        """Spec §4: Operator.Managed wrapped but no recognizable bool → unknown → emit."""
+        """Spec 4: Operator.Managed wrapped but no recognizable bool → unknown → emit."""
         vol = _vol(operator={"Managed": {"Value": None}}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_operator_principal_wrapped_unwrapped_to_string(self, mock_boto3_session):
-        """Spec §4: Operator.Principal is wrapped dict → unwrap to string."""
+        """Spec 4: Operator.Principal is wrapped dict → unwrap to string."""
         vol = _vol(
             operator={"Managed": False, "Principal": {"Value": "svc.amazonaws.com"}},
             age_days=30,
@@ -380,7 +380,7 @@ class TestNormalization:
         assert findings[0].details["operator_principal"] == "svc.amazonaws.com"
 
     def test_operator_principal_non_string_non_dict_gives_null(self, mock_boto3_session):
-        """Spec §4: Operator.Principal is unrecognized type → null."""
+        """Spec 4: Operator.Principal is unrecognized type → null."""
         vol = _vol(operator={"Managed": False, "Principal": 12345}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
@@ -388,37 +388,37 @@ class TestNormalization:
 
 
 # ---------------------------------------------------------------------------
-# §7 Confidence model
+# 7 Confidence model
 # ---------------------------------------------------------------------------
 
 
 class TestConfidenceModel:
     def test_confidence_is_medium(self, mock_boto3_session):
-        """Spec §7: emitted findings must use MEDIUM confidence."""
+        """Spec 7: emitted findings must use MEDIUM confidence."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].confidence == ConfidenceLevel.MEDIUM
 
 
 # ---------------------------------------------------------------------------
-# §8 Risk model
+# 8 Risk model
 # ---------------------------------------------------------------------------
 
 
 class TestRiskModel:
     def test_risk_is_low(self, mock_boto3_session):
-        """Spec §8: emitted findings must use LOW risk."""
+        """Spec 8: emitted findings must use LOW risk."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].risk == RiskLevel.LOW
 
 
 # ---------------------------------------------------------------------------
-# §12 Evidence contract
+# 12 Evidence contract
 # ---------------------------------------------------------------------------
 
 
 class TestEvidenceContract:
     def test_all_required_detail_fields_present(self, mock_boto3_session):
-        """Spec §12: all required detail fields must be present on emitted findings."""
+        """Spec 12: all required detail fields must be present on emitted findings."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         d = findings[0].details
         required = [
@@ -443,66 +443,66 @@ class TestEvidenceContract:
             assert field in d, f"Missing required detail field: {field!r}"
 
     def test_evaluation_path_value(self, mock_boto3_session):
-        """Spec §12: evaluation_path must be exactly 'unattached-volume-review-candidate'."""
+        """Spec 12: evaluation_path must be exactly 'unattached-volume-review-candidate'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["evaluation_path"] == "unattached-volume-review-candidate"
 
     def test_normalized_status_is_available(self, mock_boto3_session):
-        """Spec §12: normalized_status must be 'available' for emitted findings."""
+        """Spec 12: normalized_status must be 'available' for emitted findings."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["normalized_status"] == "available"
 
     def test_attachment_count_is_zero(self, mock_boto3_session):
-        """Spec §12: attachment_count must be 0 for emitted findings."""
+        """Spec 12: attachment_count must be 0 for emitted findings."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["attachment_count"] == 0
 
     def test_create_time_is_iso8601(self, mock_boto3_session):
-        """Spec §12: create_time must be ISO-8601 string."""
+        """Spec 12: create_time must be ISO-8601 string."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         # If isoformat() succeeded, this is a valid ISO-8601 string.
         assert isinstance(findings[0].details["create_time"], str)
         assert "T" in findings[0].details["create_time"]
 
     def test_age_days_is_integer(self, mock_boto3_session):
-        """Spec §12: age_days must be a non-negative integer."""
+        """Spec 12: age_days must be a non-negative integer."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         age = findings[0].details["age_days"]
         assert isinstance(age, int)
         assert age >= 0
 
     def test_service_managed_check_unknown_string(self, mock_boto3_session):
-        """Spec §12: service_managed_check must be 'unknown' (not False) when operator absent."""
+        """Spec 12: service_managed_check must be 'unknown' (not False) when operator absent."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_signals_not_checked_present(self, mock_boto3_session):
-        """Spec §11: blind spots must be disclosed in signals_not_checked."""
+        """Spec 11: blind spots must be disclosed in signals_not_checked."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         snc = findings[0].evidence.signals_not_checked
         assert isinstance(snc, list)
         assert len(snc) > 0
 
     def test_volume_id_in_details(self, mock_boto3_session):
-        """Spec §12: volume_id must match resource_id."""
+        """Spec 12: volume_id must match resource_id."""
         findings = _run(mock_boto3_session, [_vol(volume_id="vol-xyz", age_days=30)])
         assert findings[0].details["volume_id"] == "vol-xyz"
         assert findings[0].resource_id == "vol-xyz"
 
 
 # ---------------------------------------------------------------------------
-# §13 Title and reason contract
+# 13 Title and reason contract
 # ---------------------------------------------------------------------------
 
 
 class TestTitleAndReasonContract:
     def test_title(self, mock_boto3_session):
-        """Spec §13: title must be exactly 'Unattached EBS volume review candidate'."""
+        """Spec 13: title must be exactly 'Unattached EBS volume review candidate'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].title == "Unattached EBS volume review candidate"
 
     def test_reason(self, mock_boto3_session):
-        """Spec §13: reason must match canonical wording."""
+        """Spec 13: reason must match canonical wording."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert findings[0].reason == (
             "Volume has normalized attachment_count == 0 and the "
@@ -510,29 +510,29 @@ class TestTitleAndReasonContract:
         )
 
     def test_title_not_unused(self, mock_boto3_session):
-        """Spec §13: title must not call volume 'unused'."""
+        """Spec 13: title must not call volume 'unused'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert "unused" not in findings[0].title.lower()
 
     def test_title_not_orphaned(self, mock_boto3_session):
-        """Spec §13: title must not call volume 'orphaned'."""
+        """Spec 13: title must not call volume 'orphaned'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert "orphaned" not in findings[0].title.lower()
 
     def test_title_not_safe_to_delete(self, mock_boto3_session):
-        """Spec §13: title must not call volume 'safe to delete'."""
+        """Spec 13: title must not call volume 'safe to delete'."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert "safe to delete" not in findings[0].title.lower()
 
 
 # ---------------------------------------------------------------------------
-# §9 Cost model
+# 9 Cost model
 # ---------------------------------------------------------------------------
 
 
 class TestCostModel:
     def test_no_cost_estimate(self, mock_boto3_session):
-        """Spec §9: estimated_monthly_cost_usd must be None (flat rate invalid)."""
+        """Spec 9: estimated_monthly_cost_usd must be None (flat rate invalid)."""
         for vtype in ("gp2", "gp3", "io1", "io2", "sc1", "st1", "standard"):
             findings = _run(mock_boto3_session, [_vol(age_days=30, volume_type=vtype)])
             assert (
@@ -540,19 +540,19 @@ class TestCostModel:
             ), f"expected None cost for volume_type={vtype!r}"
 
     def test_size_gib_present_as_context(self, mock_boto3_session):
-        """Spec §9: size_gib available as non-billing context."""
+        """Spec 9: size_gib available as non-billing context."""
         findings = _run(mock_boto3_session, [_vol(age_days=30, size_gib=500)])
         assert findings[0].details["size_gib"] == 500
 
 
 # ---------------------------------------------------------------------------
-# §10 Pagination
+# 10 Pagination
 # ---------------------------------------------------------------------------
 
 
 class TestPagination:
     def test_multi_page_pagination(self, mock_boto3_session):
-        """Spec §10: must paginate fully — findings collected across all pages."""
+        """Spec 10: must paginate fully — findings collected across all pages."""
         ec2 = mock_boto3_session._ec2
         paginator = MagicMock()
         paginator.paginate.return_value = [
@@ -566,7 +566,7 @@ class TestPagination:
         assert ids == {"vol-page1", "vol-page2", "vol-page3"}
 
     def test_empty_page_returns_no_findings(self, mock_boto3_session):
-        """Spec §10: empty pages produce no findings."""
+        """Spec 10: empty pages produce no findings."""
         ec2 = mock_boto3_session._ec2
         paginator = MagicMock()
         paginator.paginate.return_value = [{"Volumes": []}, {"Volumes": []}]
@@ -576,13 +576,13 @@ class TestPagination:
 
 
 # ---------------------------------------------------------------------------
-# §10 Failure behavior
+# 10 Failure behavior
 # ---------------------------------------------------------------------------
 
 
 class TestFailureBehavior:
     def test_unauthorized_operation_raises_permission_error(self, mock_boto3_session):
-        """Spec §10: ec2:DescribeVolumes unavailable → PermissionError."""
+        """Spec 10: ec2:DescribeVolumes unavailable → PermissionError."""
         ec2 = mock_boto3_session._ec2
         ec2.get_paginator.side_effect = ClientError(
             {"Error": {"Code": "UnauthorizedOperation", "Message": "denied"}},
@@ -602,7 +602,7 @@ class TestFailureBehavior:
             find_unattached_ebs_volumes(mock_boto3_session, "us-east-1")
 
     def test_other_client_error_re_raised(self, mock_boto3_session):
-        """Spec §10: non-auth ClientError re-raised without wrapping."""
+        """Spec 10: non-auth ClientError re-raised without wrapping."""
         ec2 = mock_boto3_session._ec2
         ec2.get_paginator.side_effect = ClientError(
             {"Error": {"Code": "InternalError", "Message": "oops"}},
@@ -612,7 +612,7 @@ class TestFailureBehavior:
             find_unattached_ebs_volumes(mock_boto3_session, "us-east-1")
 
     def test_malformed_volume_skipped_others_emit(self, mock_boto3_session):
-        """Spec §10: malformed item skipped; other valid items still processed."""
+        """Spec 10: malformed item skipped; other valid items still processed."""
         malformed = _vol(age_days=30)
         del malformed["VolumeId"]
         valid = _vol(volume_id="vol-good", age_days=30)
@@ -622,31 +622,31 @@ class TestFailureBehavior:
 
 
 # ---------------------------------------------------------------------------
-# §4 service_managed_check semantics
+# 4 service_managed_check semantics
 # ---------------------------------------------------------------------------
 
 
 class TestServiceManagedCheck:
     def test_operator_managed_true_skips(self, mock_boto3_session):
-        """Spec §4: service_managed_check=True → SKIP."""
+        """Spec 4: service_managed_check=True → SKIP."""
         vol = _vol(operator={"Managed": True, "Principal": "svc.amazon.com"}, age_days=30)
         assert _run(mock_boto3_session, [vol]) == []
 
     def test_operator_managed_false_emits(self, mock_boto3_session):
-        """Spec §4: service_managed_check=False → emit; service_managed_check=False in details."""
+        """Spec 4: service_managed_check=False → emit; service_managed_check=False in details."""
         vol = _vol(operator={"Managed": False, "Principal": "svc.amazon.com"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
         assert findings[0].details["service_managed_check"] is False
 
     def test_operator_key_absent_emits_with_unknown(self, mock_boto3_session):
-        """Spec §4: no Operator key → service_managed_check='unknown' → emit."""
+        """Spec 4: no Operator key → service_managed_check='unknown' → emit."""
         findings = _run(mock_boto3_session, [_vol(age_days=30)])
         assert len(findings) == 1
         assert findings[0].details["service_managed_check"] == "unknown"
 
     def test_operator_present_managed_key_absent_gives_unknown(self, mock_boto3_session):
-        """Spec §4: Operator present but no Managed key → service_managed_check='unknown'."""
+        """Spec 4: Operator present but no Managed key → service_managed_check='unknown'."""
         vol = _vol(operator={"Principal": "svc.amazon.com"}, age_days=30)
         findings = _run(mock_boto3_session, [vol])
         assert len(findings) == 1
@@ -654,7 +654,7 @@ class TestServiceManagedCheck:
 
 
 # ---------------------------------------------------------------------------
-# §2 Scope / provider metadata
+# 2 Scope / provider metadata
 # ---------------------------------------------------------------------------
 
 

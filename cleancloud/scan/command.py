@@ -729,6 +729,9 @@ def scan(
             summary["total_rules"] = len(azure_rules_to_run)
             summary["subscription_selection_mode"] = subscription_selection_mode
             summary["subscriptions_scanned"] = subscriptions_scanned
+            total_rules_failed = sum(r.rules_failed for r in azure_sub_results)
+            if total_rules_failed > 0:
+                summary["rules_failed"] = total_rules_failed
             failed_subs = [r for r in azure_sub_results if r.status == "failed"]
             if failed_subs:
                 summary["subscriptions_failed"] = [
@@ -745,6 +748,7 @@ def scan(
                     "name": r.subscription_name,
                     "status": r.status,
                     "findings": len(r.findings),
+                    "rules_failed": r.rules_failed,
                     "estimated_monthly_cost_usd": round(r.estimated_monthly_cost, 2),
                 }
                 for r in sorted(azure_sub_results, key=lambda r: r.subscription_name)
@@ -776,13 +780,17 @@ def scan(
                     }
                     for r in sorted(gcp_project_results, key=lambda r: r.project_name)
                 ]
-        # Build rules_evaluated: {rule_id: finding_count} for all rules that ran
+        # Build rules_evaluated: {rule_id: finding_count} for all rules that ran.
+        # Unwrap functools.partial objects so parameterized rules still appear in the display.
         if provider == "aws":
-            _active_rule_map = {v: k for k, v in aws_rule_map.items() if v in aws_rules_to_run}
+            _active_funcs = {getattr(r, "func", r) for r in aws_rules_to_run}
+            _active_rule_map = {v: k for k, v in aws_rule_map.items() if v in _active_funcs}
         elif provider == "azure":
-            _active_rule_map = {v: k for k, v in azure_rule_map.items() if v in azure_rules_to_run}
+            _active_funcs = {getattr(r, "func", r) for r in azure_rules_to_run}
+            _active_rule_map = {v: k for k, v in azure_rule_map.items() if v in _active_funcs}
         else:
-            _active_rule_map = {v: k for k, v in gcp_rule_map.items() if v in gcp_rules_to_run}
+            _active_funcs = {getattr(r, "func", r) for r in gcp_rules_to_run}
+            _active_rule_map = {v: k for k, v in gcp_rule_map.items() if v in _active_funcs}
         _findings_by_rule = Counter(f.rule_id for f in findings)
         summary["rules_evaluated"] = {
             rule_id: _findings_by_rule.get(rule_id, 0)

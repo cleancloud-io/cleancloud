@@ -434,7 +434,7 @@ class TestDescribeSkipItem:
 
 class TestHealthCheckContract:
     def test_exact_equality_luat_lhct_skipped(self):
-        """Spec §6.1: exact equality LUAT == LHCT → SKIP ITEM."""
+        """Spec 6.1: exact equality LUAT == LHCT → SKIP ITEM."""
         # last_activity_days < age_days ensures LUAT is clearly after CT
         app = _make_list_app(age_days=30)
         desc = _make_describe(last_activity_days=20)
@@ -508,7 +508,7 @@ class TestConfidenceModel:
         assert findings[0].confidence.value == "high"
 
     def test_no_medium_confidence_emitted(self):
-        """Spec §12: No MEDIUM/LOW finding should be emitted."""
+        """Spec 12: No MEDIUM/LOW finding should be emitted."""
         apps = [
             _make_list_app("a1", age_days=30),
             _make_list_app("a2", age_days=14),
@@ -525,7 +525,7 @@ class TestConfidenceModel:
             assert f.confidence.value == "high"
 
     def test_luat_absent_skips_not_medium(self):
-        """Missing LUAT must SKIP, not emit MEDIUM (spec §6.1 + §12)."""
+        """Missing LUAT must SKIP, not emit MEDIUM (spec 6.1 + 12)."""
         app = _make_list_app(age_days=30)
         desc = _make_describe()
         del desc["LastUserActivityTimestamp"]
@@ -570,7 +570,7 @@ class TestRiskModel:
         assert findings[0].risk.value == "medium"
 
     def test_no_critical_risk_emitted(self):
-        """Spec §13: only HIGH or MEDIUM — no CRITICAL."""
+        """Spec 13: only HIGH or MEDIUM — no CRITICAL."""
         apps = [
             _make_list_app("gpu1", age_days=60),
             _make_list_app("gpu2", age_days=60),
@@ -611,7 +611,7 @@ class TestRiskModel:
 
 class TestCostModel:
     def test_estimated_cost_is_none(self):
-        """Spec §7: estimated_monthly_cost_usd = null."""
+        """Spec 7: estimated_monthly_cost_usd = null."""
         findings = _run([_make_list_app(age_days=30)])
         assert findings[0].estimated_monthly_cost_usd is None
 

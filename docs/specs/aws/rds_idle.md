@@ -265,7 +265,7 @@ tag_set
 | Datapoints present, all `Maximum == 0`, all gates satisfied | `MEDIUM` | `MEDIUM` |
 
 - **Do not** emit LOW-confidence findings when required metric data is unavailable — SKIP ITEM or FAIL RULE instead.
-- `DatabaseConnections` has documented blind spots (§2 item 9), so `MEDIUM` (not `HIGH`) is the ceiling.
+- `DatabaseConnections` has documented blind spots (2 item 9), so `MEDIUM` (not `HIGH`) is the ceiling.
 
 ---
 

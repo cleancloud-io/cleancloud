@@ -549,7 +549,7 @@ class TestStoppingCondition:
         assert findings[0].details["exceeded_applicable_runtime_limit"] is True
 
     def test_spot_no_max_wait_time_falls_back_to_max_runtime(self):
-        """Spot + no MaxWaitTimeInSeconds: falls back to MaxRuntimeInSeconds per spec §3."""
+        """Spot + no MaxWaitTimeInSeconds: falls back to MaxRuntimeInSeconds per spec 3."""
         job = _make_list_job(age_hours=48)
         desc = _make_describe(
             training_start_hours=48,
@@ -737,7 +737,7 @@ class TestRiskModel:
         assert findings[0].details["is_accelerator_backed"] is False
 
     def test_no_critical_risk_level_emitted(self):
-        """Spec §13: no CRITICAL risk — max is HIGH."""
+        """Spec 13: no CRITICAL risk — max is HIGH."""
         for instance_type in ("ml.p4d.24xlarge", "ml.g5.48xlarge", "ml.trn1n.32xlarge"):
             job = _make_list_job(age_hours=48)
             desc = _make_describe(
@@ -1063,7 +1063,7 @@ class TestIsJobAcceleratorBacked:
 
 
 # ---------------------------------------------------------------------------
-# TestDetailsContract — required and optional details fields per spec §11
+# TestDetailsContract — required and optional details fields per spec 11
 # ---------------------------------------------------------------------------
 
 
@@ -1177,7 +1177,7 @@ class TestDetailsContract:
 
 
 # ---------------------------------------------------------------------------
-# TestTitleAndReason — fixed strings per spec §14
+# TestTitleAndReason — fixed strings per spec 14
 # ---------------------------------------------------------------------------
 
 
@@ -1207,7 +1207,7 @@ class TestTitleAndReason:
 
 
 # ---------------------------------------------------------------------------
-# TestEvidenceContract — required evidence wording per spec §11
+# TestEvidenceContract — required evidence wording per spec 11
 # ---------------------------------------------------------------------------
 
 
@@ -1291,7 +1291,7 @@ class TestPagination:
         assert len(findings) == 3
 
     def test_paginator_called_without_status_equals(self):
-        """Spec §8: ListTrainingJobs must NOT use StatusEquals parameter."""
+        """Spec 8: ListTrainingJobs must NOT use StatusEquals parameter."""
         job = _make_list_job(age_hours=48)
         session, sagemaker = _make_session(jobs=[job])
         find_long_running_sagemaker_training_jobs(session, _REGION)

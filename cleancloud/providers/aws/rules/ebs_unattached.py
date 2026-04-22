@@ -264,7 +264,7 @@ def find_unattached_ebs_volumes(
                     resource_type="aws.ebs.volume",
                     resource_id=v["volume_id"],
                     region=region,
-                    estimated_monthly_cost_usd=None,  # spec §9: flat rate invalid across volume types
+                    estimated_monthly_cost_usd=None,  # spec 9: flat rate invalid across volume types
                     title="Unattached EBS volume review candidate",
                     summary=(
                         f"EBS volume has been unattached for {age_days} days "

@@ -104,7 +104,7 @@ def _evaluate_ami(
     """
     Evaluate one AMI against spec v4. Returns a Finding or None.
 
-    Mandatory evaluation order (spec §6):
+    Mandatory evaluation order (spec 6):
       1. Parse + normalize
       2. Check deprecation override
       3. Fetch best-effort signals
@@ -181,7 +181,7 @@ def _evaluate_ami(
 
         # ── 4. EXCLUSION_RULES ────────────────────────────────────────────────
         # Rule: recently launched (lastLaunchedTime must exist and be recent).
-        # Missing lastLaunchedTime does NOT trigger exclusion (spec §5.A).
+        # Missing lastLaunchedTime does NOT trigger exclusion (spec 5.A).
         if days_since_launched is not None and days_since_launched < _RECENTLY_ACTIVE_DAYS:
             return None
 
@@ -201,7 +201,7 @@ def _evaluate_ami(
             return None
 
         # Conservative: unknown active-instance state + borderline score → skip.
-        # Absence of instance check ≠ absence of instances (spec §13).
+        # Absence of instance check ≠ absence of instances (spec 13).
         if instance_check_failed and score == 1:
             return None
 
@@ -222,10 +222,10 @@ def _evaluate_ami(
 
         # ── 8. Risk ───────────────────────────────────────────────────────────
         # MEDIUM: non-deprecated + BOTH signals (score 2).
-        # Guardrail: score 2 → risk MUST be >= MEDIUM (spec §9).
+        # Guardrail: score 2 → risk MUST be >= MEDIUM (spec 9).
         risk = RiskLevel.MEDIUM if score == 2 else RiskLevel.LOW
 
-        # Title (spec §16 + §13):
+        # Title (spec 16 + 13):
         # - Never label "Unused" if active instances exist.
         # - Never label "Unused" if active-instance state is UNKNOWN (check failed) —
         #   missing visibility ≠ "no instances" ≠ "unused".
@@ -364,15 +364,15 @@ def _build_evidence(  # noqa: PLR0913
     contextual_downgrade: bool,
 ) -> Evidence:
     """
-    Build Evidence per spec §15.
+    Build Evidence per spec 15.
     All fields must exist; null is allowed but fields must not be omitted.
-    Evaluation path must be exactly "deprecated" or "scored" (spec §17).
+    Evaluation path must be exactly "deprecated" or "scored" (spec 17).
     signals_not_checked: permission/visibility gaps first, then conceptual blind spots.
     """
     signals: List[str] = []
     not_checked: List[str] = []
 
-    # evaluation_path (spec §17)
+    # evaluation_path (spec 17)
     signals.append(f"evaluation_path: {evaluation_path}")
 
     # age + state
@@ -515,7 +515,7 @@ def _check_active_instances(ec2, ami_id: str) -> Tuple[bool, bool]:
     """
     Return (instances_found, check_failed).
     Existence check — MaxResults=5, EC2 filters server-side.
-    CRITICAL (spec §13): check_failed ≠ "no instances" — treat result as UNKNOWN.
+    CRITICAL (spec 13): check_failed ≠ "no instances" — treat result as UNKNOWN.
     """
     try:
         resp = ec2.describe_instances(
@@ -534,7 +534,7 @@ def _check_active_instances(ec2, ami_id: str) -> Tuple[bool, bool]:
 def _build_lt_index(ec2) -> Tuple[Dict[str, List[str]], bool]:
     """
     Build {ami_id: [lt_ids]} by checking $Default + $Latest versions of each LT.
-    Per spec §11: "prefer $Default + $Latest; full traversal optional."
+    Per spec 11: "prefer $Default + $Latest; full traversal optional."
 
     Phase 1: list all LT IDs (with guard at _LT_INDEX_GUARD).
     Phase 2: per-LT, query $Default + $Latest versions only (no pagination needed).
