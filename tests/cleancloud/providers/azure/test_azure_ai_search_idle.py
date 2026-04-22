@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cleancloud.providers.azure.rules.ai_search_idle import (
+from cleancloud.providers.azure.rules.ai.ai_search_idle import (
     RULE_METADATA,
     find_idle_ai_search_services,
 )
@@ -150,7 +150,7 @@ def test_service_with_no_id_skipped():
 
 def test_normalize_sku_camel_case_storage_optimized():
     """SDK may return 'StorageOptimizedL1' — should normalize to 'storage_optimized_l1'."""
-    from cleancloud.providers.azure.rules.ai_search_idle import _normalize_sku
+    from cleancloud.providers.azure.rules.ai.ai_search_idle import _normalize_sku
 
     assert _normalize_sku("StorageOptimizedL1") == "storage_optimized_l1"
     assert _normalize_sku("StorageOptimizedL2") == "storage_optimized_l2"

@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 from azure.core.exceptions import HttpResponseError
 
-from cleancloud.providers.azure.rules.ml_online_endpoint_idle import (
+from cleancloud.providers.azure.rules.ai.ml_online_endpoint_idle import (
     find_idle_ml_online_endpoints,
 )
 
@@ -957,7 +957,7 @@ def test_finding_shape_complete():
 
 
 def test_rule_metadata_present():
-    from cleancloud.providers.azure.rules.ml_online_endpoint_idle import RULE_METADATA
+    from cleancloud.providers.azure.rules.ai.ml_online_endpoint_idle import RULE_METADATA
 
     assert RULE_METADATA["id"] == "azure.ml.online_endpoint.idle"
     assert RULE_METADATA["category"] == "ai"

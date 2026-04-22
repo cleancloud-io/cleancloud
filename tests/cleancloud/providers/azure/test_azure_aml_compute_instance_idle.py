@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
+from cleancloud.providers.azure.rules.ai.aml_compute_instance_idle import (
     RULE_METADATA,
     find_idle_aml_compute_instances,
 )

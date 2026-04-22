@@ -71,6 +71,7 @@ def _policy_id(name: str) -> str:
 # Object builders (SimpleNamespace mimics the Azure SDK model shape)
 # ---------------------------------------------------------------------------
 
+
 def _ns(**kw):
     return SimpleNamespace(**kw)
 
@@ -149,7 +150,7 @@ def _make_gateway(
 ):
     return _ns(
         id=f"/subscriptions/{SUB}/resourceGroups/rg/providers"
-           f"/Microsoft.Network/applicationGateways/{name}",
+        f"/Microsoft.Network/applicationGateways/{name}",
         name=name,
         location=location,
         backend_address_pools=pools if pools is not None else [],
@@ -169,6 +170,7 @@ def _make_client(gateways):
 # ---------------------------------------------------------------------------
 # TestMustEmit — one finding per (gateway, active-route, empty-pool) pair
 # ---------------------------------------------------------------------------
+
 
 class TestMustEmit:
     def test_direct_route_to_empty_pool(self):
@@ -290,7 +292,7 @@ class TestMustEmit:
         assert _pool_id("pool-a") in found_pool_ids
         assert _pool_id("pool-b") in found_pool_ids
 
-    def test_routingRules_collection_also_traversed(self):
+    def test_routing_rules_collection_also_traversed(self):
         """Pools reachable from routingRules (not requestRoutingRules) must also be flagged."""
         pool = _make_pool("pool-rr")
         routing_rule = _ns(
@@ -313,6 +315,7 @@ class TestMustEmit:
 # ---------------------------------------------------------------------------
 # TestMustSkip — scenarios that must produce zero findings
 # ---------------------------------------------------------------------------
+
 
 class TestMustSkip:
     def test_orphaned_pool_not_reached_by_any_route(self):
@@ -365,7 +368,7 @@ class TestMustSkip:
         """Pool with non-empty backendIPConfigurations has targets → SKIP."""
         nic_ref = _ns(
             id="/subscriptions/sub/resourceGroups/rg/providers"
-               "/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ip1"
+            "/Microsoft.Network/networkInterfaces/nic1/ipConfigurations/ip1"
         )
         pool = _make_pool("pool-nic", ip_configs=[nic_ref])
         rule = _make_rule("rule-1", pool_ref=_subref(_pool_id("pool-nic")))
@@ -378,9 +381,7 @@ class TestMustSkip:
     def test_redirect_only_rule_is_skipped(self):
         """Rule has redirectConfiguration and no backend selection path → SKIP."""
         pool = _make_pool("pool-redir")
-        redirect_ref = _subref(
-            f"{GW_BASE}/redirectConfigurations/redir-1".lower()
-        )
+        redirect_ref = _subref(f"{GW_BASE}/redirectConfigurations/redir-1".lower())
         rule = _ns(
             id=_rule_id("rule-redir"),
             name="rule-redir",
@@ -467,6 +468,7 @@ class TestMustSkip:
 # TestMustFail — public API surfaces errors correctly
 # ---------------------------------------------------------------------------
 
+
 class TestMustFail:
     def test_403_on_list_all_raises_permission_error(self):
         """list_all returning 403 must surface as PermissionError, not HttpResponseError."""
@@ -510,6 +512,7 @@ class TestMustFail:
 # ---------------------------------------------------------------------------
 # TestNormalization — _norm_id and _normalize_pool
 # ---------------------------------------------------------------------------
+
 
 class TestNormalization:
     def test_norm_id_from_string(self):
@@ -610,6 +613,7 @@ class TestNormalization:
 # ---------------------------------------------------------------------------
 # TestRouteIdFormat — canonical route-id strings for each hop type
 # ---------------------------------------------------------------------------
+
 
 class TestRouteIdFormat:
     def test_direct_route_id_format(self):
@@ -713,7 +717,9 @@ class TestRouteIdFormat:
         pol = _policy_id("policy-def")
         pid = _pool_id("pool-def-ldp")
         # Capital 'L' in defaultLoadDistributionPolicy (spec §4)
-        expected = f"{rid}::urlPathMap:{mid}:defaultLoadDistributionPolicy:{pol}:target:tgt-def::{pid}"
+        expected = (
+            f"{rid}::urlPathMap:{mid}:defaultLoadDistributionPolicy:{pol}:target:tgt-def::{pid}"
+        )
         assert findings[0].details["referencing_route_ids"] == [expected]
 
     def test_url_path_map_path_rule_ldp_route_id_format(self):
@@ -764,6 +770,7 @@ class TestRouteIdFormat:
 # ---------------------------------------------------------------------------
 # TestFindingShape — title, reason, risk, confidence, cost, provider fields
 # ---------------------------------------------------------------------------
+
 
 class TestFindingShape:
     def _get_single_finding(self):
@@ -818,6 +825,7 @@ class TestFindingShape:
 # ---------------------------------------------------------------------------
 # TestEvidenceContract — details dict and Evidence fields
 # ---------------------------------------------------------------------------
+
 
 class TestEvidenceContract:
     def _get_finding_with_details(self):
@@ -886,6 +894,7 @@ class TestEvidenceContract:
 # TestDiagnostics — malformed objects produce diagnostics, not findings
 # ---------------------------------------------------------------------------
 
+
 class TestDiagnostics:
     def test_pool_with_no_id_produces_diagnostic_not_finding(self):
         """An unrelated malformed pool should not pollute another pool's finding diagnostics."""
@@ -900,7 +909,9 @@ class TestDiagnostics:
         assert len(findings) == 1
         snc = findings[0].evidence.signals_not_checked
         assert not any(
-            isinstance(s, dict) and s.get("kind") == "malformed_object" and s.get("scope") == "backend_pool"
+            isinstance(s, dict)
+            and s.get("kind") == "malformed_object"
+            and s.get("scope") == "backend_pool"
             for s in snc
         )
 
@@ -919,10 +930,7 @@ class TestDiagnostics:
         # Only pool-real via rule-good triggers a finding
         assert len(findings) == 1
         snc = findings[0].evidence.signals_not_checked
-        assert not any(
-            isinstance(s, dict) and s.get("kind") == "unresolved_reference"
-            for s in snc
-        )
+        assert not any(isinstance(s, dict) and s.get("kind") == "unresolved_reference" for s in snc)
 
     def test_malformed_gateway_skipped_in_public_api(self):
         """A gateway with no .id should be silently skipped; other gateways still processed."""
@@ -1060,9 +1068,9 @@ class TestDiagnostics:
         route_ids = findings[0].details["referencing_route_ids"]
         assert len(route_ids) == 1
         # The synthetic rule id embedded in route_id must be all lowercase
-        assert route_ids[0] == route_ids[0].lower(), (
-            f"route_id contains uppercase characters: {route_ids[0]!r}"
-        )
+        assert (
+            route_ids[0] == route_ids[0].lower()
+        ), f"route_id contains uppercase characters: {route_ids[0]!r}"
 
     def test_unresolved_policy_ref_scope_is_traversal_edge(self):
         """
@@ -1156,6 +1164,7 @@ class TestDiagnostics:
 # ---------------------------------------------------------------------------
 # TestRegionFilter — public API region_filter behaviour
 # ---------------------------------------------------------------------------
+
 
 class TestRegionFilter:
     def test_region_filter_excludes_other_regions(self):

@@ -71,6 +71,7 @@ _BLIND_SPOTS = [
 # Normalization helpers
 # ---------------------------------------------------------------------------
 
+
 def _norm_id(raw) -> Optional[str]:
     """Return normalized lowercase ARM id, or None if unusable."""
     if raw is None:
@@ -114,6 +115,7 @@ def _name_from_id(arm_id: str) -> Optional[str]:
 # Pool normalization
 # ---------------------------------------------------------------------------
 
+
 def _normalize_pool(pool) -> Optional[dict]:
     """Normalize a backend pool SDK object to canonical dict. Returns None if id absent."""
     pool_id = _norm_id(pool)
@@ -124,15 +126,12 @@ def _normalize_pool(pool) -> Optional[dict]:
     pool_name = raw_name or _name_from_id(pool_id)
 
     # backendAddresses — canonical target source (spec §2)
-    backend_addresses = (
-        _get_list(pool, "backend_addresses") or _get_list(pool, "backendAddresses")
-    )
+    backend_addresses = _get_list(pool, "backend_addresses") or _get_list(pool, "backendAddresses")
     backend_addresses = [a for a in backend_addresses if a is not None]
 
     # backendIPConfigurations — optional legacy/read-only field (spec §2)
-    legacy_cfgs = (
-        _get_list(pool, "backend_ip_configurations") or
-        _get_list(pool, "backendIPConfigurations")
+    legacy_cfgs = _get_list(pool, "backend_ip_configurations") or _get_list(
+        pool, "backendIPConfigurations"
     )
     legacy_cfgs = [c for c in legacy_cfgs if c is not None]
 
@@ -149,6 +148,7 @@ def _normalize_pool(pool) -> Optional[dict]:
 # Lookup table builders
 # ---------------------------------------------------------------------------
 
+
 def _build_pool_lookup(pools_raw: list) -> tuple[dict, list]:
     """Build {pool_id: normalized_pool}. Returns (lookup, diagnostics)."""
     lookup: dict = {}
@@ -156,13 +156,15 @@ def _build_pool_lookup(pools_raw: list) -> tuple[dict, list]:
     for pool in pools_raw:
         norm = _normalize_pool(pool)
         if norm is None:
-            diags.append({
-                "kind": "malformed_object",
-                "scope": "backend_pool",
-                "object_id": None,
-                "parent_id": None,
-                "reason": "missing_id",
-            })
+            diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "backend_pool",
+                    "object_id": None,
+                    "parent_id": None,
+                    "reason": "missing_id",
+                }
+            )
         else:
             lookup[norm["backend_pool_id"]] = norm
     return lookup, diags
@@ -179,13 +181,15 @@ def _build_path_map_lookup(maps_raw: list, gw_id: str) -> tuple[dict, list]:
             if name:
                 pm_id = f"{gw_id}/urlpathmaps/{name}".lower()
             else:
-                diags.append({
-                    "kind": "malformed_object",
-                    "scope": "url_path_map",
-                    "object_id": None,
-                    "parent_id": gw_id,
-                    "reason": "missing_name_and_id",
-                })
+                diags.append(
+                    {
+                        "kind": "malformed_object",
+                        "scope": "url_path_map",
+                        "object_id": None,
+                        "parent_id": gw_id,
+                        "reason": "missing_name_and_id",
+                    }
+                )
                 continue
         lookup[pm_id] = pm
     return lookup, diags
@@ -202,46 +206,18 @@ def _build_policy_lookup(policies_raw: list, gw_id: str) -> tuple[dict, list]:
             if name:
                 pol_id = f"{gw_id}/loaddistributionpolicies/{name}".lower()
             else:
-                diags.append({
-                    "kind": "malformed_object",
-                    "scope": "load_distribution_policy",
-                    "object_id": None,
-                    "parent_id": gw_id,
-                    "reason": "missing_name_and_id",
-                })
+                diags.append(
+                    {
+                        "kind": "malformed_object",
+                        "scope": "load_distribution_policy",
+                        "object_id": None,
+                        "parent_id": gw_id,
+                        "reason": "missing_name_and_id",
+                    }
+                )
                 continue
         lookup[pol_id] = policy
     return lookup, diags
-
-
-# ---------------------------------------------------------------------------
-# SubResource resolution
-# ---------------------------------------------------------------------------
-
-def _resolve_subresource(
-    ref,
-    lookup: dict,
-    scope: str,
-    parent_id: str,
-    diags: list,
-) -> Optional[str]:
-    """
-    Normalize a SubResource ref to an id and look it up in the lookup table.
-    Returns the normalized id if found, else None (and appends a diagnostic).
-    """
-    ref_id = _norm_id(ref)
-    if ref_id is None:
-        return None  # null SubResource — contributes no path, no diagnostic needed
-    if ref_id not in lookup:
-        diags.append({
-            "kind": "unresolved_reference",
-            "scope": "traversal_edge",
-            "object_id": ref_id,
-            "parent_id": parent_id,
-            "reason": f"referenced_{scope}_not_found",
-        })
-        return None
-    return ref_id
 
 
 def _record_pool_route(
@@ -260,6 +236,7 @@ def _record_pool_route(
 # ---------------------------------------------------------------------------
 # Load distribution policy traversal
 # ---------------------------------------------------------------------------
+
 
 def _traverse_load_distribution_policy(
     policy_ref,
@@ -280,19 +257,20 @@ def _traverse_load_distribution_policy(
     if pol_id is None:
         return
     if pol_id not in policy_lookup:
-        diags.append({
-            "kind": "unresolved_reference",
-            "scope": "traversal_edge",
-            "object_id": pol_id,
-            "parent_id": top_rule_id,
-            "reason": "referenced_policy_not_found",
-        })
+        diags.append(
+            {
+                "kind": "unresolved_reference",
+                "scope": "traversal_edge",
+                "object_id": pol_id,
+                "parent_id": top_rule_id,
+                "reason": "referenced_policy_not_found",
+            }
+        )
         return
 
     policy = policy_lookup[pol_id]
-    targets = (
-        _get_list(policy, "load_distribution_targets") or
-        _get_list(policy, "loadDistributionTargets")
+    targets = _get_list(policy, "load_distribution_targets") or _get_list(
+        policy, "loadDistributionTargets"
     )
 
     for i, target in enumerate(targets):
@@ -302,38 +280,45 @@ def _traverse_load_distribution_policy(
         target_key = target_name if target_name else f"index-{i}"
 
         pool_ref = (
-            target.get("backend_address_pool") if isinstance(target, dict)
-            else getattr(target, "backend_address_pool", None) or
-                 getattr(target, "backendAddressPool", None)
+            target.get("backend_address_pool")
+            if isinstance(target, dict)
+            else getattr(target, "backend_address_pool", None)
+            or getattr(target, "backendAddressPool", None)
         )
         if pool_ref is None:
-            diags.append({
-                "kind": "malformed_object",
-                "scope": "load_distribution_target",
-                "object_id": None,
-                "parent_id": pol_id,
-                "reason": "missing_backend_address_pool",
-            })
+            diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "load_distribution_target",
+                    "object_id": None,
+                    "parent_id": pol_id,
+                    "reason": "missing_backend_address_pool",
+                }
+            )
             continue
 
         pool_id = _norm_id(pool_ref)
         if pool_id is None:
-            diags.append({
-                "kind": "malformed_object",
-                "scope": "load_distribution_target",
-                "object_id": None,
-                "parent_id": pol_id,
-                "reason": "missing_subresource_id",
-            })
+            diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "load_distribution_target",
+                    "object_id": None,
+                    "parent_id": pol_id,
+                    "reason": "missing_subresource_id",
+                }
+            )
             continue
         if pool_id not in pool_lookup:
-            diags.append({
-                "kind": "unresolved_reference",
-                "scope": "traversal_edge",
-                "object_id": pool_id,
-                "parent_id": pol_id,
-                "reason": "referenced_pool_not_found",
-            })
+            diags.append(
+                {
+                    "kind": "unresolved_reference",
+                    "scope": "traversal_edge",
+                    "object_id": pool_id,
+                    "parent_id": pol_id,
+                    "reason": "referenced_pool_not_found",
+                }
+            )
             continue
 
         hop = f"{hop_prefix}{ldp_keyword}:{pol_id}:target:{target_key}"
@@ -351,6 +336,7 @@ def _traverse_load_distribution_policy(
 # URL path map traversal
 # ---------------------------------------------------------------------------
 
+
 def _traverse_url_path_map(
     path_map_ref,
     path_map_lookup: dict,
@@ -366,41 +352,48 @@ def _traverse_url_path_map(
     if map_id is None:
         return
     if map_id not in path_map_lookup:
-        diags.append({
-            "kind": "unresolved_reference",
-            "scope": "url_path_map",
-            "object_id": map_id,
-            "parent_id": top_rule_id,
-            "reason": "referenced_url_path_map_not_found",
-        })
+        diags.append(
+            {
+                "kind": "unresolved_reference",
+                "scope": "url_path_map",
+                "object_id": map_id,
+                "parent_id": top_rule_id,
+                "reason": "referenced_url_path_map_not_found",
+            }
+        )
         return
 
     pm = path_map_lookup[map_id]
 
     # Default backend pool
     default_pool_ref = (
-        pm.get("default_backend_address_pool") if isinstance(pm, dict)
-        else getattr(pm, "default_backend_address_pool", None) or
-             getattr(pm, "defaultBackendAddressPool", None)
+        pm.get("default_backend_address_pool")
+        if isinstance(pm, dict)
+        else getattr(pm, "default_backend_address_pool", None)
+        or getattr(pm, "defaultBackendAddressPool", None)
     )
     if default_pool_ref is not None:
         pool_id = _norm_id(default_pool_ref)
         if pool_id is None:
-            diags.append({
-                "kind": "malformed_object",
-                "scope": "url_path_map",
-                "object_id": map_id,
-                "parent_id": top_rule_id,
-                "reason": "missing_subresource_id",
-            })
+            diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "url_path_map",
+                    "object_id": map_id,
+                    "parent_id": top_rule_id,
+                    "reason": "missing_subresource_id",
+                }
+            )
         elif pool_id not in pool_lookup:
-            diags.append({
-                "kind": "unresolved_reference",
-                "scope": "traversal_edge",
-                "object_id": pool_id,
-                "parent_id": map_id,
-                "reason": "referenced_pool_not_found",
-            })
+            diags.append(
+                {
+                    "kind": "unresolved_reference",
+                    "scope": "traversal_edge",
+                    "object_id": pool_id,
+                    "parent_id": map_id,
+                    "reason": "referenced_pool_not_found",
+                }
+            )
         else:
             route_id = f"{top_rule_id}::urlPathMap:{map_id}:default::{pool_id}"
             _record_pool_route(
@@ -413,9 +406,10 @@ def _traverse_url_path_map(
 
     # Default load distribution policy
     default_pol_ref = (
-        pm.get("default_load_distribution_policy") if isinstance(pm, dict)
-        else getattr(pm, "default_load_distribution_policy", None) or
-             getattr(pm, "defaultLoadDistributionPolicy", None)
+        pm.get("default_load_distribution_policy")
+        if isinstance(pm, dict)
+        else getattr(pm, "default_load_distribution_policy", None)
+        or getattr(pm, "defaultLoadDistributionPolicy", None)
     )
     if default_pol_ref is not None:
         _traverse_load_distribution_policy(
@@ -431,9 +425,7 @@ def _traverse_url_path_map(
         )
 
     # Path rules
-    path_rules = (
-        _get_list(pm, "path_rules") or _get_list(pm, "pathRules")
-    )
+    path_rules = _get_list(pm, "path_rules") or _get_list(pm, "pathRules")
     for i, pr in enumerate(path_rules):
         if pr is None:
             continue
@@ -442,28 +434,33 @@ def _traverse_url_path_map(
 
         # Path rule direct pool
         pr_pool_ref = (
-            pr.get("backend_address_pool") if isinstance(pr, dict)
-            else getattr(pr, "backend_address_pool", None) or
-                 getattr(pr, "backendAddressPool", None)
+            pr.get("backend_address_pool")
+            if isinstance(pr, dict)
+            else getattr(pr, "backend_address_pool", None)
+            or getattr(pr, "backendAddressPool", None)
         )
         if pr_pool_ref is not None:
             pool_id = _norm_id(pr_pool_ref)
             if pool_id is None:
-                diags.append({
-                    "kind": "malformed_object",
-                    "scope": "path_rule",
-                    "object_id": None,
-                    "parent_id": map_id,
-                    "reason": "missing_subresource_id",
-                })
+                diags.append(
+                    {
+                        "kind": "malformed_object",
+                        "scope": "path_rule",
+                        "object_id": None,
+                        "parent_id": map_id,
+                        "reason": "missing_subresource_id",
+                    }
+                )
             elif pool_id not in pool_lookup:
-                diags.append({
-                    "kind": "unresolved_reference",
-                    "scope": "traversal_edge",
-                    "object_id": pool_id,
-                    "parent_id": map_id,
-                    "reason": "referenced_pool_not_found",
-                })
+                diags.append(
+                    {
+                        "kind": "unresolved_reference",
+                        "scope": "traversal_edge",
+                        "object_id": pool_id,
+                        "parent_id": map_id,
+                        "reason": "referenced_pool_not_found",
+                    }
+                )
             else:
                 route_id = f"{top_rule_id}::urlPathMap:{map_id}:pathRule:{pr_key}::{pool_id}"
                 _record_pool_route(
@@ -476,9 +473,10 @@ def _traverse_url_path_map(
 
         # Path rule load distribution policy
         pr_pol_ref = (
-            pr.get("load_distribution_policy") if isinstance(pr, dict)
-            else getattr(pr, "load_distribution_policy", None) or
-                 getattr(pr, "loadDistributionPolicy", None)
+            pr.get("load_distribution_policy")
+            if isinstance(pr, dict)
+            else getattr(pr, "load_distribution_policy", None)
+            or getattr(pr, "loadDistributionPolicy", None)
         )
         if pr_pol_ref is not None:
             _traverse_load_distribution_policy(
@@ -497,6 +495,7 @@ def _traverse_url_path_map(
 # Top-level rule traversal
 # ---------------------------------------------------------------------------
 
+
 def _traverse_gateway(
     gw,
     gw_id: str,
@@ -510,21 +509,12 @@ def _traverse_gateway(
     gateway_diags: list = []
 
     # --- Normalize top-level collections ---
-    pools_raw = (
-        _get_list(gw, "backend_address_pools") or _get_list(gw, "backendAddressPools")
-    )
-    rrr_raw = (
-        _get_list(gw, "request_routing_rules") or _get_list(gw, "requestRoutingRules")
-    )
-    rr_raw = (
-        _get_list(gw, "routing_rules") or _get_list(gw, "routingRules")
-    )
-    upm_raw = (
-        _get_list(gw, "url_path_maps") or _get_list(gw, "urlPathMaps")
-    )
-    ldp_raw = (
-        _get_list(gw, "load_distribution_policies") or
-        _get_list(gw, "loadDistributionPolicies")
+    pools_raw = _get_list(gw, "backend_address_pools") or _get_list(gw, "backendAddressPools")
+    rrr_raw = _get_list(gw, "request_routing_rules") or _get_list(gw, "requestRoutingRules")
+    rr_raw = _get_list(gw, "routing_rules") or _get_list(gw, "routingRules")
+    upm_raw = _get_list(gw, "url_path_maps") or _get_list(gw, "urlPathMaps")
+    ldp_raw = _get_list(gw, "load_distribution_policies") or _get_list(
+        gw, "loadDistributionPolicies"
     )
 
     # --- Build lookup tables ---
@@ -552,13 +542,15 @@ def _traverse_gateway(
                 if name:
                     rule_id = f"{gw_id}/{coll_name.lower()}/{name}".lower()
                 else:
-                    gateway_diags.append({
-                        "kind": "malformed_object",
-                        "scope": "top_level_rule",
-                        "object_id": None,
-                        "parent_id": gw_id,
-                        "reason": "missing_name_and_id",
-                    })
+                    gateway_diags.append(
+                        {
+                            "kind": "malformed_object",
+                            "scope": "top_level_rule",
+                            "object_id": None,
+                            "parent_id": gw_id,
+                            "reason": "missing_name_and_id",
+                        }
+                    )
                     continue
             if rule_id not in top_rules_by_id:
                 top_rules_by_id[rule_id] = rule
@@ -574,7 +566,8 @@ def _traverse_gateway(
 
         # Determine rule_type
         rule_type = (
-            rule.get("rule_type") if isinstance(rule, dict)
+            rule.get("rule_type")
+            if isinstance(rule, dict)
             else getattr(rule, "rule_type", None) or getattr(rule, "ruleType", None)
         )
         if isinstance(rule_type, str):
@@ -582,61 +575,71 @@ def _traverse_gateway(
 
         # Determine path-based status
         url_path_map_ref = (
-            rule.get("url_path_map") if isinstance(rule, dict)
+            rule.get("url_path_map")
+            if isinstance(rule, dict)
             else getattr(rule, "url_path_map", None) or getattr(rule, "urlPathMap", None)
         )
         url_path_map_id = _norm_id(url_path_map_ref)
 
         # urlPathMap ref present but has no usable id — malformed subresource
         if url_path_map_ref is not None and url_path_map_id is None:
-            rule_diags.append({
-                "kind": "malformed_object",
-                "scope": "top_level_rule",
-                "object_id": None,
-                "parent_id": top_rule_id,
-                "reason": "missing_subresource_id",
-            })
+            rule_diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "top_level_rule",
+                    "object_id": None,
+                    "parent_id": top_rule_id,
+                    "reason": "missing_subresource_id",
+                }
+            )
 
         is_path_based = rule_type == "PathBasedRouting"
         if not is_path_based and url_path_map_id is not None:
             # urlPathMap present but ruleType not PathBasedRouting — inconsistency
             is_path_based = True
-            rule_diags.append({
-                "kind": "unsupported_inconsistent_rule_shape",
-                "scope": "top_level_rule",
-                "object_id": top_rule_id,
-                "parent_id": gw_id,
-                "reason": "url_path_map_present_without_pathbased_ruletype",
-            })
+            rule_diags.append(
+                {
+                    "kind": "unsupported_inconsistent_rule_shape",
+                    "scope": "top_level_rule",
+                    "object_id": top_rule_id,
+                    "parent_id": gw_id,
+                    "reason": "url_path_map_present_without_pathbased_ruletype",
+                }
+            )
 
         # Check redirect-only
         redirect_ref = (
-            rule.get("redirect_configuration") if isinstance(rule, dict)
-            else getattr(rule, "redirect_configuration", None) or
-                 getattr(rule, "redirectConfiguration", None)
+            rule.get("redirect_configuration")
+            if isinstance(rule, dict)
+            else getattr(rule, "redirect_configuration", None)
+            or getattr(rule, "redirectConfiguration", None)
         )
         direct_pool_ref = (
-            rule.get("backend_address_pool") if isinstance(rule, dict)
-            else getattr(rule, "backend_address_pool", None) or
-                 getattr(rule, "backendAddressPool", None)
+            rule.get("backend_address_pool")
+            if isinstance(rule, dict)
+            else getattr(rule, "backend_address_pool", None)
+            or getattr(rule, "backendAddressPool", None)
         )
         ldp_ref = (
-            rule.get("load_distribution_policy") if isinstance(rule, dict)
-            else getattr(rule, "load_distribution_policy", None) or
-                 getattr(rule, "loadDistributionPolicy", None)
+            rule.get("load_distribution_policy")
+            if isinstance(rule, dict)
+            else getattr(rule, "load_distribution_policy", None)
+            or getattr(rule, "loadDistributionPolicy", None)
         )
 
         # Redirect presence: spec §6 — presence of the field is sufficient; a malformed
         # (non-null, non-resolvable) redirectConfiguration ref still counts as present.
         redirect_present = redirect_ref is not None
         if redirect_present and _norm_id(redirect_ref) is None:
-            rule_diags.append({
-                "kind": "malformed_object",
-                "scope": "top_level_rule",
-                "object_id": None,
-                "parent_id": top_rule_id,
-                "reason": "missing_subresource_id",
-            })
+            rule_diags.append(
+                {
+                    "kind": "malformed_object",
+                    "scope": "top_level_rule",
+                    "object_id": None,
+                    "parent_id": top_rule_id,
+                    "reason": "missing_subresource_id",
+                }
+            )
         no_backend_paths = (
             _norm_id(direct_pool_ref) is None
             and url_path_map_id is None
@@ -651,21 +654,25 @@ def _traverse_gateway(
         if direct_pool_ref is not None:
             pool_id = _norm_id(direct_pool_ref)
             if pool_id is None:
-                rule_diags.append({
-                    "kind": "malformed_object",
-                    "scope": "top_level_rule",
-                    "object_id": None,
-                    "parent_id": top_rule_id,
-                    "reason": "missing_subresource_id",
-                })
+                rule_diags.append(
+                    {
+                        "kind": "malformed_object",
+                        "scope": "top_level_rule",
+                        "object_id": None,
+                        "parent_id": top_rule_id,
+                        "reason": "missing_subresource_id",
+                    }
+                )
             elif pool_id not in pool_lookup:
-                rule_diags.append({
-                    "kind": "unresolved_reference",
-                    "scope": "traversal_edge",
-                    "object_id": pool_id,
-                    "parent_id": top_rule_id,
-                    "reason": "referenced_pool_not_found",
-                })
+                rule_diags.append(
+                    {
+                        "kind": "unresolved_reference",
+                        "scope": "traversal_edge",
+                        "object_id": pool_id,
+                        "parent_id": top_rule_id,
+                        "reason": "referenced_pool_not_found",
+                    }
+                )
             else:
                 route_id = f"{top_rule_id}::direct::{pool_id}"
                 _record_pool_route(
@@ -679,13 +686,15 @@ def _traverse_gateway(
         # 2. Direct loadDistributionPolicy
         if ldp_ref is not None:
             if _norm_id(ldp_ref) is None:
-                rule_diags.append({
-                    "kind": "malformed_object",
-                    "scope": "top_level_rule",
-                    "object_id": None,
-                    "parent_id": top_rule_id,
-                    "reason": "missing_subresource_id",
-                })
+                rule_diags.append(
+                    {
+                        "kind": "malformed_object",
+                        "scope": "top_level_rule",
+                        "object_id": None,
+                        "parent_id": top_rule_id,
+                        "reason": "missing_subresource_id",
+                    }
+                )
             else:
                 _traverse_load_distribution_policy(
                     ldp_ref,
@@ -823,6 +832,7 @@ def _traverse_gateway(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def find_app_gateway_no_backends(
     *,
