@@ -3,15 +3,15 @@ from datetime import datetime
 import pytest
 
 from cleancloud.core.finding import Finding
-from cleancloud.providers.azure.rules.ai_search_idle import find_idle_ai_search_services
-from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
-from cleancloud.providers.azure.rules.aml_compute_instance_idle import (
+from cleancloud.providers.azure.rules.ai.ai_search_idle import find_idle_ai_search_services
+from cleancloud.providers.azure.rules.ai.aml_compute_idle import find_idle_aml_compute
+from cleancloud.providers.azure.rules.ai.aml_compute_instance_idle import (
     find_idle_aml_compute_instances,
 )
-from cleancloud.providers.azure.rules.ml_online_endpoint_idle import (
+from cleancloud.providers.azure.rules.ai.ml_online_endpoint_idle import (
     find_idle_ml_online_endpoints,
 )
-from cleancloud.providers.azure.rules.openai_provisioned_idle import (
+from cleancloud.providers.azure.rules.ai.openai_provisioned_idle import (
     find_idle_openai_provisioned_deployments,
 )
 from cleancloud.providers.azure.session import create_azure_session

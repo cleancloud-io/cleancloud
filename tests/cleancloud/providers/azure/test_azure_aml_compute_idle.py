@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cleancloud.providers.azure.rules.aml_compute_idle import find_idle_aml_compute
+from cleancloud.providers.azure.rules.ai.aml_compute_idle import find_idle_aml_compute
 
 
 def _make_workspace(name="test-workspace", location="eastus", rg="rg-ml"):
@@ -796,7 +796,7 @@ def test_compute_list_transient_error_skips_workspace_preserves_findings():
 
 def test_rule_metadata_present():
     """Rule must expose RULE_METADATA with correct fields."""
-    from cleancloud.providers.azure.rules.aml_compute_idle import RULE_METADATA
+    from cleancloud.providers.azure.rules.ai.aml_compute_idle import RULE_METADATA
 
     assert RULE_METADATA["id"] == "azure.aml.compute.idle"
     assert RULE_METADATA["category"] == "ai"

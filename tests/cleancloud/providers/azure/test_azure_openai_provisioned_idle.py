@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cleancloud.providers.azure.rules.openai_provisioned_idle import (
+from cleancloud.providers.azure.rules.ai.openai_provisioned_idle import (
     find_idle_openai_provisioned_deployments,
 )
 
@@ -825,7 +825,7 @@ def test_cost_warning_in_evidence_signals():
 
 def test_rule_metadata_present():
     """Rule must expose RULE_METADATA with correct fields."""
-    from cleancloud.providers.azure.rules.openai_provisioned_idle import RULE_METADATA
+    from cleancloud.providers.azure.rules.ai.openai_provisioned_idle import RULE_METADATA
 
     assert RULE_METADATA["id"] == "azure.openai.provisioned_deployment.idle"
     assert RULE_METADATA["category"] == "ai"
