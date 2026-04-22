@@ -177,11 +177,13 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 | `idle_days` | `azure.ml.compute_instance.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.sql.database.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `azure.app_service.idle` | 14 | Days of zero requests before flagging |
+| `days_unused` | `azure.container_registry.unused` | 90 | Days with zero successful pulls and pushes before flagging |
 | `max_age_days` | `aws.ec2.ami.old` | 180 | Age in days before flagging |
 | `max_age_days` | `aws.ebs.snapshot.old` | 90 | Age in days before flagging |
 | `max_age_days` | `aws.rds.snapshot.old` | 90 | Age in days before flagging |
 | `max_age_days` | `aws.ec2.eni.detached` | 60 | Age in days before flagging |
 | `max_age_days` | `aws.ec2.instance.stopped` | 30 | Days stopped before flagging |
+| `max_age_days` | `azure.compute.snapshot.old` | 90 | Age in days for the higher-confidence snapshot review band |
 | `max_age_days` | `gcp.compute.snapshot.old` | 90 | Age in days before flagging |
 | `max_age_days` | `gcp.compute.vm.stopped` | 30 | Days stopped before flagging |
 | `days_unattached` | `aws.ec2.elastic_ip.unattached` | 30 | Days unattached before flagging |

@@ -59,6 +59,7 @@ class SubscriptionScanResult:
     status: str  # "success" | "failed"
     findings: List[Finding] = field(default_factory=list)
     skipped_rules: List[dict] = field(default_factory=list)
+    rules_failed: int = 0
     error: Optional[str] = None
 
     @property
@@ -255,7 +256,7 @@ def scan_azure_subscriptions(
                 sub_id = futures[future]
                 sub_name = sub_name_map.get(sub_id, sub_id)
                 try:
-                    sub_findings, sub_skipped = future.result()
+                    sub_findings, sub_skipped, sub_rules_failed = future.result()
                     results.append(
                         SubscriptionScanResult(
                             subscription_id=sub_id,
@@ -263,6 +264,7 @@ def scan_azure_subscriptions(
                             status="success",
                             findings=sub_findings,
                             skipped_rules=sub_skipped,
+                            rules_failed=sub_rules_failed,
                         )
                     )
                 except Exception as e:
@@ -288,7 +290,7 @@ def _scan_azure_subscription(
     credential,
     region_filter: Optional[str],
     rules: Optional[List[Callable]] = None,
-) -> Tuple[List[Finding], List[dict]]:
+) -> Tuple[List[Finding], List[dict], int]:
     findings: List[Finding] = []
     skipped_rules: List[dict] = []
     rules_succeeded = 0
@@ -370,4 +372,4 @@ def _scan_azure_subscription(
             f"This indicates a serious configuration or permissions issue."
         )
 
-    return findings, skipped_rules
+    return findings, skipped_rules, rules_failed

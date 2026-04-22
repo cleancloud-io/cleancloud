@@ -53,12 +53,12 @@ def _http_404_rule(subscription_id, credential, region_filter=None):
 
 
 def test_permission_error_skips_azure_rule():
-    """PermissionError from an Azure rule goes to skipped_rules."""
+    """PermissionError from an Azure rule goes to skipped_rules, not rules_failed."""
     with patch(
         "cleancloud.providers.azure.scan.AZURE_RULES",
         [_good_rule, _permission_error_rule],
     ):
-        findings, skipped_rules = _scan_azure_subscription(
+        findings, skipped_rules, rules_failed = _scan_azure_subscription(
             subscription_id="sub-123",
             subscription_name="test-sub",
             credential=MagicMock(),
@@ -69,6 +69,7 @@ def test_permission_error_skips_azure_rule():
     assert len(skipped_rules) == 1
     assert skipped_rules[0]["rule"] == "_permission_error_rule"
     assert "Microsoft.Compute/disks/read" in skipped_rules[0]["missing_permissions"]
+    assert rules_failed == 0
 
 
 def test_http_403_skips_azure_rule():
@@ -77,7 +78,7 @@ def test_http_403_skips_azure_rule():
         "cleancloud.providers.azure.scan.AZURE_RULES",
         [_good_rule, _http_403_rule],
     ):
-        findings, skipped_rules = _scan_azure_subscription(
+        findings, skipped_rules, rules_failed = _scan_azure_subscription(
             subscription_id="sub-123",
             subscription_name="test-sub",
             credential=MagicMock(),
@@ -88,15 +89,16 @@ def test_http_403_skips_azure_rule():
     assert len(skipped_rules) == 1
     assert skipped_rules[0]["rule"] == "_http_403_rule"
     assert "403" in skipped_rules[0]["missing_permissions"]
+    assert rules_failed == 0
 
 
 def test_http_non_403_is_still_a_failure():
-    """HttpResponseError with non-403 status is a rule failure, not a skip."""
+    """HttpResponseError with non-403 status increments rules_failed, not skipped_rules."""
     with patch(
         "cleancloud.providers.azure.scan.AZURE_RULES",
         [_good_rule, _http_404_rule],
     ):
-        findings, skipped_rules = _scan_azure_subscription(
+        findings, skipped_rules, rules_failed = _scan_azure_subscription(
             subscription_id="sub-123",
             subscription_name="test-sub",
             credential=MagicMock(),
@@ -104,17 +106,17 @@ def test_http_non_403_is_still_a_failure():
         )
 
     assert len(findings) == 1
-    # 404 is not a permission skip
     assert len(skipped_rules) == 0
+    assert rules_failed == 1
 
 
 def test_all_permission_errors_no_exception():
-    """All Azure rules failing with PermissionError returns ([], all_skipped) without raising."""
+    """All Azure rules failing with PermissionError returns empty findings without raising."""
     with patch(
         "cleancloud.providers.azure.scan.AZURE_RULES",
         [_permission_error_rule, _http_403_rule],
     ):
-        findings, skipped_rules = _scan_azure_subscription(
+        findings, skipped_rules, rules_failed = _scan_azure_subscription(
             subscription_id="sub-123",
             subscription_name="test-sub",
             credential=MagicMock(),
@@ -123,3 +125,4 @@ def test_all_permission_errors_no_exception():
 
     assert findings == []
     assert len(skipped_rules) == 2
+    assert rules_failed == 0

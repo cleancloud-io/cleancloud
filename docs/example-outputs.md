@@ -751,19 +751,20 @@ Found 7 hygiene issues:
      - days_idle_threshold: 14
      - subscription: Production
 
-6. [AZURE] Unused Container Registry (90+ Days No Pulls)
+6. [AZURE] Unused Container Registry (90+ Days No Pulls or Pushes)
    Risk       : Low
    Confidence : High
    Resource   : azure.container_registry → /subscriptions/.../registries/acr-old-project
    Region     : eastus
    Rule       : azure.container_registry.unused
-   Reason     : Container registry has zero pull activity for 90+ days
+   Reason     : SuccessfulPullCount and SuccessfulPushCount both evaluated to ZERO over a 90-day window
    Detected   : 2026-02-08T14:45:18+00:00
    Details:
-     - registry_name: acr-old-project
-     - sku: Standard
-     - days_unused_threshold: 90
-     - subscription: Staging
+      - registry_name: acr-old-project
+      - sku: Standard
+      - created_at: 2025-08-01T00:00:00+00:00
+      - days_unused_threshold: 90
+      - subscription: Staging
 
 7. [AZURE] Untagged Resource
    Risk       : Low
@@ -1272,9 +1273,9 @@ Scanned at: 2026-02-08T14:45:19+00:00
       "resource_type": "azure.container_registry",
       "resource_id": "/subscriptions/f9e8d7c6-b5a4-3210-fedc-ba0987654321/resourceGroups/rg-staging/providers/Microsoft.ContainerRegistry/registries/acr-old-project",
       "region": "eastus",
-      "title": "Unused Container Registry (90+ Days No Pulls)",
-      "summary": "Container Registry 'acr-old-project' (Standard) has had no image pulls for 90+ days.",
-      "reason": "Container registry has zero pull activity for 90+ days",
+      "title": "Unused Container Registry (90+ Days No Pulls or Pushes)",
+      "summary": "Container Registry 'acr-old-project' (Standard) has had no successful pulls or pushes for 90+ days.",
+      "reason": "SuccessfulPullCount and SuccessfulPushCount both evaluated to ZERO over a 90-day window",
       "risk": "low",
       "confidence": "high",
       "detected_at": "2026-02-08T14:45:18+00:00",
@@ -1282,21 +1283,22 @@ Scanned at: 2026-02-08T14:45:19+00:00
         "registry_name": "acr-old-project",
         "sku": "Standard",
         "location": "eastus",
+        "created_at": "2025-08-01T00:00:00+00:00",
         "days_unused_threshold": 90
       },
       "estimated_monthly_cost_usd": 20.0,
       "evidence": {
         "signals_used": [
-          "Zero successful image pulls for 90 days (Azure Monitor: SuccessfulPullCount)",
-          "Zero successful image pushes for 90 days (Azure Monitor: SuccessfulPushCount)",
-          "No push or pull activity detected across the entire 90-day window",
+          "Registry creation date satisfies properties.creationDate <= window_start",
+          "SuccessfulPullCount and SuccessfulPushCount both evaluated to ZERO for the 90-day window",
           "Registry SKU: Standard",
           "ACR Standard tier costs ~$20/month plus storage"
         ],
         "signals_not_checked": [
-          "Geo-replication pull activity in other regions",
-          "Planned reactivation or migration",
-          "Images referenced by stopped but not deleted workloads"
+          "Planned reactivation or migration intent",
+          "Images referenced by stopped or undeployed workloads",
+          "Failed pull or login attempts not treated as active use",
+          "Storage charges not included in estimated base monthly cost"
         ],
         "time_window": "90 days"
       }
