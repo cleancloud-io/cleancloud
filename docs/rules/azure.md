@@ -115,17 +115,17 @@
 **Spec:** [specs/azure/app_gateway_no_backends.md](../specs/azure/app_gateway_no_backends.md)
 
 #### `azure.virtual_network_gateway.idle`
-**Detects:** VPN or ExpressRoute Gateways with no active S2S/ExpressRoute connections
+**Detects:** VPN or ExpressRoute Gateways with no configured in-scope connection resources (IPsec, Vnet2Vnet, ExpressRoute) and zero applicable gateway metrics over a 30-day window
 
-**Confidence / Risk:** MEDIUM (no active connections; P2S client count not checked) / HIGH
+**Confidence / Risk:** HIGH (all connection, P2S, bypass, and metric signals resolved deterministically) / HIGH
 
-**Permissions:** `Microsoft.Network/virtualNetworkGateways/read`, `Microsoft.Network/connections/read`
+**Permissions:** `Microsoft.Resources/resources/read`, `Microsoft.Network/virtualNetworkGateways/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** none
+**Params:** none (30-day fixed idle window)
 
-**Exclusions:** gateways with P2S configuration present and no active connections are still flagged if no other connections exist
+**Exclusions:** `id` or `name` absent/empty; malformed ARM id (resource group unextractable); `provisioning_state != "Succeeded"` (SDK+nested, conflict -> skip); `gateway_type` not `"Vpn"` or `"ExpressRoute"` (conflict -> skip); `allowVirtualWanTraffic == True`; ExpressRoute: `adminState == "Disabled"` or any connection with `expressRouteGatewayBypass == True` or unresolvable; VPN: any P2S field group (`vpnClientConfiguration`, address pool, root certs, AAD/Entra tenant, etc.) non-empty or unresolvable; any configured in-scope connection resource present; any connection type unresolvable or conflicting; `list_connections()` fails; ExpressRoute SKU tier absent (metric family unresolvable); any applicable metric unknown, below 80% daily-bucket coverage, or non-zero; per-gateway SDK retrieval errors (HttpResponseError, ServiceRequestError, ServiceResponseError)
 
-**Spec:** —
+**Spec:** [specs/azure/vnet_gateway_idle.md](../specs/azure/vnet_gateway_idle.md)
 
 ---
 
