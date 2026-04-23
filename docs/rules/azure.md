@@ -9,7 +9,7 @@
 | `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
 | `azure.compute.disk.unattached` | Storage | Managed disks not attached to any VM |
 | `azure.compute.snapshot.old` | Storage | Old managed snapshots as conservative review candidates |
-| `azure.network.public_ip.unused` | Network | Public IPs not attached to any interface |
+| `azure.network.public_ip.unused` | Network | Public IPs unattached across all four control-plane linkage surfaces |
 | `azure.load_balancer.no_backends` | Network | Standard LBs with billable rules but no backend members |
 | `azure.application_gateway.no_backends` | Network | App Gateways with zero backend targets |
 | `azure.virtual_network_gateway.idle` | Network | VPN/ExpressRoute Gateways with no connections |
@@ -76,17 +76,17 @@
 ## Network
 
 #### `azure.network.public_ip.unused`
-**Detects:** Public IP addresses with `ip_configuration is None` (not attached to any interface)
+**Detects:** Public IP addresses fully unattached across all four known Azure control-plane linkage surfaces: `ip_configuration`, `nat_gateway`, `service_public_ip_address`, `linked_public_ip_address`
 
-**Confidence / Risk:** MEDIUM (deterministic; may be reserved intentionally) / LOW
+**Confidence / Risk:** HIGH (all four linkages cleanly absent — deterministic) / LOW
 
 **Permissions:** `Microsoft.Network/publicIPAddresses/read`
 
 **Params:** none
 
-**Exclusions:** none
+**Exclusions:** `provisioning_state != "Succeeded"`; any linkage present with a non-empty `id`; linkage object present but `id` unresolvable (malformed reference — skipped conservatively); unattached Dynamic Public IP with no assigned `ip_address` (low-signal placeholder)
 
-**Spec:** —
+**Spec:** [azure/public_ip_unused.md](../specs/azure/public_ip_unused.md)
 
 #### `azure.load_balancer.no_backends`
 **Detects:** Standard SKU Load Balancers with load-balancing or outbound rules whose referenced backend pools all have zero members
