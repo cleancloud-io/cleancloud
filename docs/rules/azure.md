@@ -7,7 +7,7 @@
 | Rule ID | Cost Surface | What It Detects |
 |---|---|---|
 | `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
-| `azure.compute.disk.unattached` | Storage | Managed disks not attached to any VM |
+| `azure.compute.disk.unattached` | Storage | Managed disks in `Unattached` state with no attachment surfaces and unattached age >= 7 days |
 | `azure.compute.snapshot.old` | Storage | Old managed snapshots as conservative review candidates |
 | `azure.network.public_ip.unused` | Network | Public IPs unattached across all four control-plane linkage surfaces |
 | `azure.load_balancer.no_backends` | Network | Standard LBs with billable rules but no backend members |
@@ -46,7 +46,7 @@
 ## Storage
 
 #### `azure.compute.disk.unattached`
-**Detects:** Managed disks with `managed_by is None` for 7+ days
+**Detects:** Managed disks in `Unattached` disk state with no attachment surfaces confirmed absent and unattached age >= 7 days (age anchored to `lastOwnershipUpdateTime` when available, `timeCreated` as fallback)
 
 **Confidence / Risk:** MEDIUM (deterministic state; attachment intent unknown) / LOW
 
@@ -54,9 +54,9 @@
 
 **Params:** none
 
-**Exclusions:** disks younger than 7 days
+**Exclusions:** `provisioning_state != "Succeeded"`; `disk_state != "Unattached"`; `managed_by` or `managed_by_extended` present or unresolvable; `max_shares > 1` or unresolvable (shared-disk capable); `optimized_for_frequent_attach == True` or unresolvable; unattached age < 7 days or age anchor unresolvable; conflicting control-plane signals across SDK and raw surfaces
 
-**Spec:** —
+**Spec:** [specs/azure/unattached_managed_disks.md](../specs/azure/unattached_managed_disks.md)
 
 #### `azure.compute.snapshot.old`
 **Detects:** Managed snapshots older than 30 days as conservative review candidates; confidence escalates with age relative to `max_age_days`
