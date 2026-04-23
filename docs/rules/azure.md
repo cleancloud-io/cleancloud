@@ -29,17 +29,17 @@
 ## Compute
 
 #### `azure.vm.stopped_not_deallocated`
-**Detects:** VMs in `PowerState/stopped` state (full compute charges continue; only `deallocated` stops billing)
+**Detects:** VMs whose runtime power state resolves to exactly `PowerState/stopped` from per-VM `instance_view` statuses, with `provisioning_state == "Succeeded"` confirmed from the control-plane model payload
 
-**Confidence / Risk:** HIGH (deterministic power state) / HIGH
+**Confidence / Risk:** HIGH (deterministic power state from instance_view) / HIGH
 
-**Permissions:** `Microsoft.Compute/virtualMachines/read`
+**Permissions:** `Microsoft.Compute/virtualMachines/read`, `Microsoft.Compute/virtualMachines/instanceView/action`
 
 **Params:** none
 
-**Exclusions:** `PowerState/deallocated`, transitional states (starting, stopping, deallocating)
+**Exclusions:** `id` or `name` absent/empty; `provisioning_state != "Succeeded"` (SDK+nested, conflict -> skip); per-VM `instance_view` retrieval fails (skip that VM); no `PowerState/` code in statuses; multiple conflicting `PowerState/` codes; any power state other than exact `PowerState/stopped`
 
-**Spec:** —
+**Spec:** [specs/azure/vm_stopped_not_deallocated.md](../specs/azure/vm_stopped_not_deallocated.md)
 
 ---
 
