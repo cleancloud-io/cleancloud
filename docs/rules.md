@@ -1342,42 +1342,47 @@ if public_ip.ip_configuration is None:
 
 **Rule ID:** `azure.load_balancer.no_backends`
 
-**What it detects:** Standard Load Balancers where all backend pools have zero members
+**What it detects:** Standard Azure Load Balancers that have billable rules (load-balancing or outbound rules) where every **relevant backend pool** referenced by those rules has zero members
 
 **Confidence:**
 
 Confidence thresholds and signal weighting are documented in [confidence.md](confidence.md).
 
-- **HIGH:** Standard SKU with zero backend members across all pools (deterministic state)
+- **HIGH:** All relevant backend pools resolved and all are empty (deterministic control-plane state)
 
 **Excluded:**
-- Basic SKU load balancers are skipped (retired, no cost signal)
+- Basic and Gateway SKU load balancers are skipped (out of scope)
+- Load balancers with no load-balancing rules and no outbound rules (no cost signal — Azure does not charge hourly when no billable rules are configured)
+- Load balancers where any referenced backend pool cannot be resolved from inventory
+- Any relevant backend pool has NIC-based or IP-based members
 
-**Why this matters:**
-- Standard Load Balancers incur base charges (~$18/month) regardless of backends
-- Empty LBs are a clear cost optimization signal
-- Common after VM/VMSS teardowns or migrations
+**Cost model:** `estimated_monthly_cost_usd` is always `None`. Standard Load Balancer pricing depends on the number of configured load-balancing and outbound rules and data processed; no flat monthly estimate is appropriate.
 
 **Detection logic:**
 ```python
-if lb.sku.name == "Standard":
-    pools = lb.backend_address_pools or []
-    # Check both NIC-based and IP-based backend representations
-    has_members = any(
-        pool.backend_ip_configurations or pool.load_balancer_backend_addresses
-        for pool in pools
-    )
-    if not has_members:
-        confidence = "HIGH"  # Deterministic: zero members across all pools
+if lb.sku.name == "Standard" and lb.provisioning_state == "Succeeded":
+    lb_rules = lb.load_balancing_rules or []
+    outbound_rules = lb.outbound_rules or []
+    if not lb_rules and not outbound_rules:
+        continue  # no billable rules — no cost signal
+    # Collect pools referenced by billable rules only
+    relevant_pool_ids = {ref.id for rule in lb_rules + outbound_rules
+                         for ref in rule_pool_refs(rule)}
+    relevant_pools = [pool_inventory[pid] for pid in relevant_pool_ids]
+    if all(not pool.backend_ip_configurations and not pool.load_balancer_backend_addresses
+           for pool in relevant_pools):
+        confidence = "HIGH"  # all relevant pools empty
 ```
 
-**Backend representations checked:**
-- `backend_ip_configurations` — NIC-based backends (standard VMs)
+**Backend representations checked (per pool):**
+- `backend_ip_configurations` — NIC-based backends (standard VMs, VMSS)
 - `load_balancer_backend_addresses` — IP-based backends (Private Link, hybrid)
 
+Unreferenced backend pools are contextual only and do not affect the finding.
+
 **Common causes:**
-- VMs or VMSS deleted but LB retained
-- Migration from Basic to Standard leaving empty LBs
+- VMs or VMSS deleted but LB and its rules retained
+- Migration leaving old LBs with rules pointing to drained pools
 - Failed deployments or incomplete teardowns
 - Hub-spoke architecture cleanup gaps
 
