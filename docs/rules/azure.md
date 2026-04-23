@@ -188,17 +188,17 @@
 ## Governance
 
 #### `azure.resource.untagged`
-**Detects:** Managed disks and snapshots with zero tags
+**Detects:** Managed disks and snapshots with zero direct resource tags and resource age >= 7 days
 
-**Confidence / Risk:** MEDIUM (untagged + unattached disk); LOW (untagged snapshot or attached disk) / LOW
+**Confidence / Risk:** MEDIUM (untagged disk whose attachment context resolves conservatively as ordinarily unattached); LOW (untagged snapshot or disk with attached/unresolved attachment context) / LOW
 
 **Permissions:** `Microsoft.Compute/disks/read`, `Microsoft.Compute/snapshots/read`
 
 **Params:** none
 
-**Exclusions:** disks younger than 7 days
+**Exclusions:** `provisioning_state != "Succeeded"`; direct tag state unresolvable (field missing or non-mapping non-None value); resource has at least one direct tag; resource age < 7 days or `time_created` unresolvable, invalid, or in the future; conflicting SDK vs nested provisioning-state or time-created signals
 
-**Spec:** —
+**Spec:** [specs/azure/untagged_resources.md](../specs/azure/untagged_resources.md)
 
 ---
 
