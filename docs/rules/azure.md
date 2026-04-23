@@ -7,7 +7,7 @@
 | Rule ID | Cost Surface | What It Detects |
 |---|---|---|
 | `azure.vm.stopped_not_deallocated` | Compute | Stopped but not deallocated VMs (full charges) |
-| `azure.compute.disk.unattached` | Storage | Managed disks not attached to any VM |
+| `azure.compute.disk.unattached` | Storage | Managed disks in `Unattached` state with no attachment surfaces and unattached age >= 7 days |
 | `azure.compute.snapshot.old` | Storage | Old managed snapshots as conservative review candidates |
 | `azure.network.public_ip.unused` | Network | Public IPs unattached across all four control-plane linkage surfaces |
 | `azure.load_balancer.no_backends` | Network | Standard LBs with billable rules but no backend members |
@@ -29,24 +29,24 @@
 ## Compute
 
 #### `azure.vm.stopped_not_deallocated`
-**Detects:** VMs in `PowerState/stopped` state (full compute charges continue; only `deallocated` stops billing)
+**Detects:** VMs whose runtime power state resolves to exactly `PowerState/stopped` from per-VM `instance_view` statuses, with `provisioning_state == "Succeeded"` confirmed from the control-plane model payload
 
-**Confidence / Risk:** HIGH (deterministic power state) / HIGH
+**Confidence / Risk:** HIGH (deterministic power state from instance_view) / HIGH
 
-**Permissions:** `Microsoft.Compute/virtualMachines/read`
+**Permissions:** `Microsoft.Compute/virtualMachines/read`, `Microsoft.Compute/virtualMachines/instanceView/action`
 
 **Params:** none
 
-**Exclusions:** `PowerState/deallocated`, transitional states (starting, stopping, deallocating)
+**Exclusions:** `id` or `name` absent/empty; `provisioning_state != "Succeeded"` (SDK+nested, conflict -> skip); per-VM `instance_view` retrieval fails (skip that VM); no `PowerState/` code in statuses; multiple conflicting `PowerState/` codes; any power state other than exact `PowerState/stopped`
 
-**Spec:** —
+**Spec:** [specs/azure/vm_stopped_not_deallocated.md](../specs/azure/vm_stopped_not_deallocated.md)
 
 ---
 
 ## Storage
 
 #### `azure.compute.disk.unattached`
-**Detects:** Managed disks with `managed_by is None` for 7+ days
+**Detects:** Managed disks in `Unattached` disk state with no attachment surfaces confirmed absent and unattached age >= 7 days (age anchored to `lastOwnershipUpdateTime` when available, `timeCreated` as fallback)
 
 **Confidence / Risk:** MEDIUM (deterministic state; attachment intent unknown) / LOW
 
@@ -54,9 +54,9 @@
 
 **Params:** none
 
-**Exclusions:** disks younger than 7 days
+**Exclusions:** `provisioning_state != "Succeeded"`; `disk_state != "Unattached"`; `managed_by` or `managed_by_extended` present or unresolvable; `max_shares > 1` or unresolvable (shared-disk capable); `optimized_for_frequent_attach == True` or unresolvable; unattached age < 7 days or age anchor unresolvable; conflicting control-plane signals across SDK and raw surfaces
 
-**Spec:** —
+**Spec:** [specs/azure/unattached_managed_disks.md](../specs/azure/unattached_managed_disks.md)
 
 #### `azure.compute.snapshot.old`
 **Detects:** Managed snapshots older than 30 days as conservative review candidates; confidence escalates with age relative to `max_age_days`
@@ -115,17 +115,17 @@
 **Spec:** [specs/azure/app_gateway_no_backends.md](../specs/azure/app_gateway_no_backends.md)
 
 #### `azure.virtual_network_gateway.idle`
-**Detects:** VPN or ExpressRoute Gateways with no active S2S/ExpressRoute connections
+**Detects:** VPN or ExpressRoute Gateways with no configured in-scope connection resources (IPsec, Vnet2Vnet, ExpressRoute) and zero applicable gateway metrics over a 30-day window
 
-**Confidence / Risk:** MEDIUM (no active connections; P2S client count not checked) / HIGH
+**Confidence / Risk:** HIGH (all connection, P2S, bypass, and metric signals resolved deterministically) / HIGH
 
-**Permissions:** `Microsoft.Network/virtualNetworkGateways/read`, `Microsoft.Network/connections/read`
+**Permissions:** `Microsoft.Resources/resources/read`, `Microsoft.Network/virtualNetworkGateways/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** none
+**Params:** none (30-day fixed idle window)
 
-**Exclusions:** gateways with P2S configuration present and no active connections are still flagged if no other connections exist
+**Exclusions:** `id` or `name` absent/empty; malformed ARM id (resource group unextractable); `provisioning_state != "Succeeded"` (SDK+nested, conflict -> skip); `gateway_type` not `"Vpn"` or `"ExpressRoute"` (conflict -> skip); `allowVirtualWanTraffic == True`; ExpressRoute: `adminState == "Disabled"` or any connection with `expressRouteGatewayBypass == True` or unresolvable; VPN: any P2S field group (`vpnClientConfiguration`, address pool, root certs, AAD/Entra tenant, etc.) non-empty or unresolvable; any configured in-scope connection resource present; any connection type unresolvable or conflicting; `list_connections()` fails; ExpressRoute SKU tier absent (metric family unresolvable); any applicable metric unknown, below 80% daily-bucket coverage, or non-zero; per-gateway SDK retrieval errors (HttpResponseError, ServiceRequestError, ServiceResponseError)
 
-**Spec:** —
+**Spec:** [specs/azure/vnet_gateway_idle.md](../specs/azure/vnet_gateway_idle.md)
 
 ---
 
@@ -188,17 +188,17 @@
 ## Governance
 
 #### `azure.resource.untagged`
-**Detects:** Managed disks and snapshots with zero tags
+**Detects:** Managed disks and snapshots with zero direct resource tags and resource age >= 7 days
 
-**Confidence / Risk:** MEDIUM (untagged + unattached disk); LOW (untagged snapshot or attached disk) / LOW
+**Confidence / Risk:** MEDIUM (untagged disk whose attachment context resolves conservatively as ordinarily unattached); LOW (untagged snapshot or disk with attached/unresolved attachment context) / LOW
 
 **Permissions:** `Microsoft.Compute/disks/read`, `Microsoft.Compute/snapshots/read`
 
 **Params:** none
 
-**Exclusions:** disks younger than 7 days
+**Exclusions:** `provisioning_state != "Succeeded"`; direct tag state unresolvable (field missing or non-mapping non-None value); resource has at least one direct tag; resource age < 7 days or `time_created` unresolvable, invalid, or in the future; conflicting SDK vs nested provisioning-state or time-created signals
 
-**Spec:** —
+**Spec:** [specs/azure/untagged_resources.md](../specs/azure/untagged_resources.md)
 
 ---
 
