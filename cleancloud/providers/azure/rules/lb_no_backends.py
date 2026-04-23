@@ -252,7 +252,7 @@ def _collect_referenced_pool_ids(lb) -> Optional[Set[str]]:
             # Billable rule has no pool reference at all — incomplete config → skip
             return None
 
-        referenced.update(rule_pool_ids)
+        referenced |= rule_pool_ids
 
     return referenced
 
