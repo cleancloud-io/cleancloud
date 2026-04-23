@@ -15,7 +15,7 @@
 | `azure.virtual_network_gateway.idle` | Network | VPN/ExpressRoute Gateways with no connections |
 | `azure.app_service_plan.empty` | Platform | Paid App Service Plans with zero apps |
 | `azure.app_service.idle` | Platform | App Services with zero HTTP requests 14+ days |
-| `azure.sql.database.idle` | Platform | Azure SQL databases with zero connections 14+ days |
+| `azure.sql.database.idle` | Platform | Dedicated single databases with zero activity across all five required metrics over idle window |
 | `azure.container_registry.unused` | Platform | Container registries with zero pulls and pushes 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days |
@@ -158,17 +158,17 @@
 **Spec:** [specs/azure/app_service_idle.md](../specs/azure/app_service_idle.md)
 
 #### `azure.sql.database.idle`
-**Detects:** Azure SQL databases with zero `connection_successful` metric for `idle_threshold_days`
+**Detects:** Dedicated single databases with zero activity across all five required Azure Monitor metrics (`connection_successful`, `sessions_count`, `cpu_percent`, `physical_data_read_percent`, `log_write_percent`) over the idle window; single-metric silence is not sufficient
 
-**Confidence / Risk:** HIGH (zero connections confirmed) / HIGH
+**Confidence / Risk:** HIGH (all five metrics confirmed zero for full window) / HIGH
 
 **Permissions:** `Microsoft.Sql/servers/read`, `Microsoft.Sql/servers/databases/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** `idle_threshold_days` (default: 14)
+**Params:** `idle_days` (default: 14)
 
-**Exclusions:** `master` system database; Basic tier databases
+**Exclusions:** `master` system database; elastic pool databases (billing is at pool level); replica / secondary-shaped databases (`secondary_type` non-empty); currently paused serverless databases (`status == "Paused"` or `paused_date > resumed_date`); databases younger than `idle_days`; any required metric absent, series empty, or query failing (conservative skip)
 
-**Spec:** —
+**Spec:** [azure/sql_database_idle.md](../specs/azure/sql_database_idle.md)
 
 #### `azure.container_registry.unused`
 **Detects:** Container registries with zero successful pulls AND zero successful pushes for `days_unused`; registries with sparse or missing metrics are skipped
