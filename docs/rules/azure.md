@@ -21,7 +21,7 @@
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no activity 14+ days |
 | `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints with zero scoring requests 7+ days |
-| `azure.ai_search.idle` | AI/ML | Azure AI Search services (Standard+) with zero queries 30+ days |
+| `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
 | `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero requests 7+ days |
 
 ---
@@ -244,17 +244,17 @@
 **Spec:** —
 
 #### `azure.ai_search.idle`
-**Detects:** Azure AI Search services (Standard tier and above) with zero `SearchQueriesPerSecond` for `idle_days`
+**Detects:** Azure AI Search services (Basic tier and above) that are structurally empty and have no documented query, indexing, or skill activity over a fixed 90-day window; requires BOTH confirmed zero activity across all three required metrics AND confirmed emptiness of all required object surfaces before emitting
 
-**Confidence / Risk:** HIGH (zero queries confirmed + age ≥ `idle_days`); MEDIUM (zero confirmed but age < `idle_days`, or metric unavailable + age ≥ 2× `idle_days`) / HIGH (estimated cost ≥ $1,000/month); MEDIUM (otherwise)
+**Confidence / Risk:** HIGH (always, when all required signals resolve) / MEDIUM (always)
 
-**Permissions:** `Microsoft.Search/searchServices/read`, `Microsoft.Insights/metrics/read`
+**Permissions:** `Microsoft.Search/searchServices/read`, `Microsoft.Insights/metrics/read`, Azure AI Search data-plane RBAC (`Search Service Contributor` or equivalent; no admin keys)
 
-**Params:** `idle_days` (default: 30)
+**Params:** none (90-day window is fixed)
 
-**Exclusions:** Basic tier and below; only `standard`, `standard2`, `standard3`, `storage_optimized_l1`, `storage_optimized_l2` evaluated
+**Exclusions:** `id` or `name` absent/empty; outside optional region filter (exact lowercase match; spaces and hyphens preserved); `provisioning_state` does not resolve to exactly `"succeeded"` (SDK+nested, conflict → skip); `status` does not resolve to exactly `"running"` (SDK+nested, conflict → skip); `sku.name` not in supported dedicated billable tiers (`basic`, `standard`, `standard2`, `standard3`, `storage_optimized_l1`, `storage_optimized_l2`) after lowercase normalization and camelCase alias resolution; `systemData.createdAt` absent, invalid, in the future, or service age < 90 days (no age-only fallback); `replica_count` or `partition_count` not a known positive integer (conflict → skip); data-plane client factory returns `None` (azure-search-documents package unavailable → skip); any required object surface (`indexes`, `indexers`, `data_sources`, `skillsets`, `synonym_maps`) fails, is unavailable, or is non-empty; any optional reinforcing surface (`aliases`, `knowledge_sources`, `agents`) fully enumerated and non-empty; any of three required activity metrics (`SearchQueriesPerSecond`/Average, `DocumentsProcessedCount`/Total, `SkillExecutionCount`/Total) below 95% daily-bucket coverage or non-zero over 90 days; non-numeric aggregation values or malformed metric response shapes (fail-closed to UNKNOWN → skip); per-service retrieval raises `HttpResponseError`, `ServiceRequestError`, or `ServiceResponseError`
 
-**Spec:** —
+**Spec:** [specs/azure/ai/ai_search_idle.md](../specs/azure/ai/ai_search_idle.md)
 
 #### `azure.openai.provisioned_deployment.idle`
 **Detects:** Azure OpenAI provisioned deployments (PTUs) with zero API requests for `idle_days`; bills per PTU per hour regardless of traffic
