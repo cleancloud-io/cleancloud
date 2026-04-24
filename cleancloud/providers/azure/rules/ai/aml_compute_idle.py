@@ -1,7 +1,51 @@
-from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+"""
+Rule: azure.aml.compute.idle
 
-# Azure SDK (top-level imports for CI fail-fast)
+Intent:
+    Detect managed Azure Machine Learning compute clusters (AmlCompute) that retain
+    billable baseline capacity while showing no observed per-cluster job activity over
+    a fixed 14-day observation window.
+
+    This rule is deliberately precision-first. It requires BOTH confirmed positive
+    baseline node allocation (min_node_count > 0 with current nodes allocated) AND
+    confirmed zero per-cluster activity (Active Nodes metric at zero for the cluster)
+    before emitting. It is a conservative review-candidate rule only and does not
+    prove that deleting the cluster is safe.
+
+Exclusions:
+    - id absent or empty
+    - name absent or empty
+    - workspace.name absent or empty
+    - outside optional region filter (compute resource location, exact lowercase match;
+      spaces and hyphens preserved)
+    - compute_type does not resolve to exactly "AmlCompute" (SDK+nested, conflict -> skip)
+    - provisioning_state does not resolve to exactly "Succeeded" (SDK+nested, conflict -> skip)
+    - allocation_state does not resolve to exactly "Steady" (SDK+nested, conflict -> skip)
+    - created_at absent, invalid, in the future, or cluster age < 14 days
+    - min_node_count <= 0 or unresolvable
+    - current_node_count negative, unresolvable, or < min_node_count
+    - Active Nodes metric cannot be resolved reliably for the target cluster
+      (no ClusterName-scoped series, < 95% daily-bucket coverage, unusable shape)
+    - Active Nodes metric is non-zero over the 14-day window
+    - per-compute record resolution or metric retrieval fails
+    - per-workspace compute listing fails (skip that workspace)
+
+Cost model (spec 10):
+    estimated_monthly_cost_usd = None (always)
+    Risk = MEDIUM (always)
+    Confidence = HIGH (always, when all conditions met)
+
+APIs:
+    - Microsoft.MachineLearningServices/workspaces/read
+    - Microsoft.MachineLearningServices/workspaces/computes/read
+    - Microsoft.Insights/metrics/read
+"""
+
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from typing import List, Optional
+
+from azure.core.exceptions import HttpResponseError, ServiceRequestError, ServiceResponseError
 from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
 from azure.mgmt.monitor import MonitorManagementClient
 
@@ -10,44 +54,347 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
+_RULE_ID = "azure.aml.compute.idle"
+_RESOURCE_TYPE = "azure.aml.compute"
+_IDLE_WINDOW_DAYS = 14  # fixed per spec 6.3
+_MIN_AGE_DAYS = 14  # spec 8.8
+_MIN_COVERAGE = 0.95  # spec 9.3
+
 RULE_METADATA = {
-    "id": "azure.aml.compute.idle",
+    "id": _RULE_ID,
     "category": "ai",
     "service": "machinelearning",
     "cost_impact": "high",
 }
 
-# GPU VM size prefixes — significantly more expensive than CPU
-_GPU_VM_PREFIXES = ("Standard_NC", "Standard_ND", "Standard_NV")
 
-# Approximate monthly cost per node (on-demand, East US, 730 h/month)
-# Cost for min_node_count nodes that run continuously regardless of job activity
-_MONTHLY_COST_PER_NODE = {
-    "Standard_D2_v2": 130.0,
-    "Standard_D4_v2": 259.0,
-    "Standard_D8_v2": 518.0,
-    "Standard_D2s_v3": 96.0,
-    "Standard_D4s_v3": 192.0,
-    "Standard_D8s_v3": 384.0,
-    "Standard_NC6": 648.0,
-    "Standard_NC12": 1_296.0,
-    "Standard_NC24": 2_592.0,
-    "Standard_NC6s_v3": 2_203.0,
-    "Standard_NC12s_v3": 4_406.0,
-    "Standard_NC24s_v3": 8_812.0,
-    "Standard_ND6s": 2_203.0,
-    "Standard_ND12s": 4_406.0,
-    "Standard_ND24s": 8_812.0,
-    "Standard_ND40rs_v2": 15_862.0,
-    "Standard_NV6": 1_094.0,
-    "Standard_NV12": 2_189.0,
-    "Standard_NV24": 4_378.0,
-}
-_DEFAULT_MONTHLY_COST_PER_NODE = 200.0
+class _MetricResult(Enum):
+    ACTIVE = "ACTIVE"
+    ZERO = "ZERO"
+    UNKNOWN = "UNKNOWN"
 
-# Metric names to try in order — Azure ML metrics have drifted across API versions
-# and regions. Try all known names before giving up.
-_ACTIVE_NODE_METRICS = ("Active Nodes", "NodeCount", "CurrentNodeCount")
+
+# ---------------------------------------------------------------------------
+# Normalization
+# ---------------------------------------------------------------------------
+
+
+def _norm_location(s: str) -> str:
+    """Lowercase only — exact lowercase match per spec 7."""
+    return s.lower() if s else ""
+
+
+def _extract_resource_group(resource_id: Optional[str]) -> Optional[str]:
+    """Extract resource group name from Azure ARM resource ID."""
+    if not resource_id:
+        return None
+    parts = resource_id.split("/")
+    try:
+        idx = next(i for i, p in enumerate(parts) if p.lower() == "resourcegroups")
+        return parts[idx + 1]
+    except (StopIteration, IndexError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# State resolvers (spec 9.1)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_str_field(obj, snake: str, camel: str) -> Optional[str]:
+    """
+    Resolve a string field from SDK snake_case then raw camelCase.
+    Returns None on conflict or absent.
+    """
+    if obj is None:
+        return None
+    sdk_val = getattr(obj, snake, None)
+    raw_val = getattr(obj, camel, None)
+    if sdk_val is not None and raw_val is not None and sdk_val != raw_val:
+        return None  # conflict -> skip
+    val = sdk_val if sdk_val is not None else raw_val
+    return val if isinstance(val, str) else None
+
+
+def _resolve_int_field(obj, snake: str, camel: str) -> Optional[int]:
+    """
+    Resolve an integer field from SDK snake_case then raw camelCase.
+    Tries snake first; falls back to camel. Returns parsed int or None.
+    Range checks (>0, >=0) are the caller's responsibility.
+    """
+    if obj is None:
+        return None
+    val = getattr(obj, snake, None)
+    if val is None:
+        val = getattr(obj, camel, None)
+    if val is None:
+        return None
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_detail_str(v) -> Optional[str]:
+    """Serialize any SDK value to a JSON-safe string for finding details."""
+    return str(v) if v is not None else None
+
+
+def _resolve_compute_type(compute) -> Optional[str]:
+    """
+    Resolve compute_type from compute.properties (SDK+nested, spec 9.1).
+    Only "AmlCompute" is eligible; conflict or absent -> None.
+    """
+    outer = getattr(compute, "properties", None)
+    return _resolve_str_field(outer, "compute_type", "computeType")
+
+
+def _resolve_provisioning_state(compute) -> Optional[str]:
+    """
+    Resolve provisioning_state from compute.properties (SDK+nested, spec 9.1).
+    Only "Succeeded" is eligible; conflict or absent -> None.
+    """
+    outer = getattr(compute, "properties", None)
+    return _resolve_str_field(outer, "provisioning_state", "provisioningState")
+
+
+def _resolve_allocation_state(compute) -> Optional[str]:
+    """
+    Resolve allocation_state from compute.properties.properties (SDK+nested, spec 9.1).
+    Only "Steady" is eligible; conflict or absent -> None.
+    """
+    outer = getattr(compute, "properties", None)
+    inner = getattr(outer, "properties", None) if outer is not None else None
+    return _resolve_str_field(inner, "allocation_state", "allocationState")
+
+
+def _resolve_created_at(compute) -> Optional[datetime]:
+    """
+    Resolve creation timestamp from compute.properties.created_on (spec 7).
+    Returns UTC-aware datetime, or None if absent, invalid, or in the future.
+    """
+    outer = getattr(compute, "properties", None)
+    if outer is None:
+        return None
+    raw = getattr(outer, "created_on", None)
+    if raw is None:
+        raw = getattr(outer, "createdOn", None)
+    if raw is None:
+        return None
+
+    if isinstance(raw, datetime):
+        ts = raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc)
+    elif isinstance(raw, str):
+        try:
+            ts = datetime.fromisoformat(raw.rstrip("Z"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if ts > datetime.now(timezone.utc):
+        return None  # future timestamp -> invalid -> skip
+    return ts
+
+
+def _resolve_min_node_count(compute) -> Optional[int]:
+    """
+    Resolve min_node_count from scale_settings (spec 9.2).
+
+    Tries SDK snake_case first, then raw camelCase for both the scale_settings
+    container and the min_node_count field itself. Returns a known positive
+    integer, or None (absent, zero, negative, invalid).
+    """
+    outer = getattr(compute, "properties", None)
+    inner = getattr(outer, "properties", None) if outer is not None else None
+    if inner is None:
+        return None
+    # scale_settings container: SDK snake_case or raw camelCase
+    scale = getattr(inner, "scale_settings", None)
+    if scale is None:
+        scale = getattr(inner, "scaleSettings", None)
+    if scale is None:
+        return None
+    n = _resolve_int_field(scale, "min_node_count", "minNodeCount")
+    return n if n is not None and n > 0 else None
+
+
+def _resolve_current_node_count(compute) -> Optional[int]:
+    """
+    Resolve current_node_count from AmlComputeProperties (spec 9.2).
+
+    Tries SDK snake_case first, then raw camelCase. Returns non-negative
+    integer, or None (absent, negative, invalid).
+    """
+    outer = getattr(compute, "properties", None)
+    inner = getattr(outer, "properties", None) if outer is not None else None
+    if inner is None:
+        return None
+    n = _resolve_int_field(inner, "current_node_count", "currentNodeCount")
+    return n if n is not None and n >= 0 else None
+
+
+# ---------------------------------------------------------------------------
+# Activity-metric contract (spec 9.3)
+# ---------------------------------------------------------------------------
+
+
+def _series_is_cluster_scoped(ts, compute_name: str) -> bool:
+    """
+    Return True only when timeseries metadata confirms ClusterName == compute_name.
+
+    Spec 9.3.2 requires per-cluster scoping via the documented ClusterName
+    dimension. Spec 9.3.3 prohibits workspace-level fallback to prove idleness.
+    A series without verified ClusterName metadata cannot be trusted as
+    cluster-specific and must be skipped (spec 9.3.7 "no valid series").
+
+    The dimension key is matched case-insensitively ("ClusterName" / "clusterName");
+    the dimension value is matched exactly (same case as the compute name).
+
+    Two metadata shapes are tolerated:
+    - mv.name.value  (LocalizableString — standard SDK object)
+    - mv.name        (plain str — surfaced by some SDK versions / REST responses)
+    """
+    metadata_values = getattr(ts, "metadata_values", None) or []
+    try:
+        for mv in metadata_values:
+            # Dimension key: try LocalizableString shape first, then plain string fallback.
+            name_obj = getattr(mv, "name", None)
+            dim_name = getattr(name_obj, "value", None)
+            if not isinstance(dim_name, str):
+                dim_name = name_obj if isinstance(name_obj, str) else None
+            # Dimension value
+            dim_value = getattr(mv, "value", None)
+            if (
+                isinstance(dim_name, str)
+                and dim_name.lower() == "clustername"
+                and isinstance(dim_value, str)
+                and dim_value == compute_name
+            ):
+                return True
+    except (AttributeError, TypeError):
+        pass
+    return False
+
+
+def _evaluate_metric(
+    monitor_client,
+    workspace_id: str,
+    compute_name: str,
+    window_start: datetime,
+    window_end: datetime,
+) -> _MetricResult:
+    """
+    Evaluate the Active Nodes metric for the target cluster per spec 9.3.
+
+    Queries with ClusterName dimension filter (spec 9.3.2). No unfiltered workspace-
+    level fallback permitted (spec 9.3.3). No fixed interval so Azure Monitor auto-
+    selects the finest available granularity; activity is evaluated at each returned
+    source bucket before any UTC-day normalization (spec 9.3.4). >= 95% UTC-day
+    coverage is required.
+
+    Each returned timeseries is verified against the ClusterName dimension
+    metadata before any datapoints are consumed. Series without confirmed
+    ClusterName == compute_name metadata are skipped entirely (spec 9.3.2,
+    9.3.3). If no series can be verified as cluster-specific, UNKNOWN is
+    returned (spec 9.3.7 "no valid series").
+
+    Coverage is evaluated over fully-elapsed UTC day buckets only. Both expected_buckets
+    and the datapoint acceptance window are capped symmetrically at midnight(window_end).
+    This excludes the current partial UTC day from both sides so it cannot overstate
+    coverage and cannot mask a missing complete past day.
+
+    Fail-closed on unusable response shapes (spec 9.3.7):
+    - absent or non-datetime timestamp  -> UNKNOWN (entire metric)
+    - non-numeric Maximum value         -> UNKNOWN (entire metric)
+    - malformed series element          -> UNKNOWN (entire metric)
+
+    Datapoints with no Maximum value reduce bucket coverage toward the threshold,
+    driving toward UNKNOWN via the coverage check (not fail-close).
+    """
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    timespan = f"{window_start.strftime(fmt)}/{window_end.strftime(fmt)}"
+
+    first_bucket = window_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Both expected_buckets and the datapoint acceptance window are capped at
+    # last_complete_midnight so they are consistent. The current partial UTC day
+    # (window_end = now, mid-day) is excluded from both sides: including it in
+    # expected_buckets would cause spurious UNKNOWN (Azure Monitor may not have
+    # emitted today's datapoint yet); including it in observed but not expected
+    # would let today's partial bucket mask a missing prior day, allowing a false
+    # emit on a rule that must be fail-closed.
+    last_complete_midnight = window_end.replace(hour=0, minute=0, second=0, microsecond=0)
+    expected_buckets = int((last_complete_midnight - first_bucket).total_seconds() // 86400)
+    if expected_buckets == 0:
+        return _MetricResult.UNKNOWN
+
+    try:
+        response = monitor_client.metrics.list(
+            workspace_id,
+            metricnames="Active Nodes",
+            timespan=timespan,
+            # No interval= parameter: Azure Monitor auto-selects the finest available
+            # granularity. This preserves source-bucket granularity so short-lived
+            # activity is not diluted away (spec 9.3.4).
+            aggregation="Maximum",
+            filter=f"ClusterName eq '{compute_name}'",
+        )
+    except Exception:
+        return _MetricResult.UNKNOWN
+
+    if not hasattr(response, "value") or response.value is None:
+        return _MetricResult.UNKNOWN
+
+    # Per-bucket maximum across all returned timeseries for the target cluster.
+    # Coverage is tracked per UTC day bucket (spec 9.3 definitions).
+    bucket_max: dict = {}
+
+    try:
+        for metric in response.value:
+            for ts in getattr(metric, "timeseries", None) or []:
+                if not _series_is_cluster_scoped(ts, compute_name):
+                    continue  # not verified as cluster-specific; skip per spec 9.3.2/9.3.3
+                for data in getattr(ts, "data", None) or []:
+                    if data.timestamp is None:
+                        return _MetricResult.UNKNOWN  # unparseable -> fail-closed
+
+                    ts_dt = data.timestamp
+                    if not isinstance(ts_dt, datetime):
+                        return _MetricResult.UNKNOWN  # unparseable timestamp -> fail-closed
+
+                    val = getattr(data, "maximum", None)
+                    if val is None:
+                        continue  # sparse/missing -> reduces coverage, not fail-close
+                    if not isinstance(val, (int, float)):
+                        return _MetricResult.UNKNOWN  # non-numeric -> fail-closed
+
+                    ts_utc = (
+                        ts_dt if ts_dt.tzinfo is not None else ts_dt.replace(tzinfo=timezone.utc)
+                    )
+                    if not (window_start <= ts_utc < last_complete_midnight):
+                        continue  # outside eligible bucket range; today's partial day excluded
+
+                    key = ts_utc.strftime("%Y-%m-%dT00:00:00Z")
+                    existing = bucket_max.get(key)
+                    bucket_max[key] = max(existing, val) if existing is not None else val
+    except (AttributeError, TypeError, ValueError):
+        return _MetricResult.UNKNOWN  # malformed response shape -> fail-closed
+
+    observed = len(bucket_max)
+    if observed == 0:
+        return _MetricResult.UNKNOWN
+    if observed / expected_buckets < _MIN_COVERAGE:
+        return _MetricResult.UNKNOWN
+
+    signal = sum(bucket_max.values())
+    return _MetricResult.ACTIVE if signal > 0 else _MetricResult.ZERO
+
+
+# ---------------------------------------------------------------------------
+# Main rule function
+# ---------------------------------------------------------------------------
 
 
 def find_idle_aml_compute(
@@ -55,31 +402,12 @@ def find_idle_aml_compute(
     subscription_id: str,
     credential,
     region_filter: str = None,
-    client: Optional[Any] = None,
-    monitor_client: Optional[Any] = None,
-    idle_days: int = 14,
+    client=None,
+    monitor_client=None,
 ) -> List[Finding]:
     """
-    Find Azure ML compute clusters with min_node_count > 0 and no active nodes.
-
-    AML compute clusters with min_node_count > 0 keep instances running continuously
-    regardless of whether any jobs are submitted — identical billing model to SageMaker
-    InService endpoints. GPU clusters (NC/ND series) cost $600–$15K/month at minimum
-    node count.
-
-    Detection logic:
-    - Compute type is AmlCompute
-    - min_node_count > 0 (instances always running, always billing)
-    - Azure Monitor active-node metric maximum is 0 over the effective idle window
-
-    Metric strategy (Azure Monitor metrics are inconsistent across regions/API versions):
-    - Tries "Active Nodes" first, falls back to "NodeCount"
-    - For each metric, tries with ComputeName dimension filter first,
-      then falls back to unfiltered workspace-level query if no timeseries returned
-
-    Confidence:
-    - HIGH: Zero active nodes over the full idle window (age >= idle_days)
-    - MEDIUM: Zero active nodes, age >= 75% of idle_days threshold, or age unknown
+    Find AML compute clusters with min_node_count > 0 and no observed active nodes
+    for 14 days.
 
     IAM permissions:
     - Microsoft.MachineLearningServices/workspaces/read
@@ -87,11 +415,7 @@ def find_idle_aml_compute(
     - Microsoft.Insights/metrics/read
     """
     findings: List[Finding] = []
-    now = datetime.now(timezone.utc)
 
-    idle_days = max(idle_days, 3)  # effective_window < 3 skips all clusters; clamp to match
-
-    # Instantiate Azure SDK clients (top-level imports ensure CI fails fast if SDKs missing)
     ml_client = client or AzureMachineLearningWorkspaces(
         credential=credential, subscription_id=subscription_id
     )
@@ -99,296 +423,178 @@ def find_idle_aml_compute(
         credential=credential, subscription_id=subscription_id
     )
 
-    def _norm(s: str) -> str:
-        return s.lower().replace(" ", "").replace("-", "")
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=_IDLE_WINDOW_DAYS)
 
-    try:
-        for workspace in ml_client.workspaces.list_by_subscription():
-            # Normalise only for filter comparison; preserve original for output
-            location_raw = workspace.location or ""
-            if region_filter and _norm(location_raw) != _norm(region_filter):
-                continue
+    # Subscription-wide workspace inventory (spec 12: propagate if this fails)
+    for workspace in ml_client.workspaces.list_by_subscription():
+        # spec 8.3: workspace name guard
+        ws_name = getattr(workspace, "name", None)
+        if not ws_name:
+            continue
 
-            rg = _parse_resource_group(workspace.id)
-            if not rg:
-                continue
+        rg = _extract_resource_group(getattr(workspace, "id", None))
+        if not rg:
+            continue
 
-            try:
-                for compute in ml_client.machine_learning_compute.list_by_workspace(
-                    rg, workspace.name
-                ):
-                    compute_obj = compute.properties
-                    if (
-                        not compute_obj
-                        or getattr(compute_obj, "compute_type", None) != "AmlCompute"
-                    ):
+        try:
+            for compute in ml_client.machine_learning_compute.list_by_workspace(rg, ws_name):
+                try:
+                    # spec 8.1: id guard
+                    compute_id = getattr(compute, "id", None)
+                    if not compute_id:
                         continue
 
-                    # AmlComputeProperties lives under compute_obj.properties
-                    aml_props = getattr(compute_obj, "properties", None)
-                    scale_settings = getattr(aml_props, "scale_settings", None)
-                    min_node_count = getattr(scale_settings, "min_node_count", 0) or 0
-                    vm_size = getattr(aml_props, "vm_size", None)
-
-                    # Only flag clusters with min_node_count > 0 — those billing continuously
-                    if min_node_count == 0:
+                    # spec 8.2: name guard
+                    compute_name = getattr(compute, "name", None)
+                    if not compute_name:
                         continue
 
-                    # Age from compute properties — created_on is on AmlCompute (compute.properties),
-                    # not on ComputeResource.system_data as one might expect
-                    age_days: Optional[int] = None
-                    created_at = getattr(compute_obj, "created_on", None)
-                    if created_at is not None:
-                        if created_at.tzinfo is None:
-                            created_at = created_at.replace(tzinfo=timezone.utc)
-                        age_days = (now - created_at).days
-                        # Skip clusters younger than half the idle threshold —
-                        # too new to reliably classify as abandoned
-                        if age_days < max(idle_days // 2, 7):
-                            continue
-
-                    # Effective window: cap to age if known; otherwise use full idle_days
-                    effective_window = (
-                        min(idle_days, age_days) if age_days is not None else idle_days
-                    )
-
-                    if effective_window < 3:
+                    # spec 8.4: region filter on compute resource location (not workspace)
+                    compute_location = _norm_location(getattr(compute, "location", "") or "")
+                    if region_filter and compute_location != _norm_location(region_filter):
                         continue
 
-                    # Check for active nodes over the effective window.
-                    # Returns the metric name that confirmed idle, or None if active/unknown.
-                    idle_metric = _check_active_nodes(
+                    # spec 8.5: compute_type must resolve to exactly "AmlCompute"
+                    if _resolve_compute_type(compute) != "AmlCompute":
+                        continue
+
+                    # spec 8.6: provisioning_state must resolve to exactly "Succeeded"
+                    if _resolve_provisioning_state(compute) != "Succeeded":
+                        continue
+
+                    # spec 8.7: allocation_state must resolve to exactly "Steady"
+                    if _resolve_allocation_state(compute) != "Steady":
+                        continue
+
+                    # spec 8.8: created_at must be present, valid, and cluster age >= 14 days
+                    created_at = _resolve_created_at(compute)
+                    if created_at is None:
+                        continue
+                    age_days = (now - created_at).days
+                    if age_days < _MIN_AGE_DAYS:
+                        continue
+
+                    # spec 8.9: min_node_count must be a known positive integer
+                    min_node_count = _resolve_min_node_count(compute)
+                    if min_node_count is None:
+                        continue
+
+                    # spec 8.10: current_node_count must be known and >= min_node_count
+                    current_node_count = _resolve_current_node_count(compute)
+                    if current_node_count is None:
+                        continue
+                    if current_node_count < min_node_count:
+                        continue
+
+                    # spec 8.11-8.12: Active Nodes metric must evaluate to ZERO
+                    result = _evaluate_metric(
                         mon_client,
-                        workspace.id,
-                        compute.name,
-                        effective_window,
+                        getattr(workspace, "id", "") or "",
+                        compute_name,
+                        window_start,
+                        now,
                     )
-                    if idle_metric is None:
+                    if result != _MetricResult.ZERO:
                         continue
 
-                    # Confidence based on age relative to idle threshold.
-                    # Unknown age -> MEDIUM: we can't rule out a recently-created cluster.
-                    if age_days is not None and age_days >= idle_days:
-                        confidence = ConfidenceLevel.HIGH
-                    elif age_days is not None and age_days >= int(idle_days * 0.75):
-                        confidence = ConfidenceLevel.MEDIUM
-                    elif age_days is None:
-                        confidence = ConfidenceLevel.MEDIUM
-                    else:
-                        continue  # too borderline for a confident finding
+                    # --- Enrichment fields (best-effort; never gate emission) ---
+                    outer = getattr(compute, "properties", None)
+                    inner = getattr(outer, "properties", None) if outer is not None else None
+                    scale = getattr(inner, "scale_settings", None) if inner is not None else None
 
-                    is_gpu = bool(
-                        any((vm_size or "").lower().startswith(p.lower()) for p in _GPU_VM_PREFIXES)
+                    vm_size = getattr(inner, "vm_size", None) if inner is not None else None
+                    vm_priority = getattr(inner, "vm_priority", None) if inner is not None else None
+                    max_node_count = (
+                        getattr(scale, "max_node_count", None) if scale is not None else None
                     )
-                    if is_gpu and min_node_count >= 2:
-                        risk = RiskLevel.HIGH
-                    elif is_gpu or min_node_count >= 2:
-                        risk = RiskLevel.MEDIUM
-                    else:
-                        risk = RiskLevel.LOW
+                    target_node_count = (
+                        getattr(inner, "target_node_count", None) if inner is not None else None
+                    )
+                    node_idle_time = (
+                        getattr(scale, "node_idle_time_before_scale_down", None)
+                        if scale is not None
+                        else None
+                    )
+                    tags = getattr(compute, "tags", None) or {}  # spec 7: never None in output
 
-                    # Normalize casing for lookup — Azure ML can return "STANDARD_NC6" or "standard_nc6"
-                    vm_size_key = next(
-                        (k for k in _MONTHLY_COST_PER_NODE if k.lower() == (vm_size or "").lower()),
-                        None,
-                    )
-                    cost_per_node = (
-                        _MONTHLY_COST_PER_NODE[vm_size_key]
-                        if vm_size_key
-                        else _DEFAULT_MONTHLY_COST_PER_NODE
-                    )
-                    monthly_cost = cost_per_node * min_node_count
-
-                    signals = [
-                        f"Cluster configured with non-zero baseline capacity but no workload observed for {effective_window} days (Azure Monitor: {idle_metric})",
-                        f"Baseline cost driver: min_node_count={min_node_count} (always-on compute — billed continuously)",
-                        "Compute type: AmlCompute",
+                    signals_used = [
+                        "Resource is exact compute type 'AmlCompute'",
+                        "Provisioning state is 'Succeeded'",
+                        "Allocation state is 'Steady'",
+                        f"Cluster age is {age_days} days (>= {_MIN_AGE_DAYS} days)",
+                        (
+                            f"min_node_count={min_node_count} (positive baseline confirmed), "
+                            f"current_node_count={current_node_count} (>= min_node_count)"
+                        ),
+                        (
+                            f"Active Nodes metric for cluster '{compute_name}' resolved to "
+                            f"no observed active nodes over {_IDLE_WINDOW_DAYS} days with "
+                            f">= {int(_MIN_COVERAGE * 100)}% daily-bucket coverage "
+                            f"(ClusterName dimension, Maximum aggregation)"
+                        ),
                     ]
-                    if age_days is not None:
-                        signals.append(f"Cluster age: {age_days} days")
-                    if vm_size:
-                        signals.append(f"VM size: {vm_size}")
-                    if is_gpu:
-                        signals.append("GPU cluster with no workload — high-cost idle state")
-                    if min_node_count == 1:
-                        signals.append("Single-node baseline — may be intentional for dev/test")
-
-                    evidence = Evidence(
-                        signals_used=signals,
-                        signals_not_checked=[
-                            "Scheduled or periodic training jobs",
-                            "Jobs submitted outside the observation window",
-                            "Planned future usage",
-                            "Cluster configured with min_node_count for warm-start latency",
-                            "Cluster reserved for interactive development",
-                        ],
-                        time_window=f"{effective_window} days",
-                    )
-
-                    age_for_details = age_days if age_days is not None else "unknown"
 
                     findings.append(
                         Finding(
                             provider="azure",
-                            rule_id="azure.aml.compute.idle",
-                            resource_type="azure.aml.compute",
-                            resource_id=compute.id,
-                            region=location_raw,
-                            estimated_monthly_cost_usd=monthly_cost,
-                            title=f"Idle Azure ML Compute Cluster (Baseline Capacity Waste for {effective_window} Days)",
+                            rule_id=_RULE_ID,
+                            resource_type=_RESOURCE_TYPE,
+                            resource_id=compute_id,
+                            region=compute_location,
+                            estimated_monthly_cost_usd=None,  # spec 10: always None
+                            title=f"Idle AML Compute Cluster with Retained Baseline Capacity: {compute_name}",
                             summary=(
-                                f"AML compute cluster '{compute.name}' in workspace '{workspace.name}' "
-                                f"is configured to keep {min_node_count} node(s) always running "
-                                f"(min_node_count={min_node_count}) but no workload activity was "
-                                f"observed for {effective_window} days — baseline capacity waste."
+                                f"AML compute cluster '{compute_name}' in workspace '{ws_name}' "
+                                f"is configured to keep {min_node_count} node(s) running "
+                                f"(min_node_count={min_node_count}) with no observed active nodes "
+                                f"over {_IDLE_WINDOW_DAYS} days"
                             ),
                             reason=(
-                                f"AML compute cluster has min_node_count={min_node_count} "
-                                f"with no workload activity for {effective_window} days"
+                                f"Cluster retains {min_node_count} baseline node(s) "
+                                f"(min_node_count={min_node_count}) with no documented job "
+                                f"activity for {_IDLE_WINDOW_DAYS} days; baseline nodes incur "
+                                f"ongoing cost regardless of job activity"
                             ),
-                            risk=risk,
-                            confidence=confidence,
+                            risk=RiskLevel.MEDIUM,  # spec 11.1: always MEDIUM
+                            confidence=ConfidenceLevel.HIGH,  # spec 11.1: always HIGH
                             detected_at=now,
-                            evidence=evidence,
+                            evidence=Evidence(
+                                signals_used=signals_used,
+                                signals_not_checked=[
+                                    "Future or scheduled training intent",
+                                    "Business-owner intent not visible in Azure control plane",
+                                    "Warm baseline retained intentionally for startup latency, quota reservation, or sporadic experimentation",
+                                    "Exact VM and infrastructure pricing after discounts, reservations, or special commercial terms",
+                                ],
+                                time_window=f"{_IDLE_WINDOW_DAYS} days",
+                            ),
                             details={
-                                "cluster_name": compute.name,
-                                "workspace_name": workspace.name,
+                                "cluster_name": compute_name,
+                                "workspace_name": ws_name,
                                 "resource_group": rg,
+                                "subscription_id": subscription_id,
                                 "vm_size": vm_size,
+                                "vm_priority": _to_detail_str(vm_priority),
                                 "min_node_count": min_node_count,
-                                "is_gpu": is_gpu,
-                                "age_days": age_for_details,
-                                "idle_window_days": effective_window,
-                                "idle_days_threshold": idle_days,
-                                "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
-                                "cost_estimate_type": ("mapped" if vm_size_key else "approximate"),
+                                "max_node_count": max_node_count,
+                                "current_node_count": current_node_count,
+                                "target_node_count": target_node_count,
+                                "allocation_state": "Steady",
+                                "provisioning_state": "Succeeded",
+                                "created_at": created_at.isoformat(),
+                                "node_idle_time_before_scale_down": _to_detail_str(node_idle_time),
+                                "idle_window_days": _IDLE_WINDOW_DAYS,
+                                "metrics_used": ["Active Nodes"],
+                                "tags": tags,
                             },
                         )
                     )
-            except Exception as ws_err:
-                ws_msg = str(ws_err)
-                if "AuthorizationFailed" in ws_msg or "Forbidden" in ws_msg or "403" in ws_msg:
-                    raise PermissionError(
-                        "Missing required permissions: "
-                        "Microsoft.MachineLearningServices/workspaces/read, "
-                        "Microsoft.MachineLearningServices/workspaces/computes/read, "
-                        "Microsoft.Insights/metrics/read"
-                    ) from ws_err
-                continue  # skip this workspace on transient error; preserve findings so far
 
-    except Exception as e:
-        msg = str(e)
-        if "AuthorizationFailed" in msg or "Forbidden" in msg or "403" in msg:
-            raise PermissionError(
-                "Missing required permissions: "
-                "Microsoft.MachineLearningServices/workspaces/read, "
-                "Microsoft.MachineLearningServices/workspaces/computes/read, "
-                "Microsoft.Insights/metrics/read"
-            ) from e
-        raise
+                except (HttpResponseError, ServiceRequestError, ServiceResponseError):
+                    continue  # per-compute retrieval failure -> skip (spec 12)
+
+        except (HttpResponseError, ServiceRequestError, ServiceResponseError):
+            continue  # per-workspace compute list failure -> skip workspace (spec 12)
 
     return findings
-
-
-def _check_active_nodes(
-    monitor_client: Any,
-    workspace_id: str,
-    compute_name: str,
-    days: int,
-) -> Optional[str]:
-    """Check whether the cluster had any active nodes in the past `days` days.
-
-    Returns the metric name that confirmed idle (e.g. "Active Nodes"), or None
-    if the cluster appears active or no reliable per-cluster signal was found.
-
-    Azure Monitor metrics for ML workspaces are inconsistent: the metric name
-    ("Active Nodes" vs "NodeCount" vs "CurrentNodeCount") and available dimensions
-    (ComputeName vs ClusterName vs none) vary by API version, region, and workspace type.
-
-    Strategy — for each candidate metric name:
-      1. Query with ComputeName dimension filter (only reliable signal)
-         - active  -> return None (skip this cluster)
-         - idle    -> return metric name (confirmed idle — dimension-filtered zero is trustworthy)
-         - no data -> filter unsupported; fall back to workspace-level query
-      2. Workspace-level fallback (unfiltered):
-         - active  -> return None (something active somewhere; skip conservatively)
-         - idle/no data -> UNKNOWN, not idle (one active cluster can hide many idle ones)
-      3. If no metric yields a reliable per-cluster signal -> return None (assume active)
-
-    Returns None (assume active) on any API exception to avoid false positives.
-    """
-    now = datetime.now(timezone.utc)
-    start_time = now - timedelta(days=max(days, 1))
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
-    timespan = f"{start_time.strftime(fmt)}/{now.strftime(fmt)}"
-
-    def _query(metric_name: str, dimension_filter: Optional[str]) -> Optional[bool]:
-        """Query one metric.
-
-        Returns True  -> activity found (cluster was active)
-        Returns False -> timeseries returned, all values zero (cluster confirmed idle)
-        Returns None  -> no timeseries returned (metric/dimension unavailable)
-        Raises        -> API error (caller handles)
-        """
-        kwargs = dict(
-            metricnames=metric_name,
-            timespan=timespan,
-            interval="P1D",
-            aggregation="Maximum",
-        )
-        if dimension_filter:
-            kwargs["filter"] = dimension_filter
-
-        response = monitor_client.metrics.list(workspace_id, **kwargs)
-
-        has_real_data = False
-        for metric in response.value:
-            for ts in metric.timeseries:
-                for data in ts.data:
-                    if data.maximum is not None:
-                        has_real_data = True
-                        if data.maximum > 0:
-                            return True  # confirmed active
-
-        # Only treat as confirmed idle when at least one non-None datapoint was seen.
-        # All-None maximums (metric publishing gap / throttled ingestion) are treated
-        # as unknown — same as no timeseries — to avoid false positives.
-        return False if has_real_data else None
-
-    try:
-        for metric_name in _ACTIVE_NODE_METRICS:
-            # Step 1: try with ComputeName dimension filter
-            result = _query(metric_name, f"ComputeName eq '{compute_name}'")
-            if result is True:
-                return None  # confirmed active
-            if result is False:
-                return metric_name  # confirmed idle — dimension-filtered zero is trustworthy
-
-            # Step 2: filter returned no timeseries — dimension may not be supported.
-            # Fall back to unfiltered workspace-level query.
-            result = _query(metric_name, None)
-            if result is True:
-                return None  # something active in the workspace — skip conservatively
-
-            # False or None at workspace level is UNKNOWN, not idle:
-            # one active cluster can mask multiple idle ones — never confirm idle here.
-            # Continue to the next metric name.
-
-        # No metric returned a reliable per-cluster signal — assume active.
-        # This avoids flagging clusters whose metrics are simply not published yet.
-        return None
-
-    except Exception:
-        return None  # conservative: assume active if metrics unavailable
-
-
-def _parse_resource_group(resource_id: Optional[str]) -> Optional[str]:
-    """Extract the resource group name from an Azure resource ID."""
-    if not resource_id:
-        return None
-    parts = resource_id.split("/")
-    try:
-        idx = [p.lower() for p in parts].index("resourcegroups")
-        return parts[idx + 1]
-    except (ValueError, IndexError):
-        return None

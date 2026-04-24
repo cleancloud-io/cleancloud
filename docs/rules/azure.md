@@ -18,7 +18,7 @@
 | `azure.sql.database.idle` | Platform | Dedicated single databases with zero activity across all five required metrics over idle window |
 | `azure.container_registry.unused` | Platform | Container registries with zero pulls and pushes 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
-| `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days |
+| `azure.aml.compute.idle` | AI/ML | AML compute clusters with `min_node_count > 0`, confirmed current node allocation, and zero per-cluster `Active Nodes` activity 14+ days |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no activity 14+ days |
 | `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints with zero scoring requests 7+ days |
 | `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
@@ -205,17 +205,17 @@
 ## AI/ML *(opt-in: `--category ai`)*
 
 #### `azure.aml.compute.idle`
-**Detects:** AML compute clusters with `min_node_count > 0` and zero active nodes for 14+ days
+**Detects:** AML compute clusters (`computeType == "AmlCompute"`) with `min_node_count > 0` retaining confirmed baseline node allocation and no observed per-cluster `Active Nodes` activity for 14 days; requires BOTH confirmed positive baseline capacity AND confirmed zero per-cluster activity metric before emitting
 
-**Confidence / Risk:** HIGH (zero nodes, cluster age ≥ 14 days); MEDIUM (zero nodes, age 7–13 days or creation time unavailable) / HIGH (GPU VM sizes: Standard_NC*, Standard_ND*, Standard_NV*); MEDIUM (CPU)
+**Confidence / Risk:** HIGH (always, when all required signals resolve) / MEDIUM (always)
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/computes/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** none (14-day threshold is fixed)
+**Params:** none (14-day window is fixed)
 
-**Exclusions:** clusters with `min_node_count == 0` (scale-to-zero; no idle cost)
+**Exclusions:** `id` or `name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **compute** resource location; spaces and hyphens preserved); `compute_type` does not resolve to exactly `"AmlCompute"` (SDK+nested, conflict → skip); `provisioning_state` does not resolve to exactly `"Succeeded"` (SDK+nested, conflict → skip); `allocation_state` does not resolve to exactly `"Steady"` (SDK+nested, conflict → skip); `created_at` absent, invalid, in the future, or cluster age < 14 days (no age-only fallback); `min_node_count <= 0` or unresolvable; `current_node_count` negative, unresolvable, or < `min_node_count`; `Active Nodes` metric with `ClusterName` dimension filter cannot be resolved reliably (< 95% daily-bucket coverage, unusable response shape, no per-cluster series); `Active Nodes` metric is non-zero over the 14-day window; per-compute retrieval error (skip that compute); per-workspace compute listing error (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/aml_compute_idle.md](../specs/azure/ai/aml_compute_idle.md)
 
 #### `azure.ml.compute_instance.idle`
 **Detects:** Azure ML Compute Instances in `Running` state with no control-plane activity for `idle_days`
