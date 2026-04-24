@@ -19,7 +19,7 @@
 | `azure.container_registry.unused` | Platform | Container registries with zero pulls and pushes 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with `min_node_count > 0`, confirmed current node allocation, and zero per-cluster `Active Nodes` activity 14+ days |
-| `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no activity 14+ days |
+| `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances in `Running` state with no documented control-plane lifecycle activity for `idle_days` (default 14); uses `lastOperation.operationTime` or `modifiedOn` fallback only — no age-only or undocumented fallbacks |
 | `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints with zero scoring requests 7+ days |
 | `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
 | `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero requests 7+ days |
@@ -218,17 +218,19 @@
 **Spec:** [specs/azure/ai/aml_compute_idle.md](../specs/azure/ai/aml_compute_idle.md)
 
 #### `azure.ml.compute_instance.idle`
-**Detects:** Azure ML Compute Instances in `Running` state with no control-plane activity for `idle_days`
+**Detects:** Azure ML Compute Instances (`computeType == "ComputeInstance"`) in `Running` state with `provisioning_state == "Succeeded"` and no documented control-plane lifecycle activity for `idle_days`; precision-first review-candidate rule — does not claim to observe notebook/kernel/session inactivity
 
-**Confidence / Risk:** HIGH (`last_operation.operation_time` or `last_modified_at` ≥ threshold, age ≥ threshold); MEDIUM (≥ 75% of threshold on both signals, or age-only fallback) / CRITICAL (GPU + `idle_ratio ≥ 2.0`); HIGH (GPU: Standard_NC*, Standard_ND*, Standard_NV*); MEDIUM (CPU)
+**Confidence / Risk:** MEDIUM (`lastOperation.operationTime` is the idle signal source); LOW (`modifiedOn` fallback is the idle signal source) / HIGH (GPU: exact case-sensitive prefix match on `Standard_NC`, `Standard_ND`, `Standard_NV`); MEDIUM (all other VM families including null/absent `vm_size`)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded price tables; rule notes only that a Running instance incurs ongoing compute-hour charges
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/computes/read`
 
-**Params:** `idle_days` (default: 14)
+**Params:** `idle_days` (default: 14, minimum effective value: 1)
 
-**Exclusions:** stopped instances (only `Running` state evaluated)
+**Exclusions:** `id` or `name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **compute** resource location; spaces and hyphens preserved); `compute_type` does not resolve to exactly `"ComputeInstance"` (SDK+nested, conflict → skip); `provisioning_state` does not resolve to exactly `"Succeeded"` (SDK+nested, conflict → skip); `state` does not resolve to exactly `"Running"` (SDK+nested, conflict → skip); location unresolvable or conflicting; `created_at` absent, invalid, or in the future; instance age < `idle_days`; `lastOperation.operationTime` present but unparsable (skip — no silent fallback); `lastOperation.operationTime == created_at` (no proven post-create signal → skip); `modifiedOn` fallback only when `lastOperation` absent or has no `operationTime` — skipped when `modifiedOn` absent, unparsable, `<= created_at`, or in the future; no lifecycle signal resolvable (fail closed — no age-only fallback, no `systemData.lastModifiedAt`); resolved lifecycle timestamp in the future; floored `idle_since_days` < `idle_days`; per-compute record malformed (skip that compute); per-workspace compute listing fails (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/aml_compute_instance_idle.md](../specs/azure/ai/aml_compute_instance_idle.md)
 
 #### `azure.ml.online_endpoint.idle`
 **Detects:** Azure ML managed online endpoints in `Succeeded` provisioning state with zero scoring requests for `idle_days`
