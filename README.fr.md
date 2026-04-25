@@ -193,7 +193,7 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 - **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints, notebooks, Studio apps et training jobs SageMaker ; clusters AML Compute et instances ML ; endpoints en ligne Azure ML et services Azure AI Search ; endpoints, instances Workbench et training jobs Vertex AI. Les ressources GPU sont mises en avant comme candidats de revue à risque plus élevé. Les outils natifs n'indiquent pas toujours quoi examiner — CleanCloud le fait. Opt-in via `--category ai`
 - **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
 - **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **45 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
+- **46 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
 - **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
 - **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
 - **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
@@ -278,7 +278,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
 | Instance de calcul Azure ML (GPU) | 600 – 15 000+ $ / mois |
 | Endpoint en ligne Azure ML (GPU) | 200 – 2 600+ $ / mois |
-| Azure AI Search (Standard+) | 261 – 4 028+ $ / mois |
+| Azure AI Search (Basic+) | 261 – 4 028+ $ / mois |
 | Déploiement Azure OpenAI Provisionné (PTU) | 1 460+ $ / PTU / mois |
 | Endpoint Vertex AI Online Prediction (GPU) | 449 – 23 000+ $ / mois |
 | Instance Vertex AI Workbench (GPU) | 449 – 8 000+ $ / mois |
@@ -528,7 +528,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 
 ## Ce que CleanCloud détecte
 
-45 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+46 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -545,7 +545,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Réseau : adresses IP publiques inutilisées, Load Balancers vides (HIGH), App Gateways vides (HIGH), VNet Gateways inactives
 - Plateforme : App Service Plans vides (HIGH), bases de données SQL inactives (HIGH), App Services inactifs, Container Registries inutilisés
 - Gouvernance : ressources sans tags
-- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois) ; instances de calcul Azure ML Running sans activité depuis 14+ jours — instances GPU flaggées risque CRITICAL ($600–$15K+/mois) ; endpoints en ligne ML managés sans requête de scoring depuis 7+ jours — endpoints GPU flaggés HIGH/CRITICAL (200–2 600+$/mois) ; services AI Search (Standard+) sans requête depuis 30+ jours — facturés par SKU × réplicas × partitions (261–4 028+$/mois) ; déploiements Azure OpenAI provisionnés (PTUs) sans requête API depuis 7+ jours — facturés ~1 460 $/PTU/mois en on-demand quel que soit le trafic
+- IA/ML *(opt-in : `--category ai`)* : clusters de calcul AML avec capacité baseline non nulle et aucune activité depuis 14+ jours — clusters GPU flaggés risque HIGH ($600–$15K/mois) ; instances de calcul Azure ML Running sans activité depuis 14+ jours — instances GPU flaggées risque CRITICAL ($600–$15K+/mois) ; endpoints en ligne ML managés sans requête de scoring depuis 7+ jours — endpoints GPU flaggés HIGH/CRITICAL (200–2 600+$/mois) ; services AI Search (Basic+) sans requête depuis 90+ jours — facturés par SKU × réplicas × partitions (261–4 028+$/mois) ; déploiements Azure OpenAI provisionnés (PTUs) sans requête API depuis 7+ jours — facturés ~1 460 $/PTU/mois en on-demand quel que soit le trafic
 
 **GCP :**
 - Compute : instances VM arrêtées 30+ jours (charges disque continuent) (HIGH)

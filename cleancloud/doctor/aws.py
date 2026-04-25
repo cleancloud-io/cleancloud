@@ -230,6 +230,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("Permissions required (attach to your IAM role or user):")
         info("  ec2:DescribeVolumes")
         info("  ec2:DescribeSnapshots")
+        info("  ec2:DescribeSnapshotAttribute")
         info("  ec2:DescribeRegions")
         info("  ec2:DescribeAddresses")
         info("  ec2:DescribeNetworkInterfaces")
@@ -239,6 +240,8 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  ec2:DescribeSecurityGroups")
         info("  rds:DescribeDBInstances")
         info("  rds:DescribeDBSnapshots")
+        info("  rds:DescribeDBSnapshotAttributes")
+        info("  cloudtrail:LookupEvents")
         info("  elasticloadbalancing:DescribeLoadBalancers")
         info("  elasticloadbalancing:DescribeTargetGroups")
         info("  logs:DescribeLogGroups")
@@ -410,6 +413,22 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             warn(f"ec2:DescribeSnapshots - {e}")
 
         try:
+            _snaps = ec2.describe_snapshots(OwnerIds=["self"], MaxResults=5).get("Snapshots", [])
+            if _snaps:
+                ec2.describe_snapshot_attribute(
+                    SnapshotId=_snaps[0]["SnapshotId"], Attribute="createVolumePermission"
+                )
+            permissions_tested.append("ec2:DescribeSnapshotAttribute")
+            success("ec2:DescribeSnapshotAttribute")
+        except Exception as e:
+            if "AccessDenied" in str(e) or "not authorized" in str(e).lower():
+                permissions_failed.append(("ec2:DescribeSnapshotAttribute", str(e)))
+                warn(f"ec2:DescribeSnapshotAttribute - {e}")
+            else:
+                permissions_tested.append("ec2:DescribeSnapshotAttribute")
+                success("ec2:DescribeSnapshotAttribute")
+
+        try:
             ec2.describe_regions()
             permissions_tested.append("ec2:DescribeRegions")
             success("ec2:DescribeRegions")
@@ -482,6 +501,24 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         except Exception as e:
             permissions_failed.append(("rds:DescribeDBSnapshots", str(e)))
             warn(f"rds:DescribeDBSnapshots - {e}")
+
+        try:
+            _rds_snaps = rds.describe_db_snapshots(MaxRecords=20, SnapshotType="manual").get(
+                "DBSnapshots", []
+            )
+            if _rds_snaps:
+                rds.describe_db_snapshot_attributes(
+                    DBSnapshotIdentifier=_rds_snaps[0]["DBSnapshotIdentifier"]
+                )
+            permissions_tested.append("rds:DescribeDBSnapshotAttributes")
+            success("rds:DescribeDBSnapshotAttributes")
+        except Exception as e:
+            if "AccessDenied" in str(e) or "not authorized" in str(e).lower():
+                permissions_failed.append(("rds:DescribeDBSnapshotAttributes", str(e)))
+                warn(f"rds:DescribeDBSnapshotAttributes - {e}")
+            else:
+                permissions_tested.append("rds:DescribeDBSnapshotAttributes")
+                success("rds:DescribeDBSnapshotAttributes")
 
         # Test ELB permissions
         try:
@@ -562,6 +599,24 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             else:
                 permissions_failed.append(("s3:GetBucketTagging", str(e)))
                 warn(f"s3:GetBucketTagging - {e}")
+
+        # Test CloudTrail permissions (aws.ec2.instance.stopped — stopped-duration probe)
+        try:
+            from datetime import datetime, timedelta
+            from datetime import timezone as _tz
+
+            cloudtrail = session.client("cloudtrail", region_name=region)
+            _now = datetime.now(_tz.utc)
+            cloudtrail.lookup_events(
+                StartTime=_now - timedelta(hours=1),
+                EndTime=_now,
+                MaxResults=1,
+            )
+            permissions_tested.append("cloudtrail:LookupEvents")
+            success("cloudtrail:LookupEvents")
+        except Exception as e:
+            permissions_failed.append(("cloudtrail:LookupEvents", str(e)))
+            warn(f"cloudtrail:LookupEvents - {e}")
 
     except Exception:
         fail("CleanCloud cannot run safely with missing read-only permissions")

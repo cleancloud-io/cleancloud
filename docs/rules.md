@@ -1,6 +1,6 @@
 # CleanCloud Rules
 
-45 rules across three providers (30 hygiene + 15 AI/ML).
+46 rules across three providers (30 hygiene + 16 AI/ML).
 
 | Provider | Hygiene | AI/ML | Total | Catalog |
 |---|---|---|---|---|

@@ -56,7 +56,10 @@ AWS_RULE_MAP: Dict[str, Callable] = {
     "aws.ec2.ami.old": find_old_amis,
     "aws.ec2.nat_gateway.idle": find_idle_nat_gateways,
     "aws.rds.instance.idle": find_idle_rds_instances,
-    "aws.elbv2.load_balancer.idle": find_idle_load_balancers,
+    "aws.elbv2.load_balancer.idle": find_idle_load_balancers,  # aggregate key — params/enabled only
+    "aws.elbv2.alb.idle": find_idle_load_balancers,  # split IDs for exceptions/filters
+    "aws.elbv2.nlb.idle": find_idle_load_balancers,
+    "aws.elb.clb.idle": find_idle_load_balancers,
     "aws.ec2.instance.stopped": find_stopped_ec2_instances,
     "aws.ec2.security_group.unused": find_unused_security_groups,
     "aws.rds.snapshot.old": find_old_rds_snapshots,
@@ -71,7 +74,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.training_job.long_running": find_long_running_sagemaker_training_jobs,
 }
 
-AWS_RULES: List[Callable] = list(AWS_RULE_MAP.values())
+AWS_RULES: List[Callable] = list(dict.fromkeys(AWS_RULE_MAP.values()))
 
 # AI/ML waste rules — not run by default; use --category ai or --category all
 AWS_AI_RULES: List[Callable] = list(AWS_RULE_MAP_AI.values())

@@ -129,17 +129,24 @@ No `AZURE_CLIENT_SECRET` needed — OIDC uses federated credentials.
 
 ## AI/ML rules (opt-in)
 
-CleanCloud includes additional AI/ML waste detectors that run only when you pass `--category ai` (or `--category all`). Two new Azure rules were added:
+CleanCloud includes additional AI/ML waste detectors that run only when you pass `--category ai` (or `--category all`). Five Azure AI/ML rules are available:
 
-- `azure.ml.online_endpoint.idle` — Detects Azure ML managed online endpoints in `Succeeded` provisioning state that have received zero scoring requests for 7+ days. These endpoints bill per-instance (minimum replica count) regardless of traffic; signals are confirmed via per-endpoint Azure Monitor metrics (RequestCount, fallback ModelEndpointRequests). Age-only fallback applies only when metric data is unavailable and endpoint age >= 2× idle window (MEDIUM confidence).
+- `azure.aml.compute.idle` — Detects Azure ML compute clusters with non-zero minimum node count (baseline capacity always billed) and no workload activity over a fixed 14-day window. GPU clusters flagged HIGH risk. Fixed window — `idle_days` is not configurable.
 
-- `azure.ai_search.idle` — Detects Azure AI Search services on Standard tier or above with effectively zero search queries (SearchQueriesPerSecond average == 0) over a 30-day window. Cost is computed per SKU × replicas × partitions. If metrics are unavailable, age-only fallback (age >= 2× idle window) yields MEDIUM confidence.
+- `azure.ml.compute_instance.idle` — Detects Azure ML Compute Instances with no control-plane activity for `idle_days` (default 14). GPU instances flagged CRITICAL risk ($600–$15K+/month).
+
+- `azure.ml.online_endpoint.idle` — Detects Azure ML managed online endpoints in `Succeeded` provisioning state with zero `RequestsPerMinute` over a rolling `idle_days` window (default 7). These endpoints bill per-instance (minimum replica count) regardless of traffic. Metric result must resolve to ZERO with ≥80% minute-bucket coverage — insufficient coverage or query failure causes the endpoint to be skipped (fail-closed, no age-only fallback).
+
+- `azure.ai_search.idle` — Detects Azure AI Search services on Standard tier or above with effectively zero search queries (SearchQueriesPerSecond average == 0) over a fixed 90-day window. Requires both structural emptiness (no indexes, indexers, data sources, skillsets, synonym maps) AND confirmed metric silence. Cost model: None (SKU pricing too variable). Risk: MEDIUM. Confidence: HIGH when all conditions met. **Data-plane RBAC required** (Search Index Data Reader or equivalent) — management-plane Reader alone is not sufficient.
+
+- `azure.openai.provisioned_deployment.idle` — Detects Azure OpenAI provisioned deployments (ProvisionedManaged, GlobalProvisionedManaged, DataZoneProvisionedManaged SKUs) with zero AzureOpenAIRequests over a rolling `idle_days` window (default 7, max 30). PTU deployments bill ~$1,460/PTU/month on-demand regardless of traffic. Risk: HIGH always. Cost: None (no fixed PTU price constant).
 
 Permissions required for AI/ML scans
 
 The following actions are required by the AI/ML rules (add these to a custom role such as `security/azure/ai-readonly-role.json`):
 
 - Microsoft.MachineLearningServices/workspaces/read
+- Microsoft.MachineLearningServices/workspaces/computes/read
 - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read
 - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read
 - Microsoft.CognitiveServices/accounts/read
@@ -286,6 +293,7 @@ az role assignment create \
 | `Microsoft.Compute/disks/read` | Unattached managed disks |
 | `Microsoft.Compute/snapshots/read` | Old snapshots |
 | `Microsoft.Compute/virtualMachines/read` | Stopped (not deallocated) VMs |
+| `Microsoft.Compute/virtualMachines/instanceView/action` | Stopped VM power state (instance view) |
 | `Microsoft.Network/publicIPAddresses/read` | Unused public IPs |
 | `Microsoft.Network/loadBalancers/read` | Empty load balancers |
 | `Microsoft.Network/applicationGateways/read` | Empty app gateways |
@@ -294,6 +302,7 @@ az role assignment create \
 | `Microsoft.Web/serverfarms/read` | Empty App Service Plans |
 | `Microsoft.Web/serverfarms/sites/read` | Empty App Service Plans (app count) |
 | `Microsoft.Web/sites/read` | Idle App Services |
+| `Microsoft.Web/sites/webJobs/read` | Idle App Services (WebJobs enumeration) |
 | `Microsoft.ContainerRegistry/registries/read` | Unused Container Registries |
 | `Microsoft.Sql/servers/read` | SQL server discovery |
 | `Microsoft.Sql/servers/databases/read` | Idle SQL databases |
