@@ -44,7 +44,7 @@ Blind spots:
 
 APIs:
     - elbv2:DescribeLoadBalancers
-    - elb:DescribeLoadBalancers
+    - elasticloadbalancing:DescribeLoadBalancers (CLB)
     - cloudwatch:GetMetricStatistics
     - elbv2:DescribeTargetGroups (contextual)
     - elbv2:DescribeTargetHealth (contextual)
@@ -581,7 +581,7 @@ def _scan_clb(
         code = exc.response["Error"]["Code"]
         if code in ("AccessDenied", "UnauthorizedOperation"):
             raise PermissionError(
-                "Missing required IAM permission: elb:DescribeLoadBalancers"
+                "Missing required IAM permission: elasticloadbalancing:DescribeLoadBalancers"
             ) from exc
         raise
     except BotoCoreError:

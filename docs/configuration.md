@@ -166,14 +166,15 @@ See [rules.md](rules.md) for the full list of rule IDs and their supported param
 
 | Param | Rule ID | Default | Description |
 |---|---|---|---|
-| `idle_days_threshold` | `aws.elbv2.load_balancer.idle` | 14 | Days of zero traffic before flagging |
+| `idle_days_threshold` | `aws.elbv2.alb.idle` | 14 | Days of zero traffic before flagging (ALB) |
+| `idle_days_threshold` | `aws.elbv2.nlb.idle` | 14 | Days of zero traffic before flagging (NLB) |
+| `idle_days_threshold` | `aws.elb.clb.idle` | 14 | Days of zero traffic before flagging (CLB) |
 | `idle_days_threshold` | `aws.ec2.nat_gateway.idle` | 14 | Days of zero traffic before flagging |
 | `idle_days_threshold` | `aws.rds.instance.idle` | 14 | Days of no connections before flagging |
 | `idle_days_threshold` | `aws.sagemaker.endpoint.idle` | 14 | Days of no observed `InvokeEndpoint` traffic before flagging |
 | `idle_days_threshold` | `aws.sagemaker.notebook.idle` | 14 | Days of stale control-plane timestamp state before flagging |
 | `idle_days_threshold` | `aws.sagemaker.studio_app.idle` | 7 | Days since the last usable Studio app activity timestamp before flagging |
 | `long_running_hours_threshold` | `aws.sagemaker.training_job.long_running` | 24 | Hours before an `InProgress` SageMaker training job is flagged |
-| `idle_days` | `azure.aml.compute.idle` | 14 | Days of no runs before flagging |
 | `idle_days` | `azure.ml.compute_instance.idle` | 14 | Days since last control-plane activity before flagging |
 | `idle_days` | `azure.sql.database.idle` | 14 | Days of no connections before flagging |
 | `idle_days` | `azure.app_service.idle` | 14 | Days of zero requests before flagging |

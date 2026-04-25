@@ -149,7 +149,7 @@
 
 **Confidence / Risk:** HIGH (zero HTTP traffic confirmed) / MEDIUM
 
-**Permissions:** `Microsoft.Web/sites/read`, `Microsoft.Web/serverfarms/read`, `Microsoft.Insights/metrics/read`
+**Permissions:** `Microsoft.Web/sites/read`, `Microsoft.Web/sites/webJobs/read`, `Microsoft.Web/serverfarms/read`, `Microsoft.Insights/metrics/read`
 
 **Params:** `days_idle` (default: 14)
 

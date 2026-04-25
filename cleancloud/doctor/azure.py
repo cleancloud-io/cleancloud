@@ -223,6 +223,7 @@ def run_azure_doctor() -> None:
         info("  Microsoft.Compute/disks/read")
         info("  Microsoft.Compute/snapshots/read")
         info("  Microsoft.Compute/virtualMachines/read")
+        info("  Microsoft.Compute/virtualMachines/instanceView/action")
         info("  Microsoft.Network/publicIPAddresses/read")
         info("  Microsoft.Network/loadBalancers/read")
         info("  Microsoft.Network/applicationGateways/read")
@@ -231,6 +232,7 @@ def run_azure_doctor() -> None:
         info("  Microsoft.Web/serverfarms/read")
         info("  Microsoft.Web/serverfarms/sites/read")
         info("  Microsoft.Web/sites/read")
+        info("  Microsoft.Web/sites/webJobs/read")
         info("  Microsoft.ContainerRegistry/registries/read")
         info("  Microsoft.Sql/servers/read")
         info("  Microsoft.Sql/servers/databases/read")
@@ -296,6 +298,7 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Compute/disks/read")
     info("    - Microsoft.Compute/snapshots/read")
     info("    - Microsoft.Compute/virtualMachines/read")
+    info("    - Microsoft.Compute/virtualMachines/instanceView/action")
     info("    - Microsoft.Network/publicIPAddresses/read")
     info("    - Microsoft.Network/loadBalancers/read")
     info("    - Microsoft.Network/applicationGateways/read")
@@ -304,6 +307,7 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.Web/serverfarms/read")
     info("    - Microsoft.Web/serverfarms/sites/read")
     info("    - Microsoft.Web/sites/read")
+    info("    - Microsoft.Web/sites/webJobs/read")
     info("    - Microsoft.ContainerRegistry/registries/read")
     info("    - Microsoft.Sql/servers/read")
     info("    - Microsoft.Sql/servers/databases/read")
@@ -319,6 +323,64 @@ def run_azure_doctor() -> None:
     info("    - Microsoft.CognitiveServices/accounts/deployments/read")
     info("    - Microsoft.Search/searchServices/read")
     info("    - Microsoft.Insights/metrics/read")
+
+    # Probe the two permissions that custom CleanCloudReadOnly roles historically omitted.
+    # Reader (built-in) includes these; custom least-privilege roles may not.
+    info("")
+    info("Step 5: Runtime Permission Probes (custom-role gap check)")
+    info("-" * 70)
+
+    from azure.mgmt.compute import ComputeManagementClient
+    from azure.mgmt.web import WebSiteManagementClient
+
+    compute_client = ComputeManagementClient(credential, subscriptions[0].subscription_id)
+    web_client = WebSiteManagementClient(credential, subscriptions[0].subscription_id)
+
+    # Probe: Microsoft.Compute/virtualMachines/instanceView/action
+    # Required by azure.vm.stopped_not_deallocated — reads PowerState from instance view statuses.
+    try:
+        _vms = list(compute_client.virtual_machines.list_all())
+        _first_vm = next(iter(_vms), None)
+        if _first_vm:
+            _rg = _first_vm.id.split("/")[
+                _first_vm.id.lower().split("/").index("resourcegroups") + 1
+            ]
+            compute_client.virtual_machines.get(_rg, _first_vm.name, expand="instanceView")
+            success("Microsoft.Compute/virtualMachines/instanceView/action")
+        else:
+            info(
+                "Microsoft.Compute/virtualMachines/instanceView/action — not tested (no VMs found to probe)"
+            )
+    except Exception as e:
+        if "AuthorizationFailed" in str(e) or "403" in str(e):
+            warn(f"Microsoft.Compute/virtualMachines/instanceView/action — DENIED: {e}")
+            warn(
+                "  azure.vm.stopped_not_deallocated will skip all VMs — add this action to your custom role"
+            )
+        else:
+            info(f"Microsoft.Compute/virtualMachines/instanceView/action — could not probe: {e}")
+
+    # Probe: Microsoft.Web/sites/webJobs/read
+    # Required by azure.app_service.idle — enumerates WebJobs to avoid false positives.
+    try:
+        _sites = list(web_client.web_apps.list())
+        _first_site = next(iter(_sites), None)
+        if _first_site:
+            _rg = _first_site.id.split("/")[
+                _first_site.id.lower().split("/").index("resourcegroups") + 1
+            ]
+            list(web_client.web_apps.list_web_jobs(_rg, _first_site.name))
+            success("Microsoft.Web/sites/webJobs/read")
+        else:
+            info("Microsoft.Web/sites/webJobs/read — not tested (no App Services found to probe)")
+    except Exception as e:
+        if "AuthorizationFailed" in str(e) or "403" in str(e):
+            warn(f"Microsoft.Web/sites/webJobs/read — DENIED: {e}")
+            warn(
+                "  azure.app_service.idle will skip all App Services — add this action to your custom role"
+            )
+        else:
+            info(f"Microsoft.Web/sites/webJobs/read — could not probe: {e}")
 
     # Summary
     info("")
@@ -417,12 +479,13 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
         )
 
     # Check: Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read (list endpoints)
+    _endpoints = []
     if workspaces:
         try:
             ws = workspaces[0]
             rg = ws.id.split("/")[ws.id.lower().split("/").index("resourcegroups") + 1]
             # Attempt to list online endpoints to validate permission
-            list(ml_client.online_endpoints.list(rg, ws.name))
+            _endpoints = list(ml_client.online_endpoints.list(rg, ws.name))
             permissions_tested.append(
                 "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read"
             )
@@ -438,6 +501,39 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
     else:
         info(
             "  Skipping onlineEndpoints/read check — no workspaces found to test against "
+            "(permission may still be present)"
+        )
+
+    # Check: Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read
+    # Required by azure.ml.online_endpoint.idle to read instance SKU and replica counts.
+    if workspaces and _endpoints:
+        try:
+            ws = workspaces[0]
+            rg = ws.id.split("/")[ws.id.lower().split("/").index("resourcegroups") + 1]
+            ep_name = _endpoints[0].name
+            list(ml_client.online_deployments.list(rg, ws.name, ep_name))
+            permissions_tested.append(
+                "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read"
+            )
+            success("Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read")
+        except Exception as e:
+            permissions_failed.append(
+                (
+                    "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read",
+                    str(e),
+                )
+            )
+            warn(
+                f"Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read — {e}"
+            )
+    elif workspaces:
+        info(
+            "  Skipping onlineEndpoints/deployments/read check — no endpoints found to test against "
+            "(permission may still be present)"
+        )
+    else:
+        info(
+            "  Skipping onlineEndpoints/deployments/read check — no workspaces found to test against "
             "(permission may still be present)"
         )
 
@@ -490,6 +586,27 @@ def run_azure_ai_doctor(subscription_id: str = None) -> None:
     except Exception as e:
         permissions_failed.append(("Microsoft.Search/searchServices/read", str(e)))
         warn(f"Microsoft.Search/searchServices/read — {e}")
+
+    # Data-plane RBAC warning for azure.ai_search.idle
+    # The rule calls Azure AI Search data-plane APIs (list indexes, indexers, etc.) using
+    # keyless RBAC auth. Management-plane Reader is not sufficient — the identity also needs
+    # Search Index Data Reader (or Search Service Contributor) assigned on each Search service.
+    # This cannot be probed here without knowing a service endpoint, so we always emit a notice.
+    info("")
+    warn("azure.ai_search.idle — data-plane RBAC required (not verified here)")
+    info("  The AI Search idle rule calls data-plane APIs to check structural emptiness.")
+    info("  Management-plane Reader alone is not sufficient. Assign one of:")
+    info("    - Search Index Data Reader  (read-only, recommended)")
+    info("    - Search Service Contributor  (broader access)")
+    info("  Scope: each Azure AI Search service (or resource group / subscription).")
+    info("  Without this, the rule skips all Search services silently.")
+    info("  Assign with:")
+    info("    az role assignment create \\")
+    info('      --role "Search Index Data Reader" \\')
+    info("      --assignee <APP_ID> \\")
+    info(
+        "      --scope /subscriptions/<SUB>/resourceGroups/<RG>/providers/Microsoft.Search/searchServices/<NAME>"
+    )
 
     # Check: Microsoft.Insights/metrics/read (already required by hygiene rules)
     try:

@@ -100,6 +100,7 @@ resource "aws_iam_role_policy" "cleancloud" {
         Action = [
           "ec2:DescribeVolumes",
           "ec2:DescribeSnapshots",
+          "ec2:DescribeSnapshotAttribute",
           "ec2:DescribeImages",
           "ec2:DescribeAddresses",
           "ec2:DescribeNetworkInterfaces",
@@ -126,6 +127,15 @@ resource "aws_iam_role_policy" "cleancloud" {
         Action = [
           "rds:DescribeDBInstances",
           "rds:DescribeDBSnapshots",
+          "rds:DescribeDBSnapshotAttributes",
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "CloudTrailReadOnly"
+        Effect = "Allow"
+        Action = [
+          "cloudtrail:LookupEvents",
         ]
         Resource = "*"
       },
