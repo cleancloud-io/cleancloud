@@ -18,11 +18,11 @@
 | `azure.sql.database.idle` | Platform | Dedicated single databases with zero activity across all five required metrics over idle window |
 | `azure.container_registry.unused` | Platform | Container registries with zero pulls and pushes 90+ days |
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
-| `azure.aml.compute.idle` | AI/ML | AML compute clusters with min_node_count > 0 and no active nodes 14+ days |
-| `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances Running with no activity 14+ days |
-| `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints with zero scoring requests 7+ days |
-| `azure.ai_search.idle` | AI/ML | Azure AI Search services (Standard+) with zero queries 30+ days |
-| `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero requests 7+ days |
+| `azure.aml.compute.idle` | AI/ML | AML compute clusters with `min_node_count > 0`, confirmed current node allocation, and zero per-cluster `Active Nodes` activity 14+ days |
+| `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances in `Running` state with no documented control-plane lifecycle activity for `idle_days` (default 14); uses `lastOperation.operationTime` or `modifiedOn` fallback only — no age-only or undocumented fallbacks |
+| `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints retaining positive deployment baseline instances with `RequestsPerMinute == 0` over a rolling `idle_days` window; managed scope required from documented endpoint/deployment surfaces |
+| `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
+| `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (`model_format == "OpenAI"`, provisioned SKU) retaining positive PTU capacity with zero `AzureOpenAIRequests` across a rolling `idle_days` window; `model_format` gate is case-sensitive and based on deployment properties only |
 
 ---
 
@@ -205,66 +205,72 @@
 ## AI/ML *(opt-in: `--category ai`)*
 
 #### `azure.aml.compute.idle`
-**Detects:** AML compute clusters with `min_node_count > 0` and zero active nodes for 14+ days
+**Detects:** AML compute clusters (`computeType == "AmlCompute"`) with `min_node_count > 0` retaining confirmed baseline node allocation and no observed per-cluster `Active Nodes` activity for 14 days; requires BOTH confirmed positive baseline capacity AND confirmed zero per-cluster activity metric before emitting
 
-**Confidence / Risk:** HIGH (zero nodes, cluster age ≥ 14 days); MEDIUM (zero nodes, age 7–13 days or creation time unavailable) / HIGH (GPU VM sizes: Standard_NC*, Standard_ND*, Standard_NV*); MEDIUM (CPU)
+**Confidence / Risk:** HIGH (always, when all required signals resolve) / MEDIUM (always)
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/computes/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** none (14-day threshold is fixed)
+**Params:** none (14-day window is fixed)
 
-**Exclusions:** clusters with `min_node_count == 0` (scale-to-zero; no idle cost)
+**Exclusions:** `id` or `name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **compute** resource location; spaces and hyphens preserved); `compute_type` does not resolve to exactly `"AmlCompute"` (SDK+nested, conflict → skip); `provisioning_state` does not resolve to exactly `"Succeeded"` (SDK+nested, conflict → skip); `allocation_state` does not resolve to exactly `"Steady"` (SDK+nested, conflict → skip); `created_at` absent, invalid, in the future, or cluster age < 14 days (no age-only fallback); `min_node_count <= 0` or unresolvable; `current_node_count` negative, unresolvable, or < `min_node_count`; `Active Nodes` metric with `ClusterName` dimension filter cannot be resolved reliably (< 95% daily-bucket coverage, unusable response shape, no per-cluster series); `Active Nodes` metric is non-zero over the 14-day window; per-compute retrieval error (skip that compute); per-workspace compute listing error (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/aml_compute_idle.md](../specs/azure/ai/aml_compute_idle.md)
 
 #### `azure.ml.compute_instance.idle`
-**Detects:** Azure ML Compute Instances in `Running` state with no control-plane activity for `idle_days`
+**Detects:** Azure ML Compute Instances (`computeType == "ComputeInstance"`) in `Running` state with `provisioning_state == "Succeeded"` and no documented control-plane lifecycle activity for `idle_days`; precision-first review-candidate rule — does not claim to observe notebook/kernel/session inactivity
 
-**Confidence / Risk:** HIGH (`last_operation.operation_time` or `last_modified_at` ≥ threshold, age ≥ threshold); MEDIUM (≥ 75% of threshold on both signals, or age-only fallback) / CRITICAL (GPU + `idle_ratio ≥ 2.0`); HIGH (GPU: Standard_NC*, Standard_ND*, Standard_NV*); MEDIUM (CPU)
+**Confidence / Risk:** MEDIUM (`lastOperation.operationTime` is the idle signal source); LOW (`modifiedOn` fallback is the idle signal source) / HIGH (GPU: exact case-sensitive prefix match on `Standard_NC`, `Standard_ND`, `Standard_NV`); MEDIUM (all other VM families including null/absent `vm_size`)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded price tables; rule notes only that a Running instance incurs ongoing compute-hour charges
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/computes/read`
 
-**Params:** `idle_days` (default: 14)
+**Params:** `idle_days` (default: 14, minimum effective value: 1)
 
-**Exclusions:** stopped instances (only `Running` state evaluated)
+**Exclusions:** `id` or `name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **compute** resource location; spaces and hyphens preserved); `compute_type` does not resolve to exactly `"ComputeInstance"` (SDK+nested, conflict → skip); `provisioning_state` does not resolve to exactly `"Succeeded"` (SDK+nested, conflict → skip); `state` does not resolve to exactly `"Running"` (SDK+nested, conflict → skip); location unresolvable or conflicting; `created_at` absent, invalid, or in the future; instance age < `idle_days`; `lastOperation.operationTime` present but unparsable (skip — no silent fallback); `lastOperation.operationTime == created_at` (no proven post-create signal → skip); `modifiedOn` fallback only when `lastOperation` absent or has no `operationTime` — skipped when `modifiedOn` absent, unparsable, `<= created_at`, or in the future; no lifecycle signal resolvable (fail closed — no age-only fallback, no `systemData.lastModifiedAt`); resolved lifecycle timestamp in the future; floored `idle_since_days` < `idle_days`; per-compute record malformed (skip that compute); per-workspace compute listing fails (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/aml_compute_instance_idle.md](../specs/azure/ai/aml_compute_instance_idle.md)
 
 #### `azure.ml.online_endpoint.idle`
-**Detects:** Azure ML managed online endpoints in `Succeeded` provisioning state with zero scoring requests for `idle_days`
+**Detects:** Azure ML managed online endpoints with `provisioning_state == "Succeeded"`, at least one stable deployment retaining a known positive baseline instance count, and `RequestsPerMinute == 0` (Average, PT1M) across a rolling UTC window on the **endpoint ARM resource id**; precision-first review-candidate rule — does not claim exact endpoint cost and emits only when all required signals resolve
 
-**Confidence / Risk:** HIGH (per-endpoint `RequestCount` metric confirms zero + age ≥ `idle_days`); MEDIUM (zero confirmed but age < `idle_days`, or metric unavailable + age ≥ 2× `idle_days`) / CRITICAL (GPU + `idle_ratio ≥ 2.0`); HIGH (GPU/accelerator); MEDIUM (CPU)
+**Confidence / Risk:** HIGH (`RequestsPerMinute` metric coverage ≥ 95% for a ZERO result); MEDIUM (metric coverage 80–95%) / HIGH (any billing-relevant deployment is GPU — uppercase prefix match on `STANDARD_NC`, `STANDARD_ND`, `STANDARD_NV`); MEDIUM (all other instance families including null/absent)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded VM price tables; rule notes only that deployments retaining positive baseline instances incur ongoing compute cost
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read`, `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** `idle_days` (default: 7)
+**Params:** `idle_days` (default: 7, minimum effective value: 1)
 
-**Exclusions:** `provisioning_state != "Succeeded"`; batch endpoints
+**Exclusions:** `endpoint.id` or `endpoint.name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **endpoint** resource location; spaces and hyphens preserved); managed scope not established from documented endpoint/deployment surfaces — Kubernetes endpoints (class name or `kind == "Kubernetes"`) always out of scope; `provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `created_at` absent from `systemData.createdAt`, unparsable, in the future, or endpoint age < `idle_days`; deployment inventory listing fails (skip endpoint); no stable deployment (`deployment_provisioning_state == "Succeeded"`) resolves to a known positive baseline instance count (`scale_settings.min_instances` → `instance_count`, known integer > 0); `RequestsPerMinute` metric unavailable, coverage below 80%, or result not ZERO; per-endpoint failure (skip that endpoint); per-workspace failure (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/ml_online_endpoint_idle.md](../specs/azure/ai/ml_online_endpoint_idle.md)
 
 #### `azure.ai_search.idle`
-**Detects:** Azure AI Search services (Standard tier and above) with zero `SearchQueriesPerSecond` for `idle_days`
+**Detects:** Azure AI Search services (Basic tier and above) that are structurally empty and have no documented query, indexing, or skill activity over a fixed 90-day window; requires BOTH confirmed zero activity across all three required metrics AND confirmed emptiness of all required object surfaces before emitting
 
-**Confidence / Risk:** HIGH (zero queries confirmed + age ≥ `idle_days`); MEDIUM (zero confirmed but age < `idle_days`, or metric unavailable + age ≥ 2× `idle_days`) / HIGH (estimated cost ≥ $1,000/month); MEDIUM (otherwise)
+**Confidence / Risk:** HIGH (always, when all required signals resolve) / MEDIUM (always)
 
-**Permissions:** `Microsoft.Search/searchServices/read`, `Microsoft.Insights/metrics/read`
+**Permissions:** `Microsoft.Search/searchServices/read`, `Microsoft.Insights/metrics/read`, Azure AI Search data-plane RBAC (`Search Service Contributor` or equivalent; no admin keys)
 
-**Params:** `idle_days` (default: 30)
+**Params:** none (90-day window is fixed)
 
-**Exclusions:** Basic tier and below; only `standard`, `standard2`, `standard3`, `storage_optimized_l1`, `storage_optimized_l2` evaluated
+**Exclusions:** `id` or `name` absent/empty; outside optional region filter (exact lowercase match; spaces and hyphens preserved); `provisioning_state` does not resolve to exactly `"succeeded"` (SDK+nested, conflict → skip); `status` does not resolve to exactly `"running"` (SDK+nested, conflict → skip); `sku.name` not in supported dedicated billable tiers (`basic`, `standard`, `standard2`, `standard3`, `storage_optimized_l1`, `storage_optimized_l2`) after lowercase normalization and camelCase alias resolution; `systemData.createdAt` absent, invalid, in the future, or service age < 90 days (no age-only fallback); `replica_count` or `partition_count` not a known positive integer (conflict → skip); data-plane client factory returns `None` (azure-search-documents package unavailable → skip); any required object surface (`indexes`, `indexers`, `data_sources`, `skillsets`, `synonym_maps`) fails, is unavailable, or is non-empty; any optional reinforcing surface (`aliases`, `knowledge_sources`, `agents`) fully enumerated and non-empty; any of three required activity metrics (`SearchQueriesPerSecond`/Average, `DocumentsProcessedCount`/Total, `SkillExecutionCount`/Total) below 95% daily-bucket coverage or non-zero over 90 days; non-numeric aggregation values or malformed metric response shapes (fail-closed to UNKNOWN → skip); per-service retrieval raises `HttpResponseError`, `ServiceRequestError`, or `ServiceResponseError`
 
-**Spec:** —
+**Spec:** [specs/azure/ai/ai_search_idle.md](../specs/azure/ai/ai_search_idle.md)
 
 #### `azure.openai.provisioned_deployment.idle`
-**Detects:** Azure OpenAI provisioned deployments (PTUs) with zero API requests for `idle_days`; bills per PTU per hour regardless of traffic
+**Detects:** Azure OpenAI provisioned deployments (`model_format == "OpenAI"`, provisioned SKU) retaining positive PTU capacity with `AzureOpenAIRequests == 0` (Total, PT1M) across a rolling UTC window on the **parent account ARM resource id**; precision-first review-candidate rule — does not claim exact savings and emits only when all required signals resolve
 
-**Confidence / Risk:** HIGH (per-deployment `AzureOpenAIRequests` metric confirms zero + age ≥ `idle_days`); MEDIUM (per-deployment zero but age < `idle_days`, or account-level zero only) / HIGH (≥ 7 PTUs, ~$10K+/month); MEDIUM (< 7 PTUs)
+**Confidence / Risk:** HIGH (`AzureOpenAIRequests` metric coverage ≥ 95% for a ZERO result); MEDIUM (metric coverage 80–95%) / HIGH (always — every provisioned deployment with positive PTU capacity is inherently a cost candidate)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded PTU price constant; rule notes only that deployed PTUs incur hourly billing while the deployment exists
 
 **Permissions:** `Microsoft.CognitiveServices/accounts/read`, `Microsoft.CognitiveServices/accounts/deployments/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** `idle_days` (default: 7)
+**Params:** `idle_days` (default: 7, minimum effective value: 1)
 
-**Exclusions:** non-provisioned SKUs; only `ProvisionedManaged`, `GlobalProvisionedManaged`, `DataZoneProvisionedManaged` evaluated
+**Exclusions:** `account.id` or `account.name` absent/empty; `deployment.id` or `deployment.name` absent/empty; account location unresolved (spaces and hyphens preserved in normalized form); outside optional region filter (exact lowercase match); `account_provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `deployment_provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `model_format` does not exactly equal `"OpenAI"` (case-sensitive; account kind is not used to establish OpenAI scope); `sku_name` not in `{ProvisionedManaged, GlobalProvisionedManaged, DataZoneProvisionedManaged}`; `ptu_capacity` absent, invalid, zero, or negative; `created_at` absent, unparsable, in the future, or deployment age < `idle_days`; `AzureOpenAIRequests` metric unavailable, coverage below 80%, or result not ZERO; no age-only, token-only, utilization-only, or `ProcessedPromptTokens` fallback; per-deployment failure (skip that deployment); per-account deployment listing failure (skip that account)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/openai_provisioned_idle.md](../specs/azure/ai/openai_provisioned_idle.md)
