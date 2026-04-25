@@ -1,9 +1,41 @@
-import math
-from datetime import datetime, timedelta, timezone
-from typing import Any, List, Optional
+"""
+Rule: azure.ml.online_endpoint.idle
 
-# Azure SDK (top-level imports for CI fail-fast)
-from azure.ai.ml import MLClient
+Intent:
+    Detect Azure Machine Learning managed online endpoints that retain billable
+    deployment baseline instances while RequestsPerMinute stays at zero over a
+    documented observation window.
+
+    This rule is deliberately precision-first. It is not a generic "quiet workspace"
+    rule, not proof that deleting an endpoint is safe, and not proof of a specific
+    monthly saving. It is a conservative review-candidate rule for managed online
+    endpoints that appear to be continuously provisioned but unused.
+
+Exclusions (spec 8):
+    - endpoint.id absent or empty
+    - endpoint.name absent or empty
+    - workspace.name absent or empty
+    - region filter set and normalized endpoint location does not match
+    - managed scope not established per spec 9.1
+    - provisioning_state != "Succeeded" (exact case-sensitive)
+    - created_at absent, invalid, in the future, or age < effective idle_days
+    - deployment inventory cannot be resolved (listing fails)
+    - no stable deployment with a known positive baseline instance count
+    - RequestsPerMinute metric result is not ZERO per spec 9.5
+
+Cost model (spec 10):
+    estimated_monthly_cost_usd = None (always)
+
+APIs:
+    - Microsoft.MachineLearningServices/workspaces/read
+    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read
+    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read
+    - Microsoft.Insights/metrics/read
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import Any, List, Optional, Tuple
+
 from azure.core.exceptions import HttpResponseError
 from azure.mgmt.machinelearningservices import AzureMachineLearningWorkspaces
 from azure.mgmt.monitor import MonitorManagementClient
@@ -13,39 +45,245 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
+_RULE_ID = "azure.ml.online_endpoint.idle"
+_RESOURCE_TYPE = "azure.ml.online_endpoint"
+_DEFAULT_IDLE_DAYS = 7
+
 RULE_METADATA = {
-    "id": "azure.ml.online_endpoint.idle",
+    "id": _RULE_ID,
     "category": "ai",
     "service": "machinelearningservices",
     "cost_impact": "high",
 }
 
-# Metrics to try in order
-_REQUEST_METRICS = ("RequestCount", "ModelEndpointRequests")
+# GPU VM size prefixes — uppercase-normalized exact prefix matching (spec 7, 9.4)
+_GPU_VM_PREFIXES = ("STANDARD_NC", "STANDARD_ND", "STANDARD_NV")
 
-# Example VM SKU cost table (monthly per instance). Extend as needed.
-_VM_SKU_COSTS = {
-    "Standard_NC6": 657.0,
-    "Standard_NC6s_v2": 900.0,
-    "Standard_NC12": 1300.0,
-    "Standard_NC24": 2600.0,
-}
-# Case-insensitive lookup: Azure SDK may return mixed-case SKU names.
-_VM_SKU_COSTS_LOWER: dict = {k.lower(): v for k, v in _VM_SKU_COSTS.items()}
+_METRIC_NAME = "RequestsPerMinute"
+_METRIC_AGGREGATION = "Average"
+_METRIC_INTERVAL = "PT1M"
 
-_GPU_FAMILIES = (
-    "standard_nc",
-    "standard_nd",
-    "standard_nv",
-    "standard_ncv2",
-    "standard_ncv3",
-    "standard_ndv2",
-    "standard_nd40rs",
-    "standard_nc4as_t4",
-    "standard_nc8as_t4",
-    "standard_nc16as_t4",
-    "standard_nc64as_t4",
-)
+_COVERAGE_ACCEPTABLE = 0.80  # minimum coverage for acceptable ZERO result
+_COVERAGE_HIGH = 0.95  # coverage threshold for HIGH confidence
+
+
+# ---------------------------------------------------------------------------
+# Normalization
+# ---------------------------------------------------------------------------
+
+
+def _norm_location(s: str) -> str:
+    """Lowercase only — exact lowercase match per spec 7 (spaces and hyphens preserved)."""
+    return s.lower() if s else ""
+
+
+def _extract_resource_group(resource_id: Optional[str]) -> Optional[str]:
+    """Extract resource group name from Azure ARM resource ID."""
+    if not resource_id:
+        return None
+    parts = resource_id.split("/")
+    try:
+        idx = next(i for i, p in enumerate(parts) if p.lower() == "resourcegroups")
+        return parts[idx + 1]
+    except (StopIteration, IndexError):
+        return None
+
+
+def _parse_utc_timestamp(raw) -> Optional[datetime]:
+    """
+    Parse raw timestamp to UTC-normalized datetime.
+    Naive datetimes are treated as UTC; aware non-UTC datetimes are converted to UTC.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        if raw.tzinfo is None:
+            return raw.replace(tzinfo=timezone.utc)
+        return raw.astimezone(timezone.utc)
+    if isinstance(raw, str):
+        try:
+            ts = datetime.fromisoformat(raw.rstrip("Z"))
+            if ts.tzinfo is None:
+                return ts.replace(tzinfo=timezone.utc)
+            return ts.astimezone(timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
+def _is_gpu(instance_type: Optional[str]) -> bool:
+    """GPU classification: uppercase-normalized exact prefix matching (spec 7, 9.4)."""
+    if not instance_type:
+        return False
+    return any(instance_type.upper().startswith(p) for p in _GPU_VM_PREFIXES)
+
+
+# ---------------------------------------------------------------------------
+# Managed scope resolution (spec 9.1)
+# ---------------------------------------------------------------------------
+
+
+def _endpoint_scope_signal(endpoint) -> str:
+    """
+    Resolve endpoint-level managed/kubernetes scope signal from documented
+    endpoint class name or kind attribute (spec 9.1.1).
+    Returns: "managed", "kubernetes", or "unknown".
+    """
+    cls_name = type(endpoint).__name__
+    if cls_name == "ManagedOnlineEndpoint":
+        return "managed"
+    if cls_name == "KubernetesOnlineEndpoint":
+        return "kubernetes"
+
+    kind = getattr(endpoint, "kind", None)
+    if isinstance(kind, str):
+        k = kind.lower()
+        if k == "managed":
+            return "managed"
+        if k == "kubernetes":
+            return "kubernetes"
+
+    return "unknown"
+
+
+def _deployment_scope_signal(deployment) -> str:
+    """
+    Resolve deployment-level managed/kubernetes scope hint from documented
+    deployment class name (spec 9.1.2).
+    Returns: "managed", "kubernetes", or "unknown".
+    """
+    cls_name = type(deployment).__name__
+    if cls_name == "ManagedOnlineDeployment":
+        return "managed"
+    if cls_name == "KubernetesOnlineDeployment":
+        return "kubernetes"
+    return "unknown"
+
+
+def _resolve_managed_scope(endpoint, stable_deployments: List) -> Tuple[bool, str]:
+    """
+    Resolve managed scope per spec 9.1 strict priority rules.
+    Returns (is_managed: bool, managed_scope_source: str).
+    managed_scope_source: "endpoint", "deployment", or "none".
+    """
+    ep_signal = _endpoint_scope_signal(endpoint)
+
+    # Priority 1: endpoint-level explicit Kubernetes -> out of scope (spec 9.1.5.i)
+    if ep_signal == "kubernetes":
+        return (False, "none")
+
+    # Collect deployment-level scope hints from stable deployments
+    dep_signals = [_deployment_scope_signal(d) for d in stable_deployments]
+    dep_has_managed = any(s == "managed" for s in dep_signals)
+    dep_has_kubernetes = any(s == "kubernetes" for s in dep_signals)
+
+    # Priority 2: endpoint-level explicit managed (spec 9.1.5.ii)
+    if ep_signal == "managed":
+        # If any stable deployment explicitly identifies Kubernetes -> conflict -> skip (spec 9.1.6)
+        if dep_has_kubernetes:
+            return (False, "none")
+        return (True, "endpoint")
+
+    # Priority 3: no endpoint-level signal; stable-deployment explicit managed (spec 9.1.5.iii)
+    if dep_has_managed and not dep_has_kubernetes:
+        return (True, "deployment")
+
+    # Priority 4: out of scope (spec 9.1.5.iv)
+    return (False, "none")
+
+
+# ---------------------------------------------------------------------------
+# Traffic metric (spec 9.5)
+# ---------------------------------------------------------------------------
+
+
+def _query_requests_per_minute(
+    monitor_client: Any,
+    endpoint_id: str,
+    effective_idle_days: int,
+) -> Tuple[str, Optional[float]]:
+    """
+    Query RequestsPerMinute on the endpoint ARM resource id (spec 9.5).
+
+    Returns:
+      ("ZERO", coverage_ratio)  when coverage >= 80% and every usable bucket Average == 0
+      ("ACTIVE", None)          when any usable bucket has Average > 0
+      ("UNKNOWN", None)         on query failure, no usable data, or coverage < 80%
+    """
+    now_utc = datetime.now(timezone.utc)
+    # floor_to_minute(now_utc - 5 minutes) per spec 9.5
+    raw_end = now_utc - timedelta(minutes=5)
+    metric_end_utc = raw_end.replace(second=0, microsecond=0)
+    window_start_utc = metric_end_utc - timedelta(days=effective_idle_days)
+
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    timespan = f"{window_start_utc.strftime(fmt)}/{metric_end_utc.strftime(fmt)}"
+
+    # Expected complete minute buckets in [window_start_utc, metric_end_utc)
+    expected_buckets = int((metric_end_utc - window_start_utc).total_seconds() // 60)
+    if expected_buckets <= 0:
+        return ("UNKNOWN", None)
+
+    try:
+        response = monitor_client.metrics.list(
+            endpoint_id,
+            metricnames=_METRIC_NAME,
+            timespan=timespan,
+            interval=_METRIC_INTERVAL,
+            aggregation=_METRIC_AGGREGATION,
+        )
+    except PermissionError:
+        raise
+    except HttpResponseError as exc:
+        if exc.status_code in (401, 403):
+            raise PermissionError(
+                "Missing required permissions: Microsoft.Insights/metrics/read"
+            ) from exc
+        return ("UNKNOWN", None)
+    except Exception:
+        return ("UNKNOWN", None)
+
+    # Count unique complete minute buckets inside [window_start_utc, metric_end_utc).
+    # A usable datapoint must have a parseable UTC timestamp within the window (spec 9.5).
+    # Deduplication by bucket prevents duplicate or overlapping series from overstating coverage.
+    usable_buckets: set = set()
+
+    for metric in response.value or []:
+        for ts in getattr(metric, "timeseries", None) or []:
+            for point in getattr(ts, "data", None) or []:
+                avg = getattr(point, "average", None)
+                if avg is None:
+                    continue
+
+                # Resolve and parse the datapoint timestamp
+                raw_ts = getattr(point, "time_stamp", None)
+                if raw_ts is None:
+                    raw_ts = getattr(point, "timestamp", None)
+                pt_utc = _parse_utc_timestamp(raw_ts)
+                if pt_utc is None:
+                    continue  # unparseable timestamp -> not a usable datapoint (spec 9.5)
+
+                # Floor to the minute to identify the complete minute bucket
+                bucket = pt_utc.replace(second=0, microsecond=0)
+
+                # Must be within [window_start_utc, metric_end_utc) (spec 9.5.3)
+                if bucket < window_start_utc or bucket >= metric_end_utc:
+                    continue  # out-of-window -> skip
+
+                usable_buckets.add(bucket)
+                if avg > 0:
+                    return ("ACTIVE", None)
+
+    coverage_ratio = len(usable_buckets) / expected_buckets
+    if coverage_ratio < _COVERAGE_ACCEPTABLE:
+        return ("UNKNOWN", None)
+
+    return ("ZERO", coverage_ratio)
+
+
+# ---------------------------------------------------------------------------
+# Main rule function
+# ---------------------------------------------------------------------------
 
 
 def find_idle_ml_online_endpoints(
@@ -55,17 +293,28 @@ def find_idle_ml_online_endpoints(
     region_filter: str = None,
     client: Optional[Any] = None,
     monitor_client: Optional[Any] = None,
-    idle_days: int = 7,
+    idle_days: int = _DEFAULT_IDLE_DAYS,
 ) -> List[Finding]:
-    """Find AML managed online endpoints with zero scoring requests over `idle_days`.
+    """
+    Find Azure ML managed online endpoints with zero RequestsPerMinute while
+    retaining positive deployment baseline instances.
 
-    Uses azure-mgmt-machinelearningservices for workspace enumeration (ARM) and
-    azure-ai-ml MLClient for per-workspace endpoint and deployment listing.
-    When `client` is injected (tests), it serves as both.
+    Detection logic (spec 4, 8, 9):
+    - Managed scope established from documented endpoint/deployment surfaces
+    - Endpoint provisioning_state exactly "Succeeded"
+    - Endpoint created_at resolves to a known UTC timestamp; age >= effective idle_days
+    - At least one stable deployment with a known positive baseline instance count
+    - RequestsPerMinute == 0 across the rolling UTC window defined in spec 9.5
+
+    IAM permissions:
+    - Microsoft.MachineLearningServices/workspaces/read
+    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read
+    - Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read
+    - Microsoft.Insights/metrics/read
     """
     findings: List[Finding] = []
     now = datetime.now(timezone.utc)
-    idle_days = max(idle_days, 3)
+    effective_idle_days = max(idle_days, 1)  # spec 6.3: minimum effective 1
 
     arm_client = client or AzureMachineLearningWorkspaces(
         credential=credential, subscription_id=subscription_id
@@ -74,14 +323,13 @@ def find_idle_ml_online_endpoints(
         credential=credential, subscription_id=subscription_id
     )
 
-    def _norm(s: str) -> str:
-        return "".join(c for c in (s or "").lower() if c.isalnum())
-
     def _ws_client(rg: str, ws_name: str) -> Any:
         # Tests inject a single mock client that covers all operations.
         # Production creates a workspace-scoped MLClient for endpoint/deployment ops.
         if client is not None:
             return client
+        from azure.ai.ml import MLClient  # noqa: PLC0415
+
         return MLClient(
             credential=credential,
             subscription_id=subscription_id,
@@ -89,338 +337,245 @@ def find_idle_ml_online_endpoints(
             workspace_name=ws_name,
         )
 
-    try:
-        for ws in arm_client.workspaces.list_by_subscription():
-            location_raw = getattr(ws, "location", "") or ""
-            if region_filter and _norm(location_raw) != _norm(region_filter):
-                continue
+    region_filter_norm = _norm_location(region_filter) if region_filter else None
 
-            # Resource group: prefer the attribute, fall back to parsing the ARM id
-            rg = getattr(ws, "resource_group", None)
-            if not rg and getattr(ws, "id", None):
-                parts = ws.id.split("/")
-                rg_idx = next(
-                    (i for i, p in enumerate(parts) if p.lower() == "resourcegroups"),
-                    None,
-                )
-                rg = parts[rg_idx + 1] if rg_idx is not None and rg_idx + 1 < len(parts) else None
-            if not rg:
-                continue
+    # Subscription-wide workspace inventory: propagate if this fails (spec 12)
+    for ws in arm_client.workspaces.list_by_subscription():
+        # spec 8.3: workspace name guard
+        ws_name = getattr(ws, "name", None)
+        if not ws_name:
+            continue
 
-            # ARM resource ID for Azure Monitor metrics (workspace scope)
-            ws_id = getattr(ws, "id", None) or (
-                f"/subscriptions/{subscription_id}/resourceGroups/{rg}"
-                f"/providers/Microsoft.MachineLearningServices/workspaces/{ws.name}"
-            )
+        # Resolve resource group from workspace
+        rg = getattr(ws, "resource_group", None)
+        if not rg:
+            rg = _extract_resource_group(getattr(ws, "id", None))
+        if not rg:
+            continue
 
-            ep_client = _ws_client(rg, ws.name)
+        try:
+            ep_client = _ws_client(rg, ws_name)
 
-            try:
-                for ep in ep_client.online_endpoints.list():
-                    prov = getattr(ep, "provisioning_state", None)
-                    if (prov or "").lower() != "succeeded":
+            for ep in ep_client.online_endpoints.list():
+                try:
+                    # spec 8.1: endpoint.id guard
+                    ep_id = getattr(ep, "id", None)
+                    if not ep_id:
                         continue
 
-                    # Age — azure-ai-ml uses creation_context; fall back to system_data
-                    age_days: Optional[int] = None
-                    ctx = getattr(ep, "creation_context", None) or getattr(ep, "system_data", None)
-                    created_at = getattr(ctx, "created_at", None) if ctx is not None else None
-                    if created_at is not None:
-                        if getattr(created_at, "tzinfo", None) is None:
-                            created_at = created_at.replace(tzinfo=timezone.utc)
-                        age_days = max((now - created_at).days, 0)
-                        if age_days < max(idle_days // 2, 3):
-                            continue
-
-                    effective_window = (
-                        min(idle_days, age_days) if age_days is not None else idle_days
-                    )
-                    if effective_window < 3:
+                    # spec 8.2: endpoint.name guard
+                    ep_name = getattr(ep, "name", None)
+                    if not ep_name:
                         continue
 
-                    # Metric checks scoped to workspace resource with EndpointName dimension
-                    idle_signal = _check_requests(mon_client, ws_id, ep.name, effective_window)
+                    # Endpoint location (spec 7, 9.2.1: use endpoint resource location, not workspace)
+                    location_raw = getattr(ep, "location", None) or ""
+                    location_norm = _norm_location(location_raw)
+                    if not location_norm:
+                        continue  # spec 7: unresolved location -> skip
 
-                    if idle_signal is None or idle_signal[0] == "active":
+                    # spec 8.4: region filter — exact lowercase equality
+                    if region_filter_norm and location_norm != region_filter_norm:
                         continue
 
-                    signal_scope, idle_metric = idle_signal
-
-                    if signal_scope == "no_data":
-                        if age_days is not None and age_days >= idle_days * 2:
-                            signal_scope = "age_only"
-                            idle_metric = "none"
-                            confidence = ConfidenceLevel.LOW
-                        else:
-                            continue
-                    elif signal_scope == "workspace_level":
-                        # Pass-2 signal: zero traffic at workspace level — endpoint likely idle
-                        # but cannot be confirmed per-endpoint; require age >= idle_days before
-                        # emitting even a LOW-confidence finding to reduce false positives.
-                        if age_days is None or age_days < idle_days:
-                            continue
-                        confidence = ConfidenceLevel.LOW
-                    elif (
-                        signal_scope == "per_endpoint"
-                        and age_days is not None
-                        and age_days >= idle_days
-                    ):
-                        confidence = ConfidenceLevel.HIGH
-                    elif (
-                        signal_scope == "per_endpoint"
-                        and age_days is not None
-                        and age_days >= math.ceil(idle_days * 0.75)
-                    ):
-                        confidence = ConfidenceLevel.MEDIUM
-                    elif signal_scope == "per_endpoint" and age_days is None:
-                        confidence = ConfidenceLevel.MEDIUM
-                    else:
+                    # spec 8.6: provisioning_state must be exactly "Succeeded" (case-sensitive)
+                    prov_state = getattr(ep, "provisioning_state", None)
+                    if prov_state != "Succeeded":
                         continue
 
-                    # Deployment details via online_deployments.list (azure-ai-ml)
-                    instance_type = None
-                    total_instances = 0
-                    had_instance_data = False
-                    is_gpu = False
-                    deployment_count = 0
+                    # spec 8.7 / 9.2: created_at from systemData.createdAt
+                    created_at: Optional[datetime] = None
+                    sys_data = getattr(ep, "system_data", None) or getattr(ep, "systemData", None)
+                    if sys_data is not None:
+                        raw_created = getattr(sys_data, "created_at", None)
+                        if raw_created is None:
+                            raw_created = getattr(sys_data, "createdAt", None)
+                        created_at = _parse_utc_timestamp(raw_created)
+
+                    if created_at is None:
+                        continue  # spec 8.7: required
+                    if created_at > now:
+                        continue  # spec 9.2.3: future created_at -> skip
+                    age_days = (now - created_at).days
+                    if age_days < effective_idle_days:
+                        continue  # spec 8.7 / 9.2.4: age gate
+
+                    # spec 8.8: deployment inventory must resolve successfully
+                    all_deployments: List = []
                     try:
-                        for d in ep_client.online_deployments.list(ep.name):
-                            deployment_count += 1
-                            it = (
-                                getattr(d, "instance_type", None)
-                                or getattr(getattr(d, "sku", None), "name", None)
-                                or getattr(getattr(d, "properties", None), "instanceType", None)
-                            )
-                            if it:
-                                instance_type = instance_type or it  # keep first non-None
-                                it_norm = it.lower()
-                                if any(
-                                    it_norm.startswith(f) or f in it_norm for f in _GPU_FAMILIES
-                                ):
-                                    is_gpu = True
-                            scale = getattr(d, "scale_settings", None)
-                            # Use explicit is-not-None checks: 0 is a valid (scale-to-zero) count
-                            _candidates = [
-                                (
-                                    getattr(scale, "min_instances", None)
-                                    if scale is not None
-                                    else None
-                                ),
-                                getattr(d, "instance_count", None),
-                                (
-                                    getattr(scale, "min_replicas", None)
-                                    if scale is not None
-                                    else None
-                                ),
-                                getattr(
-                                    getattr(d, "properties", None),
-                                    "minReplicaCount",
-                                    None,
-                                ),
-                            ]
-                            cnt = next((v for v in _candidates if v is not None), None)
-                            if cnt is not None:
-                                had_instance_data = True
-                                total_instances += int(cnt)
+                        for dep in ep_client.online_deployments.list(ep_name):
+                            all_deployments.append(dep)
                     except Exception:
-                        pass
+                        continue  # spec 8.8: listing failure -> skip endpoint
 
-                    # Scale-to-zero endpoints have no running instances and no cost
-                    if had_instance_data and total_instances == 0:
+                    # Stable deployments: exact provisioning_state == "Succeeded" (spec 9.3.2)
+                    stable_deployments = [
+                        d
+                        for d in all_deployments
+                        if getattr(d, "provisioning_state", None) == "Succeeded"
+                    ]
+
+                    # spec 8.5: managed scope per spec 9.1
+                    is_managed, managed_scope_source = _resolve_managed_scope(
+                        ep, stable_deployments
+                    )
+                    if not is_managed:
                         continue
 
-                    # Cost lookup — only emit a cost when we have a known SKU price;
-                    # guessing an unknown SKU's cost erodes trust in the findings.
-                    monthly_cost = None
-                    if instance_type and total_instances:
-                        base = _VM_SKU_COSTS_LOWER.get(instance_type.lower())
-                        if base is not None:
-                            monthly_cost = base * total_instances
+                    # spec 8.9 / 9.3: billing-relevant deployments
+                    billing_relevant_count = 0
+                    total_baseline_instances = 0
+                    first_instance_type: Optional[str] = None
+                    any_gpu = False
 
-                    idle_ratio = (
-                        (age_days / idle_days) if (age_days is not None and idle_days) else None
+                    for dep in stable_deployments:
+                        # Baseline instance count resolution order (spec 9.3.4):
+                        # scale_settings.min_instances -> instance_count -> unknown
+                        scale = getattr(dep, "scale_settings", None)
+                        cnt = None
+                        if scale is not None:
+                            cnt = getattr(scale, "min_instances", None)
+                        if cnt is None:
+                            cnt = getattr(dep, "instance_count", None)
+
+                        if cnt is None:
+                            continue  # unknown -> not billing-relevant (spec 9.3.4-5)
+                        try:
+                            cnt_int = int(cnt)
+                        except (TypeError, ValueError):
+                            continue
+                        if cnt_int <= 0:
+                            continue  # not billing-relevant (spec 9.3.5)
+
+                        billing_relevant_count += 1
+                        total_baseline_instances += cnt_int
+
+                        it = getattr(dep, "instance_type", None)
+                        if it and first_instance_type is None:
+                            first_instance_type = it
+                        if it and _is_gpu(it):
+                            any_gpu = True
+
+                    if billing_relevant_count == 0:
+                        continue  # spec 8.9 / 9.3.6: no billing-relevant deployment
+
+                    # spec 8.10: traffic metric must resolve to ZERO per spec 9.5
+                    metric_result, coverage_ratio = _query_requests_per_minute(
+                        mon_client, ep_id, effective_idle_days
                     )
+                    if metric_result != "ZERO":
+                        continue  # ACTIVE or UNKNOWN -> skip (spec 8.10)
 
-                    # Risk — CRITICAL only on strong per-endpoint signal; LOW-confidence
-                    # signals (workspace_level, age_only) must not escalate beyond HIGH.
-                    if (
-                        is_gpu
-                        and signal_scope == "per_endpoint"
-                        and idle_ratio is not None
-                        and idle_ratio >= 2.0
-                    ):
-                        risk = RiskLevel.CRITICAL
-                    elif is_gpu:
-                        risk = RiskLevel.HIGH
+                    # spec 9.6: confidence from metric coverage
+                    if coverage_ratio >= _COVERAGE_HIGH:
+                        confidence = ConfidenceLevel.HIGH
                     else:
-                        risk = RiskLevel.MEDIUM
+                        confidence = ConfidenceLevel.MEDIUM
 
-                    if signal_scope == "age_only":
-                        primary_signal = (
-                            f"No Azure Monitor metric data available; endpoint age ({age_days} days) "
-                            f"exceeds {idle_days * 2} days"
-                        )
-                    elif signal_scope == "workspace_level":
-                        primary_signal = (
-                            f"No observable endpoint-level traffic; workspace metrics show zero "
-                            f"activity for {effective_window} days (Azure Monitor: {idle_metric})"
-                        )
-                    else:
-                        primary_signal = (
-                            f"Zero scoring requests for {effective_window} days "
-                            f"(Azure Monitor: {idle_metric})"
-                        )
-                    signals = [primary_signal, f"Provisioning state: {prov}"]
-                    if age_days is not None:
-                        signals.append(f"Endpoint age: {age_days} days")
-                    if monthly_cost:
-                        signals.append(f"Estimated cost: ~${monthly_cost:,.0f}/month")
+                    # spec 9.6: risk from GPU presence
+                    risk = RiskLevel.HIGH if any_gpu else RiskLevel.MEDIUM
 
-                    evidence = Evidence(
-                        signals_used=signals,
-                        signals_not_checked=[
-                            "Batch scoring pipelines or scheduled external callers",
-                            "Failover/shadow deployments",
-                            "A/B test traffic splits",
-                        ],
-                        time_window=f"{effective_window} days",
-                    )
+                    # spec 9.5: idle_since_days = effective idle window (not observational estimate)
+                    idle_since_days = effective_idle_days
+
+                    # Endpoint kind for details; tags never None in output (spec 7)
+                    ep_kind = getattr(ep, "kind", None)
+                    tags = getattr(ep, "tags", None) or {}
+
+                    # spec 11.2: signals_used
+                    signals_used = [
+                        f"Managed scope established from {managed_scope_source} surfaces",
+                        "Endpoint provisioning state is 'Succeeded'",
+                        (
+                            f"Endpoint age is {age_days} days "
+                            f"(>= configured idle window of {effective_idle_days} days)"
+                        ),
+                        (
+                            f"{billing_relevant_count} deployment(s) retain positive configured "
+                            f"baseline instance count (total: {total_baseline_instances})"
+                        ),
+                        (
+                            f"{_METRIC_NAME} metric result is ZERO with "
+                            f">={_COVERAGE_ACCEPTABLE:.0%} coverage "
+                            f"across a {effective_idle_days}-day rolling UTC window "
+                            f"(coverage: {coverage_ratio:.1%}, aggregation: {_METRIC_AGGREGATION})"
+                        ),
+                    ]
 
                     details = {
-                        "endpoint_name": ep.name,
-                        "workspace_name": ws.name,
+                        "endpoint_name": ep_name,
+                        "workspace_name": ws_name,
                         "resource_group": rg,
-                        "instance_type": instance_type,
-                        "min_instance_count": total_instances,
-                        "deployment_count": deployment_count,
-                        "is_gpu": is_gpu,
-                        "age_days": age_days,
-                        "idle_days_threshold": idle_days,
-                        "idle_signal_scope": signal_scope,
-                        "estimated_monthly_cost": monthly_cost,
-                        "cost_source": (
-                            "heuristic_sku_table"
-                            if (instance_type and instance_type.lower() in _VM_SKU_COSTS_LOWER)
-                            else "unknown"
-                        ),
+                        "subscription_id": subscription_id,
+                        "location": location_norm,
+                        "endpoint_kind": ep_kind,
+                        "managed_scope_source": managed_scope_source,
+                        "endpoint_provisioning_state": "Succeeded",
+                        "created_at": created_at.isoformat(),
+                        "billing_relevant_deployment_count": billing_relevant_count,
+                        "deployment_count": len(all_deployments),
+                        "stable_deployment_count": len(stable_deployments),
+                        "instance_type": first_instance_type,
+                        "is_gpu": any_gpu,
+                        "baseline_instance_count_total": total_baseline_instances,
+                        "idle_days_threshold": effective_idle_days,
+                        "idle_since_days": idle_since_days,
+                        "metric_name": _METRIC_NAME,
+                        "metric_aggregation": _METRIC_AGGREGATION,
+                        "metric_coverage_ratio": coverage_ratio,
+                        "tags": tags,
                     }
 
-                    title = f"Idle Azure ML Online Endpoint: {ep.name}"
+                    title = f"Idle Azure ML Managed Online Endpoint: {ep_name}"
                     summary = (
-                        f"Azure ML online endpoint '{ep.name}' in workspace '{ws.name}' has received "
-                        f"no scoring requests for {effective_window}+ days and continues to bill per-instance."
+                        f"Azure ML managed online endpoint '{ep_name}' in workspace '{ws_name}' "
+                        f"has received no scoring requests (RequestsPerMinute == 0) for "
+                        f"{effective_idle_days} days while retaining "
+                        f"{total_baseline_instances} positive baseline deployment instance(s), "
+                        f"continuing to incur compute cost."
                     )
-                    reason = signals[0]
+                    reason = (
+                        f"RequestsPerMinute is zero across a {effective_idle_days}-day rolling "
+                        f"window while {billing_relevant_count} deployment(s) retain positive "
+                        f"baseline instances"
+                    )
 
                     findings.append(
                         Finding(
                             provider="azure",
-                            rule_id="azure.ml.online_endpoint.idle",
-                            resource_type="azure.ml.online_endpoint",
-                            resource_id=ep.id,
-                            region=location_raw,
+                            rule_id=_RULE_ID,
+                            resource_type=_RESOURCE_TYPE,
+                            resource_id=ep_id,
+                            region=location_norm,
                             title=title,
                             summary=summary,
                             reason=reason,
                             risk=risk,
                             confidence=confidence,
                             detected_at=now,
-                            evidence=evidence,
+                            estimated_monthly_cost_usd=None,  # spec 10: always None
+                            evidence=Evidence(
+                                signals_used=signals_used,
+                                signals_not_checked=[
+                                    "Future traffic intent or standby usage",
+                                    "Autoscale policies or live instance state not visible from deployment configuration",
+                                    "Exact endpoint cost after discounts, reservations, or special commercial terms",
+                                    "Business-owner intent or rollout plans",
+                                ],
+                                time_window=f"{effective_idle_days} days",
+                            ),
                             details=details,
-                            estimated_monthly_cost_usd=monthly_cost,
                         )
                     )
 
-            except PermissionError:
-                raise
-            except Exception:
-                continue
-
-    except PermissionError:
-        raise
-    except HttpResponseError as e:
-        if e.status_code in (401, 403):
-            raise PermissionError(
-                "Missing required permissions: Microsoft.MachineLearningServices/workspaces/read, "
-                "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read, "
-                "Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read, "
-                "Microsoft.Insights/metrics/read"
-            ) from e
-        raise
-
-    return findings
-
-
-def _check_requests(
-    monitor_client: Any,
-    workspace_id: str,
-    endpoint_name: str,
-    days: int,
-) -> Optional[tuple]:
-    now = datetime.now(timezone.utc)
-    start = now - timedelta(days=max(days, 1))
-    fmt = "%Y-%m-%dT%H:%M:%SZ"
-    timespan = f"{start.strftime(fmt)}/{now.strftime(fmt)}"
-    coverage_threshold = max(int(days * 0.7), 3)
-
-    had_successful_call = False
-
-    for metric_name in _REQUEST_METRICS:
-        try:
-            # Pass 1: filter by EndpointName dimension.
-            # OData single-quote escaping: replace ' with '' per OData spec.
-            safe_name = endpoint_name.replace("'", "''")
-            response = monitor_client.metrics.list(
-                workspace_id,
-                metricnames=metric_name,
-                timespan=timespan,
-                interval="PT24H",
-                aggregation="Total",
-                filter=f"EndpointName eq '{safe_name}'",
-            )
-            had_successful_call = True
-            has_timeseries = False
-            seen_datapoints = 0
-            for metric in response.value:
-                for ts in metric.timeseries:
-                    has_timeseries = True
-                    for point in ts.data:
-                        if point.total is not None:
-                            seen_datapoints += 1
-                            if point.total > 0:
-                                return ("active", None)
-
-            if has_timeseries and seen_datapoints >= coverage_threshold:
-                return ("per_endpoint", metric_name)
-
-            # Pass 2: no filter — dimension may not be emitted for this endpoint
-            response2 = monitor_client.metrics.list(
-                workspace_id,
-                metricnames=metric_name,
-                timespan=timespan,
-                interval="PT24H",
-                aggregation="Total",
-            )
-            seen2 = 0
-            for metric in response2.value:
-                for ts in metric.timeseries:
-                    for point in ts.data:
-                        if point.total is not None:
-                            seen2 += 1
-                            if point.total > 0:
-                                return ("active", None)
-            if seen2 >= coverage_threshold:
-                return ("workspace_level", metric_name)
+                except PermissionError:
+                    raise
+                except Exception:
+                    continue  # spec 12: malformed or failed per-endpoint record -> skip
 
         except PermissionError:
             raise
-        except HttpResponseError as e:
-            if e.status_code in (401, 403):
-                raise PermissionError(
-                    "Missing required permissions: Microsoft.Insights/metrics/read"
-                ) from e
-            continue
         except Exception:
-            continue
+            continue  # spec 12: per-workspace failure -> skip; preserve findings so far
 
-    return ("no_data", None) if had_successful_call else None
+    return findings

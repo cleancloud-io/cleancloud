@@ -20,7 +20,7 @@
 | `azure.resource.untagged` | Governance | Disks and snapshots with zero tags |
 | `azure.aml.compute.idle` | AI/ML | AML compute clusters with `min_node_count > 0`, confirmed current node allocation, and zero per-cluster `Active Nodes` activity 14+ days |
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances in `Running` state with no documented control-plane lifecycle activity for `idle_days` (default 14); uses `lastOperation.operationTime` or `modifiedOn` fallback only — no age-only or undocumented fallbacks |
-| `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints with zero scoring requests 7+ days |
+| `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints retaining positive deployment baseline instances with `RequestsPerMinute == 0` over a rolling `idle_days` window; managed scope required from documented endpoint/deployment surfaces |
 | `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
 | `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero requests 7+ days |
 
@@ -233,17 +233,19 @@
 **Spec:** [specs/azure/ai/aml_compute_instance_idle.md](../specs/azure/ai/aml_compute_instance_idle.md)
 
 #### `azure.ml.online_endpoint.idle`
-**Detects:** Azure ML managed online endpoints in `Succeeded` provisioning state with zero scoring requests for `idle_days`
+**Detects:** Azure ML managed online endpoints with `provisioning_state == "Succeeded"`, at least one stable deployment retaining a known positive baseline instance count, and `RequestsPerMinute == 0` (Average, PT1M) across a rolling UTC window on the **endpoint ARM resource id**; precision-first review-candidate rule — does not claim exact endpoint cost and emits only when all required signals resolve
 
-**Confidence / Risk:** HIGH (per-endpoint `RequestCount` metric confirms zero + age ≥ `idle_days`); MEDIUM (zero confirmed but age < `idle_days`, or metric unavailable + age ≥ 2× `idle_days`) / CRITICAL (GPU + `idle_ratio ≥ 2.0`); HIGH (GPU/accelerator); MEDIUM (CPU)
+**Confidence / Risk:** HIGH (`RequestsPerMinute` metric coverage ≥ 95% for a ZERO result); MEDIUM (metric coverage 80–95%) / HIGH (any billing-relevant deployment is GPU — uppercase prefix match on `STANDARD_NC`, `STANDARD_ND`, `STANDARD_NV`); MEDIUM (all other instance families including null/absent)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded VM price tables; rule notes only that deployments retaining positive baseline instances incur ongoing compute cost
 
 **Permissions:** `Microsoft.MachineLearningServices/workspaces/read`, `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/read`, `Microsoft.MachineLearningServices/workspaces/onlineEndpoints/deployments/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** `idle_days` (default: 7)
+**Params:** `idle_days` (default: 7, minimum effective value: 1)
 
-**Exclusions:** `provisioning_state != "Succeeded"`; batch endpoints
+**Exclusions:** `endpoint.id` or `endpoint.name` absent/empty; workspace `name` absent/empty; outside optional region filter (exact lowercase match on **endpoint** resource location; spaces and hyphens preserved); managed scope not established from documented endpoint/deployment surfaces — Kubernetes endpoints (class name or `kind == "Kubernetes"`) always out of scope; `provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `created_at` absent from `systemData.createdAt`, unparsable, in the future, or endpoint age < `idle_days`; deployment inventory listing fails (skip endpoint); no stable deployment (`deployment_provisioning_state == "Succeeded"`) resolves to a known positive baseline instance count (`scale_settings.min_instances` → `instance_count`, known integer > 0); `RequestsPerMinute` metric unavailable, coverage below 80%, or result not ZERO; per-endpoint failure (skip that endpoint); per-workspace failure (skip that workspace)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/ml_online_endpoint_idle.md](../specs/azure/ai/ml_online_endpoint_idle.md)
 
 #### `azure.ai_search.idle`
 **Detects:** Azure AI Search services (Basic tier and above) that are structurally empty and have no documented query, indexing, or skill activity over a fixed 90-day window; requires BOTH confirmed zero activity across all three required metrics AND confirmed emptiness of all required object surfaces before emitting
