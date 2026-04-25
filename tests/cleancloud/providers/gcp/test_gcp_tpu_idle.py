@@ -26,7 +26,7 @@ import pytest
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.gcp.rules.tpu_idle import (
+from cleancloud.providers.gcp.rules.ai.tpu_idle import (
     _CHIP_HOURLY_COST,
     _DEFAULT_IDLE_DAYS,
     _DUTY_CYCLE_IDLE_THRESHOLD,
@@ -129,14 +129,14 @@ def _run(
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.tpu_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.tpu_idle.AuthorizedSession",
             return_value=mock_session_inst,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.tpu_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.tpu_idle.monitoring_v3.MetricServiceClient",
             return_value=mock_monitoring_inst,
         ),
-        patch("cleancloud.providers.gcp.rules.tpu_idle.datetime") as mock_dt,
+        patch("cleancloud.providers.gcp.rules.ai.tpu_idle.datetime") as mock_dt,
     ):
         mock_dt.now.return_value = NOW
         mock_dt.fromisoformat = datetime.fromisoformat
@@ -286,10 +286,10 @@ class TestFindIdleTpuNodes:
 
         with (
             patch(
-                "cleancloud.providers.gcp.rules.tpu_idle.AuthorizedSession",
+                "cleancloud.providers.gcp.rules.ai.tpu_idle.AuthorizedSession",
                 return_value=mock_session,
             ),
-            patch("cleancloud.providers.gcp.rules.tpu_idle.monitoring_v3.MetricServiceClient"),
+            patch("cleancloud.providers.gcp.rules.ai.tpu_idle.monitoring_v3.MetricServiceClient"),
         ):
             with pytest.raises(PermissionError, match="tpu.nodes.list"):
                 find_idle_tpu_nodes(project_id=_PROJECT, credentials=MagicMock())
@@ -303,10 +303,10 @@ class TestFindIdleTpuNodes:
 
         with (
             patch(
-                "cleancloud.providers.gcp.rules.tpu_idle.AuthorizedSession",
+                "cleancloud.providers.gcp.rules.ai.tpu_idle.AuthorizedSession",
                 return_value=mock_session,
             ),
-            patch("cleancloud.providers.gcp.rules.tpu_idle.monitoring_v3.MetricServiceClient"),
+            patch("cleancloud.providers.gcp.rules.ai.tpu_idle.monitoring_v3.MetricServiceClient"),
         ):
             findings = find_idle_tpu_nodes(project_id=_PROJECT, credentials=MagicMock())
         assert findings == []

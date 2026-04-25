@@ -22,7 +22,7 @@ import pytest
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.gcp.rules.workbench_idle import (
+from cleancloud.providers.gcp.rules.ai.workbench_idle import (
     _DEFAULT_MACHINE_MONTHLY_COST,
     _GPU_MONTHLY_COST_EACH,
     _MACHINE_MONTHLY_COST,
@@ -195,10 +195,10 @@ class TestEstimateCost:
 class TestFindIdleWorkbenchInstances:
     def _run(self, instances: list, **kwargs):
         with patch(
-            "cleancloud.providers.gcp.rules.workbench_idle._list_instances",
+            "cleancloud.providers.gcp.rules.ai.workbench_idle._list_instances",
             return_value=instances,
         ):
-            with patch("cleancloud.providers.gcp.rules.workbench_idle.datetime") as mock_dt:
+            with patch("cleancloud.providers.gcp.rules.ai.workbench_idle.datetime") as mock_dt:
                 mock_dt.now.return_value = NOW
                 mock_dt.fromisoformat = datetime.fromisoformat
                 return find_idle_workbench_instances(
@@ -364,7 +364,7 @@ class TestFindIdleWorkbenchInstances:
         mock_session.get.return_value = resp_500
 
         with patch(
-            "cleancloud.providers.gcp.rules.workbench_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
             return_value=mock_session,
         ):
             findings = find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock())
@@ -384,7 +384,7 @@ class TestListInstancesPermissionError:
         mock_session.get.return_value = response
 
         with patch(
-            "cleancloud.providers.gcp.rules.workbench_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
             return_value=mock_session,
         ):
             with pytest.raises(PermissionError, match="notebooks.instances.list"):
@@ -397,7 +397,7 @@ class TestListInstancesPermissionError:
         mock_session.get.return_value = response
 
         with patch(
-            "cleancloud.providers.gcp.rules.workbench_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
             return_value=mock_session,
         ):
             findings = find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock())

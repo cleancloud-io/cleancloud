@@ -39,17 +39,23 @@
 ## Storage
 
 #### `gcp.compute.disk.unattached`
-**Detects:** Persistent Disks in `READY` state with `users == []`
+**Detects:** Persistent Disks in `READY` state with an explicitly empty `users[]` (no attached VM); covers both zonal and regional disks via aggregated inventory
 
-**Confidence / Risk:** HIGH (unambiguous detachment) / LOW
+**Confidence / Risk:**
+- Zonal, last detach ≥ 7 days ago (or never detached): HIGH
+- Zonal, last detach 24 h – 7 days ago: MEDIUM — may still be mid-deletion pipeline
+- Either scope, last detach < 24 h ago: LOW — very likely mid-pipeline
+- Regional, unattached (any age): MEDIUM — regional disks are documented HA/failover infrastructure
+
+**Cost:** `estimated_monthly_cost_usd = None` — GCP disk pricing varies by type, region, currency, and provisioned performance; the finding surfaces disk type and size only
 
 **Permissions:** `compute.disks.list` (roles/compute.viewer)
 
-**Params:** none
+**Params:** none (no user-configurable threshold — detection is based on current attachment state)
 
-**Exclusions:** none
+**Exclusions:** disk record malformed or name absent; aggregated scope key unresolvable (e.g. `global`); disk `status` not exactly `READY`; `users` field absent or not an explicit empty list; any non-empty `users` entry (attached disk)
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/disk_unattached.md](../specs/gcp/disk_unattached.md)
 
 #### `gcp.compute.snapshot.old`
 **Detects:** Disk snapshots older than `days_old`; confidence reflects whether source disk still exists

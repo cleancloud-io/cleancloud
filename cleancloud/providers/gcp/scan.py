@@ -15,20 +15,20 @@ from google.api_core.exceptions import (
 
 from cleancloud.core.finding import Finding
 from cleancloud.output.progress import advance
+from cleancloud.providers.gcp.rules.ai.featurestore_idle import find_idle_featurestores
+from cleancloud.providers.gcp.rules.ai.tpu_idle import find_idle_tpu_nodes
+from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
+    find_idle_vertex_endpoints,
+)
+from cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running import (
+    find_long_running_vertex_training_jobs,
+)
+from cleancloud.providers.gcp.rules.ai.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.rules.disk_unattached import find_unattached_disks
-from cleancloud.providers.gcp.rules.featurestore_idle import find_idle_featurestores
 from cleancloud.providers.gcp.rules.ip_unused import find_unused_static_ips
 from cleancloud.providers.gcp.rules.snapshot_old import find_old_snapshots
 from cleancloud.providers.gcp.rules.sql_instance_idle import find_idle_sql_instances
-from cleancloud.providers.gcp.rules.tpu_idle import find_idle_tpu_nodes
-from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
-    find_idle_vertex_endpoints,
-)
-from cleancloud.providers.gcp.rules.vertex_training_job_long_running import (
-    find_long_running_vertex_training_jobs,
-)
 from cleancloud.providers.gcp.rules.vm_stopped import find_stopped_vms
-from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.session import create_gcp_session
 from cleancloud.providers.gcp.validate import (
     validate_project_params,
