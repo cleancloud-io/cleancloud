@@ -22,7 +22,7 @@
 | `azure.ml.compute_instance.idle` | AI/ML | Azure ML Compute Instances in `Running` state with no documented control-plane lifecycle activity for `idle_days` (default 14); uses `lastOperation.operationTime` or `modifiedOn` fallback only — no age-only or undocumented fallbacks |
 | `azure.ml.online_endpoint.idle` | AI/ML | Azure ML managed online endpoints retaining positive deployment baseline instances with `RequestsPerMinute == 0` over a rolling `idle_days` window; managed scope required from documented endpoint/deployment surfaces |
 | `azure.ai_search.idle` | AI/ML | Azure AI Search services (Basic+) structurally empty with zero query, indexing, and skill activity 90+ days |
-| `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (PTUs) with zero requests 7+ days |
+| `azure.openai.provisioned_deployment.idle` | AI/ML | Azure OpenAI provisioned deployments (`model_format == "OpenAI"`, provisioned SKU) retaining positive PTU capacity with zero `AzureOpenAIRequests` across a rolling `idle_days` window; `model_format` gate is case-sensitive and based on deployment properties only |
 
 ---
 
@@ -261,14 +261,16 @@
 **Spec:** [specs/azure/ai/ai_search_idle.md](../specs/azure/ai/ai_search_idle.md)
 
 #### `azure.openai.provisioned_deployment.idle`
-**Detects:** Azure OpenAI provisioned deployments (PTUs) with zero API requests for `idle_days`; bills per PTU per hour regardless of traffic
+**Detects:** Azure OpenAI provisioned deployments (`model_format == "OpenAI"`, provisioned SKU) retaining positive PTU capacity with `AzureOpenAIRequests == 0` (Total, PT1M) across a rolling UTC window on the **parent account ARM resource id**; precision-first review-candidate rule — does not claim exact savings and emits only when all required signals resolve
 
-**Confidence / Risk:** HIGH (per-deployment `AzureOpenAIRequests` metric confirms zero + age ≥ `idle_days`); MEDIUM (per-deployment zero but age < `idle_days`, or account-level zero only) / HIGH (≥ 7 PTUs, ~$10K+/month); MEDIUM (< 7 PTUs)
+**Confidence / Risk:** HIGH (`AzureOpenAIRequests` metric coverage ≥ 95% for a ZERO result); MEDIUM (metric coverage 80–95%) / HIGH (always — every provisioned deployment with positive PTU capacity is inherently a cost candidate)
+
+**Cost:** `estimated_monthly_cost_usd = None` always — no hardcoded PTU price constant; rule notes only that deployed PTUs incur hourly billing while the deployment exists
 
 **Permissions:** `Microsoft.CognitiveServices/accounts/read`, `Microsoft.CognitiveServices/accounts/deployments/read`, `Microsoft.Insights/metrics/read`
 
-**Params:** `idle_days` (default: 7)
+**Params:** `idle_days` (default: 7, minimum effective value: 1)
 
-**Exclusions:** non-provisioned SKUs; only `ProvisionedManaged`, `GlobalProvisionedManaged`, `DataZoneProvisionedManaged` evaluated
+**Exclusions:** `account.id` or `account.name` absent/empty; `deployment.id` or `deployment.name` absent/empty; account location unresolved (spaces and hyphens preserved in normalized form); outside optional region filter (exact lowercase match); `account_provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `deployment_provisioning_state` does not exactly equal `"Succeeded"` (case-sensitive); `model_format` does not exactly equal `"OpenAI"` (case-sensitive; account kind is not used to establish OpenAI scope); `sku_name` not in `{ProvisionedManaged, GlobalProvisionedManaged, DataZoneProvisionedManaged}`; `ptu_capacity` absent, invalid, zero, or negative; `created_at` absent, unparsable, in the future, or deployment age < `idle_days`; `AzureOpenAIRequests` metric unavailable, coverage below 80%, or result not ZERO; no age-only, token-only, utilization-only, or `ProcessedPromptTokens` fallback; per-deployment failure (skip that deployment); per-account deployment listing failure (skip that account)
 
-**Spec:** —
+**Spec:** [specs/azure/ai/openai_provisioned_idle.md](../specs/azure/ai/openai_provisioned_idle.md)
