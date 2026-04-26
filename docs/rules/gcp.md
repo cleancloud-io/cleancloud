@@ -75,17 +75,27 @@
 ## Network
 
 #### `gcp.compute.ip.unused`
-**Detects:** Reserved static IPs (regional and global) in `RESERVED` state (GCP confirms not attached)
+**Detects:** Regional and global static external IPv4 address reservations in `RESERVED` state — allocated but not attached to any resource
 
-**Confidence / Risk:** HIGH (GCP confirms RESERVED state) / LOW
+**Confidence / Risk:** HIGH (`RESERVED` state is canonical GCP control-plane confirmation of non-attachment) / LOW
 
-**Permissions:** `compute.addresses.list`, `compute.globalAddresses.list` (roles/compute.viewer); gracefully degrades if globalAddresses permission denied
+**Cost:** `estimated_monthly_cost_usd = 7.30` — derived from Google's documented **$0.01/hour** unused static external IPv4 rate × 730-hour normalized month; actual billing remains hourly and may vary by contract or currency
 
-**Params:** none
+**Permissions:** `compute.addresses.list`, `compute.globalAddresses.list` (both included in roles/compute.viewer); permission failures on either surface surface as a permission error
 
-**Exclusions:** IPs in `IN_USE` status; global IPs skipped if `region_filter` is set
+**Params:** none — detection is based on current control-plane state, not age
 
-**Spec:** —
+**Exclusions:**
+- address record malformed or `name` absent/empty
+- regional aggregated scope key not exactly `regions/REGION`
+- `status` not exactly `RESERVED` (skips `IN_USE`, `RESERVING`, unknown)
+- `addressType` not exactly `EXTERNAL` (internal addresses are not billed this way)
+- `ipVersion` not exactly `IPV4` (IPv6 addresses are out of scope)
+- `purpose == "NAT_AUTO"` (Cloud NAT automatic allocations)
+- `users[]` non-empty (contradictory current-use evidence)
+- global addresses skipped when `region_filter` is active
+
+**Spec:** [docs/specs/gcp/ip_unused.md](../specs/gcp/ip_unused.md)
 
 ---
 
