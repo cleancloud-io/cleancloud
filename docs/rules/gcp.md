@@ -6,7 +6,7 @@
 
 | Rule ID | Cost Surface | What It Detects |
 |---|---|---|
-| `gcp.compute.vm.stopped` | Compute | TERMINATED VMs stopped 30+ days (disk charges continue) |
+| `gcp.compute.vm.stopped` | Compute | TERMINATED or STOPPED VMs for 30+ days (attached disk charges continue) |
 | `gcp.compute.disk.unattached` | Storage | Persistent Disks in READY state with no attached VM |
 | `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
 | `gcp.compute.ip.unused` | Network | Reserved static IPs in RESERVED state |
@@ -22,17 +22,28 @@
 ## Compute
 
 #### `gcp.compute.vm.stopped`
-**Detects:** TERMINATED VM instances stopped 30+ days; persistent disk charges continue
+**Detects:** Compute Engine VM instances in `TERMINATED` or `STOPPED` lifecycle state for `max_age_days`+ days; attached disk charges continue regardless of instance state
 
-**Confidence / Risk:** HIGH (`lastStopTimestamp` ≥ 30 days ago); MEDIUM (TERMINATED but timestamp absent) / MEDIUM
+**Confidence / Risk:**
+- `stop_age_days >= 90`: HIGH
+- `max_age_days <= stop_age_days < 90`: MEDIUM
+
+**Cost:** `estimated_monthly_cost_usd = None` — attached resources (disks, static IPs) bill by their own pricing surface; no flat estimate is appropriate
 
 **Permissions:** `compute.instances.list` (roles/compute.viewer)
 
-**Params:** none (30-day threshold is fixed)
+**Params:** `max_age_days` (default: 30)
 
-**Exclusions:** instances not in TERMINATED state; stopped < 30 days
+**Exclusions:**
+- instance record malformed or `name` absent/empty
+- aggregated scope key not in exact `zones/ZONE` form
+- region filter set and region is unknown or does not match
+- instance has proven active MIG membership (`created-by` metadata referencing `instanceGroupManagers/...`)
+- lifecycle state not `TERMINATED` or `STOPPED`
+- `lastStopTimestamp` absent or unparsable
+- stop age < `max_age_days`
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/vm_stopped.md](../specs/gcp/vm_stopped.md)
 
 ---
 
@@ -112,17 +123,28 @@
 ## Platform
 
 #### `gcp.sql.instance.idle`
-**Detects:** Cloud SQL instances with zero connections for `idle_days`; if Monitoring unavailable, instance is assumed active (conservative fallback — not flagged)
+**Detects:** Primary Cloud SQL instances (`CLOUD_SQL_INSTANCE`) in `RUNNABLE` state with zero observed active connections over the full `idle_days` window; metric coverage must be confirmed full (partial or sparse coverage skips rather than emits)
 
 **Confidence / Risk:** HIGH (Cloud Monitoring confirms zero connections for full window) / HIGH
+
+**Cost:** `estimated_monthly_cost_usd = None` — pricing varies by edition, region, compute shape, HA, storage, and commitment model; no flat estimate is appropriate
 
 **Permissions:** `cloudsql.instances.list` (roles/cloudsql.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 14)
 
-**Exclusions:** read replicas; instances not in `RUNNABLE` state
+**Exclusions:**
+- instance record malformed or `name` absent/empty
+- `region` absent/empty
+- region filter set and region does not exactly match
+- `state` not exactly `RUNNABLE`
+- `instanceType` not exactly `CLOUD_SQL_INSTANCE`
+- `masterInstanceName` present and non-empty (replica-shaped instance)
+- `createTime` absent, unparsable, or instance newer than `window_start` (full window not coverable)
+- active-connections metric coverage unresolved (no series, no points, partial window, large gap >&nbsp;10 min, timestamp parse failure, or query failure)
+- `active_connections_max > 0` anywhere in the full window
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/sql_instance_idle.md](../specs/gcp/sql_instance_idle.md)
 
 ---
 
