@@ -58,17 +58,27 @@
 **Spec:** [docs/specs/gcp/disk_unattached.md](../specs/gcp/disk_unattached.md)
 
 #### `gcp.compute.snapshot.old`
-**Detects:** Disk snapshots older than `days_old`; confidence reflects whether source disk still exists
+**Detects:** Standard disk snapshots older than `max_age_days` that are not part of an automated backup workflow
 
-**Confidence / Risk:** HIGH (source disk no longer exists — orphaned); MEDIUM (source disk still exists) / LOW
+**Confidence / Risk:** LOW (age alone is not proof of waste; incremental chain sharing means deletion may not reclaim billed storage proportionally) / LOW
+
+**Cost:** `estimated_monthly_cost_usd = None` — snapshot pricing varies by type (standard vs archive), storage location, and region; no flat per-GB rate is hardcoded
 
 **Permissions:** `compute.snapshots.list` (roles/compute.viewer)
 
-**Params:** `days_old` (default: 90)
+**Params:** `max_age_days` (default: 90)
 
-**Exclusions:** snapshots not in `READY` status; younger than threshold; `region_filter` is ignored (snapshots are global)
+**Exclusions:**
+- snapshot record malformed or `name` absent/empty
+- `status` not exactly `READY` (skips `CREATING`, `DELETING`, `FAILED`, `UPLOADING`)
+- `creationTimestamp` absent or unparsable
+- age < `max_age_days`
+- `snapshotType == "ARCHIVE"` (low-cost long-retention class — out of scope)
+- `sourceSnapshotSchedulePolicy` or `sourceSnapshotSchedulePolicyId` non-empty (schedule-created backup)
+- `autoCreated == true` (auto-created backup)
+- `region_filter` is ignored (snapshots are global resources)
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/snapshot_old.md](../specs/gcp/snapshot_old.md)
 
 ---
 
