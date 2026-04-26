@@ -1,6 +1,52 @@
+"""
+Rule: gcp.sql.instance.idle
+
+    (spec — docs/specs/gcp/sql_instance_idle.md)
+
+Intent:
+    Detect primary Cloud SQL instances that show no observed active database
+    connections for the full configured idle window and therefore represent
+    conservative review candidates for cleanup, stop/start reconsideration,
+    or rightsizing.
+
+    This is a conservative review-candidate rule only. It is not proof that
+    the instance is safe to delete, not proof that no business continuity
+    purpose exists, and not proof of a specific monthly saving.
+
+Exclusions:
+    - instance record malformed or name absent / empty (spec 8.1)
+    - region absent / empty (spec 8.2)
+    - region filter set and region does not match (spec 8.3)
+    - state absent, unknown, or not exactly "RUNNABLE" (spec 8.4)
+    - instanceType absent, unknown, or not exactly "CLOUD_SQL_INSTANCE" (spec 8.5)
+    - replica exclusion contract triggered (masterInstanceName present) (spec 8.6)
+    - createTime absent or unparsable (spec 8.7)
+    - instance newer than window_start (spec 8.8)
+    - active_connections metric cannot be resolved reliably (spec 8.9)
+    - active_connections_max > 0 anywhere in the window (spec 8.10)
+
+Detection:
+    - state == "RUNNABLE"
+    - instanceType == "CLOUD_SQL_INSTANCE"
+    - masterInstanceName absent / empty
+    - createTime parsable and instance older than window_start
+    - active_connections_max == 0 for the full window
+
+Cost model (spec 9.10):
+    estimated_monthly_cost_usd = None
+    Pricing varies by edition, region, compute shape, HA, storage, and
+    commitment model; no flat tier estimate is appropriate.
+
+APIs:
+    - sqladmin.googleapis.com/sql/v1beta4/projects/{project}/instances
+    - monitoring.googleapis.com: cloudsql.googleapis.com/database/active_connections
+      on cloudsql_database monitored resource
+"""
+
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from google.api_core.exceptions import Forbidden, PermissionDenied
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import monitoring_v3
 from google.protobuf import timestamp_pb2
@@ -10,37 +56,37 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
-# Approximate Cloud SQL monthly cost by machine tier (us-central1, HA disabled)
-# Source: https://cloud.google.com/sql/pricing
-_CLOUD_SQL_COST_USD: dict = {
-    "db-f1-micro": 7.67,
-    "db-g1-small": 25.22,
-    "db-n1-standard-1": 46.55,
-    "db-n1-standard-2": 93.10,
-    "db-n1-standard-4": 186.19,
-    "db-n1-standard-8": 372.39,
-    "db-n1-standard-16": 744.78,
-    "db-n1-highmem-2": 113.45,
-    "db-n1-highmem-4": 226.90,
-    "db-n1-highmem-8": 453.80,
-    "db-n1-highmem-16": 907.60,
-    "db-custom-1-3840": 53.52,
-    "db-custom-2-7680": 107.04,
-    "db-custom-4-15360": 214.08,
-}
+# spec 6.3 / 9.5: Cloud SQL metrics are sampled every 60s and can be delayed
+# up to 165s. A 5-minute buffer conservatively covers documented visibility lag.
+_MONITORING_LAG_BUFFER = timedelta(minutes=5)
 
-_DAYS_IDLE = 14
+# spec 9.6.9: coverage quality thresholds.
+# Maximum tolerated consecutive gap between observed data points.  Accounts for
+# the documented 60 s sampling period + up to 165 s visibility lag, plus a
+# conservative buffer for occasional missed samples.
+_MAX_COVERAGE_GAP = timedelta(minutes=10)
+# Tolerated offset between window boundary and first/last observed point.
+# Accounts for sampling alignment and in-flight visibility lag at window edges.
+_COVERAGE_EDGE_TOLERANCE = timedelta(minutes=10)
+
+
+def _parse_create_time(ts: str) -> Optional[datetime]:
+    """Parse an RFC3339 createTime string to a UTC-aware datetime, or return None."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except (ValueError, AttributeError):
+        return None
 
 
 def _list_sql_instances(project_id: str, credentials) -> list:
     """
     List all Cloud SQL instances using the Cloud SQL Admin REST API.
 
-    Uses AuthorizedSession (google-auth) — automatically handles token refresh
-    and avoids requiring google-api-python-client as an additional dependency.
-
-    Raises PermissionError on 403 so the caller can gracefully skip this rule.
-    Returns [] on 404 (Cloud SQL API not enabled for the project).
+    Raises PermissionError on 403 (spec 9.13.1).
+    Returns [] on 404 (Cloud SQL API not enabled — spec 9.13.3).
     """
     session = AuthorizedSession(credentials)
     resp = session.get(
@@ -49,57 +95,132 @@ def _list_sql_instances(project_id: str, credentials) -> list:
     if resp.status_code == 403:
         raise PermissionError("cloudsql.instances.list permission required (roles/cloudsql.viewer)")
     if resp.status_code == 404:
-        return []  # Cloud SQL API not enabled for this project
+        return []
     resp.raise_for_status()
     return resp.json().get("items", [])
 
 
-def _has_connections(
+def _query_active_connections(
     monitoring_client: monitoring_v3.MetricServiceClient,
     project_id: str,
     instance_name: str,
-    idle_days: int = _DAYS_IDLE,
-) -> bool:
+    instance_region: str,
+    window_start: datetime,
+    window_end: datetime,
+) -> Optional[float]:
     """
-    Query Cloud Monitoring for database connections over the last `idle_days` days.
+    Query cloudsql.googleapis.com/database/active_connections for one instance.
 
-    Returns True if any connections detected (active instance).
-    Returns True on any error — conservative fallback avoids false positives.
+    Matches by exact documented cloudsql_database monitored-resource identity
+    labels (project_id, location, resource_id).  Aggregates across all matched
+    series to handle the database label dimension (spec 9.6–9.7).
+
+    Also evaluates coverage quality (spec 9.6.8–9.6.9): the observed timestamps
+    must span the full window within _COVERAGE_EDGE_TOLERANCE, and no consecutive
+    gap between observed points may exceed _MAX_COVERAGE_GAP.
+
+    Returns:
+        float >= 0.0  — active_connections_max; 0.0 means confirmed idle
+        None          — unresolved coverage (no series / no points / partial
+                        window / large gap / unreadable timestamps / failure);
+                        caller must skip (spec 8.9)
+
+    Raises:
+        PermissionError — monitoring.timeSeries.list permission denied (spec 9.13.2)
     """
     try:
-        now = datetime.now(timezone.utc)
-        start = now - timedelta(days=idle_days)
-
         end_ts = timestamp_pb2.Timestamp()
-        end_ts.FromDatetime(now)
+        end_ts.FromDatetime(window_end)
         start_ts = timestamp_pb2.Timestamp()
-        start_ts.FromDatetime(start)
+        start_ts.FromDatetime(window_start)
 
         interval = monitoring_v3.TimeInterval(start_time=start_ts, end_time=end_ts)
+
+        # spec 9.6.3: exact label matching — project_id, location, resource_id
+        filter_str = (
+            'metric.type="cloudsql.googleapis.com/database/active_connections"'
+            ' AND resource.type="cloudsql_database"'
+            f' AND resource.labels.project_id="{project_id}"'
+            f' AND resource.labels.location="{instance_region}"'
+            f' AND resource.labels.resource_id="{instance_name}"'
+        )
 
         results = monitoring_client.list_time_series(
             request={
                 "name": f"projects/{project_id}",
-                "filter": (
-                    'metric.type="cloudsql.googleapis.com/database/network/connections"'
-                    f' AND resource.labels.database_id="{project_id}:{instance_name}"'
-                ),
+                "filter": filter_str,
                 "interval": interval,
                 "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
             }
         )
 
+        # spec 9.7: aggregate across all matched series (all database label variants)
+        has_series = False
+        has_points = False
+        max_val = 0.0
+        all_timestamps: list = []
+
         for series in results:
+            has_series = True
             for point in series.points:
-                val = point.value.int64_value or int(point.value.double_value or 0)
-                if val > 0:
-                    return True
+                has_points = True
+                which = point.value.WhichOneof("value")
+                if which == "int64_value":
+                    val = float(point.value.int64_value)
+                elif which == "double_value":
+                    val = float(point.value.double_value)
+                else:
+                    # Unrecognised or unset value type → unresolved coverage → skip
+                    return None
+                if val > max_val:
+                    max_val = val
+                # Collect timestamp for coverage quality evaluation (spec 9.6.8–9.6.9).
+                # Any parse failure means coverage cannot be verified → unresolved.
+                try:
+                    ts = point.interval.end_time
+                    all_timestamps.append(
+                        datetime.fromtimestamp(ts.seconds + ts.nanos / 1e9, tz=timezone.utc)
+                    )
+                except Exception:
+                    # spec 9.6.8: parse failure → unresolved coverage → skip
+                    return None
 
-        return False  # No connections detected over the window
+        if not has_series:
+            # spec 9.6.7: no time series → unresolved coverage → skip
+            return None
+        if not has_points:
+            # spec 9.6.8: series present but no data points → unusable → skip
+            return None
+        if not all_timestamps:
+            # no readable timestamps → cannot verify coverage → skip
+            return None
 
+        # spec 9.6.9: coverage quality — partial-window or materially sparse → skip
+        # Deduplicate before the gap check so identical timestamps from multiple
+        # series don't produce spurious zero-length intervals.
+        all_timestamps = sorted(set(all_timestamps))
+        if all_timestamps[0] > window_start + _COVERAGE_EDGE_TOLERANCE:
+            # data starts too late — partial window coverage
+            return None
+        if all_timestamps[-1] < window_end - _COVERAGE_EDGE_TOLERANCE:
+            # data ends too early — partial window coverage
+            return None
+        for i in range(1, len(all_timestamps)):
+            if all_timestamps[i] - all_timestamps[i - 1] > _MAX_COVERAGE_GAP:
+                # large missing chunk in the middle of the window
+                return None
+
+        return max_val
+
+    except (PermissionDenied, Forbidden) as e:
+        # spec 9.13.2: monitoring permission failures must surface as permission error
+        raise PermissionError(
+            f"monitoring.timeSeries.list permission required (roles/monitoring.viewer): "
+            f"{getattr(e, 'message', str(e))}"
+        ) from e
     except Exception:
-        # Monitoring unavailable or permission denied — conservative: assume active
-        return True
+        # all other failures → unresolved coverage → skip (spec 9.13.5)
+        return None
 
 
 def find_idle_sql_instances(
@@ -107,26 +228,15 @@ def find_idle_sql_instances(
     project_id: str,
     credentials,
     region_filter: Optional[str] = None,
-    idle_days: int = _DAYS_IDLE,
+    idle_days: int = 14,
 ) -> List[Finding]:
     """
-    Find Cloud SQL instances with zero database connections for `idle_days` days.
+    Find Cloud SQL instances with zero active connections for idle_days days.
 
-    Cloud SQL bills continuously regardless of query load — an idle db-n1-standard-2
-    costs ~$93/month with zero queries. Dev and staging databases are frequently
-    left running after feature branches merge or projects wind down.
-
-    Only RUNNABLE instances are evaluated. Read replicas are excluded (no
-    independent billing — master instance cost is what matters). Instances in
-    SUSPENDED, FAILED, or MAINTENANCE states are skipped.
-
-    Monitoring errors are treated conservatively: if Cloud Monitoring is
-    unavailable or permission-denied, the instance is assumed active (not flagged).
-
-    Detection logic:
-    - Instance state == RUNNABLE
-    - Not a read replica (instanceType != READ_REPLICA_INSTANCE)
-    - Cloud Monitoring: max connections == 0 over last 14 days
+    Detection requires active_connections_max == 0 for the full observation
+    window on cloudsql.googleapis.com/database/active_connections matched by
+    exact cloudsql_database identity labels.  Unresolved metric coverage causes
+    the instance to be skipped rather than flagged.
 
     IAM permissions required:
     - cloudsql.instances.list (roles/cloudsql.viewer)
@@ -135,80 +245,143 @@ def find_idle_sql_instances(
     findings: List[Finding] = []
     now = datetime.now(timezone.utc)
 
-    # PermissionError propagates to scan.py which records it as a skipped rule
+    # spec 6.3: window_end with lag buffer; window_start = window_end - idle_days
+    window_end = now - _MONITORING_LAG_BUFFER
+    window_start = window_end - timedelta(days=idle_days)
+
+    # PermissionError propagates (spec 9.13.1)
     instances = _list_sql_instances(project_id, credentials)
 
     if not instances:
         return findings
 
-    # If Cloud Monitoring client cannot be created, skip rather than false-positive
+    # If monitoring client cannot be created, skip rather than false-positive (spec 9.13.4)
     try:
         monitoring_client = monitoring_v3.MetricServiceClient(credentials=credentials)
     except Exception:
         return findings
 
     for instance in instances:
-        state = instance.get("state", "")
-        if state != "RUNNABLE":
-            continue
-
-        # Exclude read replicas — no independent cost basis
-        if instance.get("instanceType") == "READ_REPLICA_INSTANCE":
-            continue
-
+        # spec 8.1: name must be present and non-empty
         instance_name = instance.get("name", "")
-        region = instance.get("region", "")
-        database_version = instance.get("databaseVersion", "")
-        tier = (instance.get("settings") or {}).get("tier", "")
+        if not instance_name:
+            continue
 
+        # spec 8.2: region must be present and non-empty
+        region = instance.get("region", "")
+        if not region:
+            continue
+
+        # spec 8.3: region filter — exact string equality
         if region_filter and region != region_filter:
             continue
 
-        # Skip instances created within the last 24 hours — zero connections on a
-        # brand-new instance is not a signal of waste. createTime is ISO 8601 UTC.
-        create_time_str = instance.get("createTime", "")
-        if create_time_str:
-            try:
-                created_at = datetime.fromisoformat(create_time_str.replace("Z", "+00:00"))
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-                if (now - created_at).total_seconds() < 86400:
-                    continue
-            except ValueError:
-                pass
-
-        # Conservative: if monitoring check fails, assume active — don't flag
-        if _has_connections(monitoring_client, project_id, instance_name, idle_days=idle_days):
+        # spec 8.4: only RUNNABLE is eligible
+        if instance.get("state") != "RUNNABLE":
             continue
 
-        settings = instance.get("settings") or {}
+        # spec 8.5: only primary CLOUD_SQL_INSTANCE is eligible
+        instance_type = instance.get("instanceType", "")
+        if instance_type != "CLOUD_SQL_INSTANCE":
+            continue
 
-        monthly_cost = _CLOUD_SQL_COST_USD.get(tier)
-        cost_signal = (
-            f"Tier '{tier}' costs ~${monthly_cost}/month (compute only, no HA)"
-            if monthly_cost
-            else f"Tier: {tier or 'unknown'} (cost estimate unavailable)"
+        # spec 8.6 / 9.4: replica exclusion — masterInstanceName present and non-empty
+        master_instance_name = instance.get("masterInstanceName", "")
+        if master_instance_name:
+            continue
+
+        # spec 8.7 / 9.5: createTime must be parsable
+        created_at = _parse_create_time(instance.get("createTime", ""))
+        if created_at is None:
+            continue  # absent or unparsable → skip
+
+        # spec 8.8 / 9.5: instance must be old enough for the full observation window
+        if created_at > window_start:
+            continue
+
+        # spec 8.9–8.10 / 9.6–9.7: query documented active_connections metric
+        # PermissionError propagates (spec 9.13.2)
+        active_connections_max = _query_active_connections(
+            monitoring_client,
+            project_id,
+            instance_name,
+            region,
+            window_start,
+            window_end,
         )
 
-        # Zero connections for idle_days is a reliable signal regardless of cost.
-        # Use min_cost in cleancloud.yaml to suppress low-value findings instead.
-        confidence = ConfidenceLevel.HIGH
+        if active_connections_max is None:
+            continue  # unresolved coverage → skip (spec 8.9)
 
-        labels = settings.get("userLabels", {})
+        if active_connections_max > 0:
+            continue  # active → skip (spec 8.10)
 
-        # HA doubles compute cost. availabilityType: "REGIONAL" = HA, "ZONAL" = no HA.
-        ha_enabled = settings.get("availabilityType") == "REGIONAL"
-
-        # Storage size and type — billed separately from compute.
-        # Cloud SQL pricing: PD_SSD ~$0.17/GB/month, PD_HDD ~$0.09/GB/month.
+        # --- All exclusions passed: build finding ---
+        settings = instance.get("settings") or {}
+        database_version = instance.get("databaseVersion", "")
+        tier = settings.get("tier", "")
+        availability_type = settings.get("availabilityType", "")
+        ha_enabled = availability_type == "REGIONAL"
         data_disk_size_gb = settings.get("dataDiskSizeGb")
         data_disk_type = settings.get("dataDiskType", "")
-
-        # Backup retention — additional storage cost for retained backups.
         backup_cfg = settings.get("backupConfiguration") or {}
         backup_retention = (backup_cfg.get("backupRetentionSettings") or {}).get("retainedBackups")
+        labels = settings.get("userLabels") or {}
 
-        # Parse CPU and memory from custom tier names (format: db-custom-{cpu}-{memory_mb}).
+        # spec 10.2: signals_used must disclose state, type, metric coverage, connections,
+        # version, tier, HA context, and storage/backup context when present
+        signals_used = [
+            "Instance state: RUNNABLE",
+            "Instance type: CLOUD_SQL_INSTANCE (primary)",
+            (
+                f"Metric coverage: FULL for {idle_days}-day window "
+                f"(cloudsql.googleapis.com/database/active_connections "
+                f"on cloudsql_database)"
+            ),
+            f"active_connections_max = {active_connections_max:.0f} over {idle_days}-day window",
+            f"Database version: {database_version or 'unknown'}",
+            f"Tier: {tier or 'unknown'}",
+        ]
+        if ha_enabled:
+            signals_used.append(
+                "HA enabled (availabilityType: REGIONAL) — regional instance "
+                "with primary and standby"
+            )
+        if data_disk_size_gb is not None:
+            signals_used.append(
+                f"Storage: {data_disk_size_gb} GB "
+                f"({data_disk_type or 'unknown type'}) — "
+                f"billed separately from compute"
+            )
+        if backup_retention is not None:
+            signals_used.append(f"Backup retention: {backup_retention} retained backups")
+
+        # spec 10.3: required details fields
+        details: dict = {
+            "instance_name": instance_name,
+            "instance_type": instance_type,
+            "database_version": database_version,
+            "tier": tier,
+            "region": region,
+            "created_at": created_at.isoformat(),
+            "idle_days_threshold": idle_days,
+            "metric_coverage": "FULL",
+            "active_connections_max": active_connections_max,
+            "ha_enabled": ha_enabled,
+            "availability_type": availability_type or None,
+            "labels": labels,
+        }
+        # conditional details (spec 10.3: when present)
+        if master_instance_name:
+            details["master_instance_name"] = master_instance_name
+        if data_disk_size_gb is not None:
+            details["data_disk_size_gb"] = data_disk_size_gb
+        if data_disk_type:
+            details["data_disk_type"] = data_disk_type
+        if backup_retention is not None:
+            details["backup_retained_count"] = backup_retention
+
+        # Custom tier CPU/memory parsing — context only
         cpu_count: Optional[int] = None
         memory_gb: Optional[float] = None
         if tier.startswith("db-custom-"):
@@ -219,42 +392,6 @@ def find_idle_sql_instances(
                     memory_gb = round(int(parts[3]) / 1024, 1)
                 except ValueError:
                     pass
-
-        signals_used = [
-            "Instance state: RUNNABLE",
-            f"Zero TCP connections observed via Cloud Monitoring over "
-            f"{idle_days} days "
-            f"(metric: cloudsql.googleapis.com/database/network/connections; "
-            f"may not capture short-lived or non-TCP workloads)",
-            f"Database version: {database_version}",
-            cost_signal,
-        ]
-        if ha_enabled:
-            signals_used.append(
-                "HA enabled (availabilityType: REGIONAL) — actual compute cost is ~2x the estimate"
-            )
-        if data_disk_size_gb:
-            signals_used.append(
-                f"Storage: {data_disk_size_gb} GB ({data_disk_type or 'unknown type'}) — "
-                f"billed separately from compute"
-            )
-
-        details = {
-            "instance_name": instance_name,
-            "database_version": database_version,
-            "tier": tier,
-            "region": region,
-            "ha_enabled": ha_enabled,
-            "days_idle_threshold": idle_days,
-            "estimated_monthly_cost_usd": monthly_cost,
-            "labels": labels,
-        }
-        if data_disk_size_gb is not None:
-            details["data_disk_size_gb"] = data_disk_size_gb
-        if data_disk_type:
-            details["data_disk_type"] = data_disk_type
-        if backup_retention is not None:
-            details["backup_retained_count"] = backup_retention
         if cpu_count is not None:
             details["cpu_count"] = cpu_count
             details["memory_gb"] = memory_gb
@@ -268,30 +405,34 @@ def find_idle_sql_instances(
                 region=region,
                 title=f"Idle Cloud SQL Instance ({idle_days}+ Days)",
                 summary=(
-                    f"Cloud SQL instance '{instance_name}' ({database_version}, {tier}) "
-                    f"in region '{region}' has had no observed database connections via "
-                    f"Cloud Monitoring over {idle_days}+ days but continues to incur "
-                    f"compute charges."
+                    f"Cloud SQL instance '{instance_name}' "
+                    f"({database_version or 'unknown'}, {tier or 'unknown'}) "
+                    f"in region '{region}' shows no observed active connections over "
+                    f"{idle_days}+ days."
                 ),
-                reason=f"Zero database connections detected over the last {idle_days} days",
+                reason=(
+                    f"active_connections_max == 0 over the {idle_days}-day observation window "
+                    f"(cloudsql.googleapis.com/database/active_connections)"
+                ),
                 risk=RiskLevel.HIGH,
-                confidence=confidence,
+                confidence=ConfidenceLevel.HIGH,
                 detected_at=now,
                 evidence=Evidence(
                     signals_used=signals_used,
                     signals_not_checked=[
-                        f"Short-lived or batch connections (cron jobs, ETL) not visible in Cloud Monitoring connection metrics over the {idle_days}-day window",
-                        "Non-TCP workloads or Unix socket connections via Cloud SQL Proxy",
-                        "Scheduled maintenance window",
-                        "Planned reactivation for upcoming sprint",
-                        "Read replicas (excluded from this rule)",
-                        "Storage, backups, HA configuration, and network egress not included "
-                        "in cost estimate — actual cost is often 2–5x higher",
+                        "Short-lived workload bursts between metric samples were not evaluated",
+                        "Business or application retention intent",
+                        "Migration, failback, or future reactivation intent",
+                        "Storage, backup, and network savings were not estimated",
+                        "Engine-specific internal work not represented by active client "
+                        "connections alone",
                     ],
                     time_window=f"{idle_days} days",
                 ),
                 details=details,
-                estimated_monthly_cost_usd=monthly_cost,
+                # spec 9.10: always None — pricing varies by edition, region, compute shape,
+                # HA, storage, and commitment model; no flat estimate is appropriate
+                estimated_monthly_cost_usd=None,
             )
         )
 
