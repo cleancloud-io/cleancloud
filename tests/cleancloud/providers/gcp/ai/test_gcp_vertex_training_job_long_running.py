@@ -31,7 +31,7 @@ import pytest
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.gcp.rules.vertex_training_job_long_running import (
+from cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running import (
     _BUNDLED_ACCELERATOR_COUNT,
     _DEFAULT_LONG_RUNNING_HOURS,
     _DEFAULT_MACHINE_MONTHLY_COST,
@@ -142,11 +142,11 @@ def _run(
     creds = MagicMock()
     session = _make_session(custom_jobs=custom_jobs, training_pipelines=training_pipelines)
     with patch(
-        "cleancloud.providers.gcp.rules.vertex_training_job_long_running.AuthorizedSession",
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.AuthorizedSession",
         return_value=session,
     ):
         with patch(
-            "cleancloud.providers.gcp.rules.vertex_training_job_long_running.datetime"
+            "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.datetime"
         ) as mock_dt:
             mock_dt.now.return_value = NOW
             mock_dt.fromisoformat.side_effect = datetime.fromisoformat
@@ -573,7 +573,7 @@ def test_permission_error_raises():
     creds = MagicMock()
     session = _make_session(status=403)
     with patch(
-        "cleancloud.providers.gcp.rules.vertex_training_job_long_running.AuthorizedSession",
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.AuthorizedSession",
         return_value=session,
     ):
         with pytest.raises(PermissionError):
@@ -587,7 +587,7 @@ def test_partial_failure_warns_and_returns_partial_findings():
 
     # Patch _list_jobs so customJobs succeeds but trainingPipelines raises
     original_list_jobs = __import__(
-        "cleancloud.providers.gcp.rules.vertex_training_job_long_running",
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running",
         fromlist=["_list_jobs"],
     )._list_jobs
 
@@ -601,11 +601,11 @@ def test_partial_failure_warns_and_returns_partial_findings():
 
     creds = MagicMock()
     with patch(
-        "cleancloud.providers.gcp.rules.vertex_training_job_long_running.AuthorizedSession",
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.AuthorizedSession",
         return_value=good_session,
     ):
         with patch(
-            "cleancloud.providers.gcp.rules.vertex_training_job_long_running._list_jobs",
+            "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running._list_jobs",
             side_effect=_patched_list_jobs,
         ):
             import warnings as _warnings
@@ -1087,7 +1087,7 @@ def test_skipped_jobs_warning_on_missing_timestamp():
     mock_resp.json.return_value = {"customJobs": [job], "trainingPipelines": []}
 
     with patch(
-        "cleancloud.providers.gcp.rules.vertex_training_job_long_running.AuthorizedSession"
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.AuthorizedSession"
     ) as mock_session_cls:
         mock_session = MagicMock()
         mock_session.get.return_value = mock_resp

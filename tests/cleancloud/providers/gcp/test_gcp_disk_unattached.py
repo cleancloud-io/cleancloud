@@ -93,28 +93,16 @@ def test_non_ready_disk_not_flagged(monkeypatch):
     assert findings == []
 
 
-def test_cost_calculation_pd_ssd(monkeypatch):
-    """Cost should use the per-type rate: pd-ssd @ $0.17/GB/month."""
+def test_estimated_monthly_cost_is_none(monkeypatch):
+    """spec 9.5.1: estimated_monthly_cost_usd must always be None (pricing varies by region/currency)."""
     _mock_client(
-        {"zones/us-central1-a": [_make_disk("ssd-disk", disk_type="pd-ssd", size_gb=200)]},
+        {"zones/us-central1-a": [_make_disk("std-disk", disk_type="pd-ssd", size_gb=500)]},
         monkeypatch,
     )
     findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
 
     assert len(findings) == 1
-    assert findings[0].estimated_monthly_cost_usd == round(200 * 0.17, 2)
-
-
-def test_cost_calculation_pd_standard(monkeypatch):
-    """pd-standard disks should use $0.04/GB/month."""
-    _mock_client(
-        {"zones/us-central1-a": [_make_disk("std-disk", disk_type="pd-standard", size_gb=500)]},
-        monkeypatch,
-    )
-    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
-
-    assert len(findings) == 1
-    assert findings[0].estimated_monthly_cost_usd == round(500 * 0.04, 2)
+    assert findings[0].estimated_monthly_cost_usd is None
 
 
 def test_region_filter_excludes_other_zones(monkeypatch):
@@ -345,8 +333,8 @@ def test_no_last_detach_timestamp_not_in_details(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_hyperdisk_cost_note_in_signals_not_checked(monkeypatch):
-    """Hyperdisk findings should warn that IOPS/throughput charges are not included."""
+def test_hyperdisk_iops_note_in_signals_not_checked(monkeypatch):
+    """Hyperdisk findings should note that IOPS/throughput charges are billed separately."""
     _mock_client(
         {
             "zones/us-central1-a": [
@@ -362,19 +350,259 @@ def test_hyperdisk_cost_note_in_signals_not_checked(monkeypatch):
     assert any("IOPS" in s for s in not_checked)
 
 
-def test_hyperdisk_uses_conservative_cost_rate(monkeypatch):
-    """Hyperdisk cost estimate should use the pd-standard floor rate ($0.04/GB)."""
+# ---------------------------------------------------------------------------
+# Spec 7: disk_type normalization
+# ---------------------------------------------------------------------------
+
+
+def test_disk_type_fallback_is_unknown(monkeypatch):
+    """spec 7: when disk type URL is absent, disk_type should be 'unknown', not a guessed default."""
+    disk = _make_disk("no-type-disk")
+    disk.type_ = ""  # empty URL
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+
+    assert len(findings) == 1
+    assert findings[0].details["disk_type"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# Spec 8.1: malformed disk name
+# ---------------------------------------------------------------------------
+
+
+def test_absent_disk_name_is_skipped(monkeypatch):
+    """spec 8.1: disk records with absent/empty name must be skipped."""
+    disk = _make_disk("placeholder")
+    disk.name = ""  # absent name
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 8.2: malformed scope key
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_scope_key_is_skipped(monkeypatch):
+    """spec 8.2: scope keys without a '/' (e.g. 'global') must be skipped, not crash."""
+    disk = _make_disk("disk-global")
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [
+        ("global", SimpleNamespace(disks=[disk]))  # no slash — len == 1, != 2
+    ]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+def test_extra_segment_scope_key_is_skipped(monkeypatch):
+    """spec 8.2: only exactly 'zones/ZONE' or 'regions/REGION' are supported;
+    a key like 'zones/us-central1-a/extra' has 3 segments and must be skipped."""
+    disk = _make_disk("disk-extra")
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [
+        ("zones/us-central1-a/extra", SimpleNamespace(disks=[disk]))  # len == 3, != 2
+    ]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 8.5: unresolvable users field
+# ---------------------------------------------------------------------------
+
+
+def test_none_users_is_skipped(monkeypatch):
+    """spec 8.5: disk.users=None is not equivalent to an empty list — must skip."""
+    disk = _make_disk("null-users-disk")
+    disk.users = None  # bypass the _make_disk default
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Spec 9.5 / 10.2: cost blind-spot disclosure
+# ---------------------------------------------------------------------------
+
+
+def test_exact_pricing_blind_spot_in_signals_not_checked(monkeypatch):
+    """spec 9.5/10.2: signals_not_checked must disclose that exact pricing is unavailable."""
     _mock_client(
-        {
-            "zones/us-central1-a": [
-                _make_disk("hd-disk", disk_type="hyperdisk-extreme", size_gb=100)
-            ]
-        },
+        {"zones/us-central1-a": [_make_disk("billing-disk", disk_type="pd-ssd", size_gb=100)]},
         monkeypatch,
     )
     findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
 
-    assert findings[0].estimated_monthly_cost_usd == round(100 * 0.04, 2)
+    assert len(findings) == 1
+    not_checked = findings[0].evidence.signals_not_checked
+    assert any(
+        "cost" in s.lower() or "pricing" in s.lower() or "billing" in s.lower() for s in not_checked
+    )
+
+
+# ---------------------------------------------------------------------------
+# Issue 1: Partial aggregated coverage (spec 9.1.8-9 / 9.6)
+# ---------------------------------------------------------------------------
+
+
+def test_partial_coverage_warning_is_emitted(monkeypatch):
+    """spec 9.1.8-9: a scope with a warning code must emit a UserWarning, not silently pass."""
+    disk = _make_disk("disk-partial")
+    scope_with_warning = SimpleNamespace(
+        disks=[disk],
+        warning=SimpleNamespace(code="NO_RESULTS_ON_PAGE", message="partial"),
+    )
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", scope_with_warning)]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    with pytest.warns(UserWarning, match="partial coverage"):
+        find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+
+
+def test_scope_without_warning_attr_does_not_warn(monkeypatch):
+    """No warning attribute on scope_disks must not raise and must not warn."""
+    # _make_scoped_disk_list returns a SimpleNamespace with no 'warning' attribute
+    _mock_client({"zones/us-central1-a": [_make_disk("quiet-disk")]}, monkeypatch)
+    import warnings as _w
+
+    with _w.catch_warnings():
+        _w.simplefilter("error")  # any warning → error
+        findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert len(findings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue 2: users[] strict list check (spec 8.5)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_users",
+    [
+        {},  # dict — falsy but not a list
+        (),  # tuple — falsy but not a list
+        "",  # string — falsy but not a list
+        0,  # int — falsy but not a list
+    ],
+    ids=["dict", "tuple", "str", "int"],
+)
+def test_non_list_users_is_skipped(monkeypatch, bad_users):
+    """spec 8.5: only an explicit empty list means unattached; other falsy types must skip."""
+    disk = _make_disk("bad-users-disk")
+    disk.users = bad_users
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Issue 3: zone-to-region parsing strictness (spec 8.2 / 7)
+# ---------------------------------------------------------------------------
+
+
+def test_zone_scope_without_zone_letter_is_skipped(monkeypatch):
+    """spec 8.2/7: a zonal scope like zones/us-central1 (no single-letter suffix) must skip.
+
+    rsplit alone would silently derive 'us' as the region, which is a silent wrong guess.
+    """
+    disk = _make_disk("region-only-zone")
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [
+        ("zones/us-central1", SimpleNamespace(disks=[disk]))  # missing zone letter
+    ]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+def test_zone_scope_with_multi_char_suffix_is_skipped(monkeypatch):
+    """spec 8.2/7: a zone suffix longer than one character must skip (not a valid GCP zone)."""
+    disk = _make_disk("bad-suffix-disk")
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [
+        ("zones/us-central1-ab", SimpleNamespace(disks=[disk]))  # two-char suffix
+    ]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Issue 4: malformed record hardening (spec 9.6)
+# ---------------------------------------------------------------------------
+
+
+def test_malformed_size_gb_uses_zero(monkeypatch):
+    """spec 9.6: non-numeric size_gb must not crash; the disk should still be emitted with size 0."""
+    disk = _make_disk("bad-size-disk")
+    disk.size_gb = "not-a-number"
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+
+    assert len(findings) == 1
+    assert findings[0].details["size_gb"] == 0
+
+
+def test_non_string_last_detach_timestamp_keeps_baseline_confidence(monkeypatch):
+    """spec 9.6 / 7: non-string last_detach_timestamp must not crash; baseline confidence kept."""
+    disk = _make_disk("ts-type-disk")
+    disk.last_detach_timestamp = 12345  # integer, not a string
+    mock = MagicMock()
+    mock.aggregated_list.return_value = [("zones/us-central1-a", SimpleNamespace(disks=[disk]))]
+    monkeypatch.setattr(
+        "cleancloud.providers.gcp.rules.disk_unattached.compute_v1.DisksClient",
+        lambda credentials: mock,
+    )
+    findings = find_unattached_disks(project_id="proj-1", credentials=MagicMock())
+
+    assert len(findings) == 1
+    # Non-string timestamp treated as absent → zonal baseline confidence = HIGH
+    assert findings[0].confidence == ConfidenceLevel.HIGH
+    assert "last_detach_timestamp" not in findings[0].details
 
 
 # ---------------------------------------------------------------------------

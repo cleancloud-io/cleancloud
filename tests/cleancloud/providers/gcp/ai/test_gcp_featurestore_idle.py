@@ -26,7 +26,7 @@ import pytest
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
-from cleancloud.providers.gcp.rules.featurestore_idle import (
+from cleancloud.providers.gcp.rules.ai.featurestore_idle import (
     _BIGTABLE_NODE_HOURLY_COST,
     _DEFAULT_IDLE_DAYS,
     _HOURS_PER_MONTH,
@@ -161,14 +161,14 @@ def _run(
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.featurestore_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.featurestore_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.featurestore_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.featurestore_idle.monitoring_v3.MetricServiceClient",
             return_value=mock_monitoring,
         ),
-        patch("cleancloud.providers.gcp.rules.featurestore_idle.datetime") as mock_dt,
+        patch("cleancloud.providers.gcp.rules.ai.featurestore_idle.datetime") as mock_dt,
     ):
         mock_dt.now.return_value = NOW
         mock_dt.fromisoformat = datetime.fromisoformat

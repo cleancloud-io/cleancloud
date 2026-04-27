@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
+from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
     _DAYS_IDLE,
     _DEFAULT_MACHINE_MONTHLY_COST,
     _GPU_MONTHLY_COST_EACH,
@@ -152,19 +152,19 @@ def _run(
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
             return_value=endpoints,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
         ) as mock_dt,
     ):
         mock_dt.now.return_value = NOW
@@ -726,19 +726,19 @@ def test_batch_monitoring_single_call_per_location():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
             return_value=[ep1, ep2],
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
         ) as mock_dt,
     ):
         mock_dt.now.return_value = NOW
@@ -764,19 +764,19 @@ def test_batch_monitoring_separate_call_per_location():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
             return_value=[ep1, ep2],
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
         ) as mock_dt,
     ):
         mock_dt.now.return_value = NOW
@@ -842,15 +842,15 @@ def test_pagination_fetches_all_endpoints():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
         ) as mock_dt,
     ):
         mock_dt.now.return_value = NOW
@@ -880,10 +880,10 @@ def test_403_raises_permission_error():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
     ):
@@ -904,10 +904,10 @@ def test_404_returns_empty():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
     ):
@@ -987,19 +987,19 @@ def test_eligible_endpoint_ids_guard_filters_stale_series():
 
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
             return_value=[ep],
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
         ) as mock_dt,
     ):
         mock_dt.now.return_value = NOW
@@ -1135,7 +1135,7 @@ def test_min_cost_constant_is_reasonable():
     """_MIN_MONTHLY_COST_USD is set and below the cheapest known machine type."""
     assert _MIN_MONTHLY_COST_USD > 0
     # All known machine types cost more than the filter threshold
-    from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
+    from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
         _MACHINE_MONTHLY_COST,
     )
 
@@ -1257,19 +1257,19 @@ def _run_with_monitoring_client(endpoints, monitoring_client, region_filter=None
     mock_credentials = MagicMock()
     with (
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle._list_endpoints",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
             return_value=endpoints,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
             return_value=monitoring_client,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.AuthorizedSession",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
             return_value=mock_session,
         ),
         patch(
-            "cleancloud.providers.gcp.rules.vertex_endpoint_idle.datetime",
+            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
             **{"now.return_value": NOW, "fromisoformat": datetime.fromisoformat},
         ),
     ):

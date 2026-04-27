@@ -4,15 +4,15 @@ import pytest
 from google.auth.transport.requests import AuthorizedSession
 
 from cleancloud.core.finding import Finding
-from cleancloud.providers.gcp.rules.featurestore_idle import find_idle_featurestores
-from cleancloud.providers.gcp.rules.tpu_idle import find_idle_tpu_nodes
-from cleancloud.providers.gcp.rules.vertex_endpoint_idle import (
+from cleancloud.providers.gcp.rules.ai.featurestore_idle import find_idle_featurestores
+from cleancloud.providers.gcp.rules.ai.tpu_idle import find_idle_tpu_nodes
+from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
     find_idle_vertex_endpoints,
 )
-from cleancloud.providers.gcp.rules.vertex_training_job_long_running import (
+from cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running import (
     find_long_running_vertex_training_jobs,
 )
-from cleancloud.providers.gcp.rules.workbench_idle import find_idle_workbench_instances
+from cleancloud.providers.gcp.rules.ai.workbench_idle import find_idle_workbench_instances
 from cleancloud.providers.gcp.session import create_gcp_session
 
 _GCP_AI_RULE_IDS = {
