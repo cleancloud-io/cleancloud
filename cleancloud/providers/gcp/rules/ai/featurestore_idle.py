@@ -1,7 +1,64 @@
+"""
+Rule: gcp.vertex.featurestore.idle
+
+    (spec — docs/specs/gcp/ai/featurestore_idle.md)
+
+Intent:
+    Detect Vertex AI feature serving stores with documented, provisioned
+    online-serving capacity that show no documented online-serving
+    request-count telemetry over a conservative review window.
+
+    This is a conservative review-candidate rule only. It is not proof that
+    a store is safe to delete, not proof that offline feature workflows are
+    unused, and not proof of a specific monthly saving.
+
+Covered resource families:
+    - Vertex AI Feature Store (Legacy) Featurestore (spec 9.1)
+    - Vertex AI Feature Online Store with Bigtable online serving (spec 9.2)
+
+Exclusions:
+    - resource name malformed or store ID / region absent (spec 7)
+    - region filter set and region does not exactly match (spec 4.4)
+    - state not exactly STABLE (spec 9.1.2, 9.2.2)
+    - reference_time absent, unparsable, or in the future (spec 7)
+    - store younger than full observation window (spec 4.7)
+    - legacy: fixedNodeCount == 0 and no valid scaling.minNodeCount (spec 9.3)
+    - legacy: both fixedNodeCount and scaling.minNodeCount materially present — invalid mode (spec 7)
+    - FeatureOnlineStore: storage type not exactly Bigtable (spec 9.2.5, 9.3)
+    - FeatureOnlineStore: bigtable.autoScaling absent, unusable, or maxNodeCount < minNodeCount (spec 7)
+    - metric coverage unresolved — not exactly idle_days aligned daily buckets (spec 8.4)
+    - aggregate request count > 0 (spec 9.1.7, 9.2.8)
+
+Detection (legacy Featurestore):
+    - state == "STABLE"
+    - legacy_online_serving_mode is "fixed" or "autoscaled"
+    - reference_time_utc <= evaluation_window_start_utc
+    - metric_coverage_state == "full_window" and telemetry_state == "confirmed_zero"
+
+Detection (Bigtable-backed FeatureOnlineStore):
+    - state == "STABLE"
+    - storage type is Bigtable (bigtable key present, optimized key absent)
+    - bigtable_min_node_count >= 1 and bigtable_max_node_count >= bigtable_min_node_count
+    - reference_time_utc <= evaluation_window_start_utc
+    - metric_coverage_state == "full_window" and telemetry_state == "confirmed_zero"
+
+Cost model (spec 3.5, 10.1):
+    estimated_monthly_cost_usd = None
+    Pricing varies by backing, region, node count, and commitment model;
+    no flat estimate is appropriate.
+
+APIs:
+    - aiplatform.googleapis.com/v1: projects/{project}/locations/{loc}/featurestores
+    - aiplatform.googleapis.com/v1: projects/{project}/locations/{loc}/featureOnlineStores
+    - monitoring.googleapis.com: aiplatform.googleapis.com/featurestore/online_serving/request_count
+    - monitoring.googleapis.com: aiplatform.googleapis.com/featureonlinestore/online_serving/request_count
+"""
+
 import warnings
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
+from google.api import metric_pb2
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import monitoring_v3
 from google.protobuf import duration_pb2, timestamp_pb2
@@ -11,6 +68,9 @@ from cleancloud.core.evidence import Evidence
 from cleancloud.core.finding import Finding
 from cleancloud.core.risk import RiskLevel
 
+# Integer sentinel for DELTA metric kind (google.api.metric_pb2.MetricDescriptor.MetricKind.DELTA)
+_METRIC_KIND_DELTA: int = int(metric_pb2.MetricDescriptor.MetricKind.DELTA)
+
 RULE_METADATA = {
     "id": "gcp.vertex.featurestore.idle",
     "category": "ai",
@@ -18,26 +78,23 @@ RULE_METADATA = {
     "cost_impact": "high",
 }
 
-# Default idle window — 30 days without any online serving requests = confidently idle.
-# Longer than other rules because feature stores are sometimes used in periodic batch
-# workflows with sparse online inference (e.g., weekly recommendation refreshes).
+# Default idle window (spec 6.3)
 _DEFAULT_IDLE_DAYS = 30
 
-# Legacy featurestore: cost per Bigtable node (us-central1, on-demand, SSD-backed).
-# A fixedNodeCount=1 store bills at $0.27/hr continuously.
-_BIGTABLE_NODE_HOURLY_COST = 0.27  # published GCP rate
+# Canonical alignment period: one full UTC day (spec 8.3)
+_ALIGNMENT_PERIOD_SECONDS = 86400
 
-# New featureOnlineStore (Optimized / BigQuery-backed): no per-node billing;
-# costs arise from storage and query compute — conservative flat estimate.
-_OPTIMIZED_STORE_MONTHLY_COST = 100.0  # [est] conservative — actual varies by storage/queries
+# Monitoring metric types (spec 8.1)
+_LEGACY_METRIC = "aiplatform.googleapis.com/featurestore/online_serving/request_count"
+_NEW_METRIC = "aiplatform.googleapis.com/featureonlinestore/online_serving/request_count"
 
-_HOURS_PER_MONTH = 730.0
+# Monitored resource types (spec 8.1)
+_LEGACY_RESOURCE_TYPE = "aiplatform.googleapis.com/Featurestore"
+_NEW_RESOURCE_TYPE = "aiplatform.googleapis.com/FeatureOnlineStore"
 
-# Monitoring metric names
-_LEGACY_REQUEST_COUNT_METRIC = "aiplatform.googleapis.com/featurestore/online_serving/request_count"
-_NEW_REQUEST_COUNT_METRIC = (
-    "aiplatform.googleapis.com/featureonlinestore/online_serving/request_count"
-)
+# Resource ID labels on the monitored resource (spec 8.1)
+_LEGACY_ID_LABEL = "featurestore_id"
+_NEW_ID_LABEL = "feature_online_store_id"
 
 # Known Vertex AI Feature Store locations. Used as fallback when the locations/-
 # wildcard returns 400 (Feature Store APIs do not support the wildcard in all projects).
@@ -66,11 +123,6 @@ _FEATURESTORE_LOCATIONS = [
     "me-west1",
 ]
 
-# Feature Store states that indicate the store is active and incurring charges.
-# STABLE is the normal operating state for both legacy featurestores and Feature
-# Online Stores. UPDATING is excluded — in-flight updates don't indicate idleness.
-_ACTIVE_STATES = {"STABLE"}
-
 
 def _parse_location(name: str) -> Optional[str]:
     """Extract region from resource name: projects/.../locations/{region}/..."""
@@ -86,25 +138,170 @@ def _parse_resource_id(name: str) -> str:
     return name.rsplit("/", 1)[-1] if name else ""
 
 
-def _age_days(create_str: str, now: datetime) -> Optional[float]:
-    """Parse createTime ISO string and return age in days. Returns None on failure."""
-    if not create_str:
+def _parse_rfc3339(ts: str) -> Optional[datetime]:
+    """Parse an RFC3339 timestamp, normalize to UTC-aware datetime, or return None."""
+    if not ts:
         return None
     try:
-        dt = datetime.fromisoformat(create_str.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return (now - dt).total_seconds() / 86400
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        # spec 7: all timestamps must be normalized to timezone-aware UTC before comparison
+        return dt.astimezone(timezone.utc)
     except (ValueError, AttributeError):
         return None
 
 
-def _list_featurestores(session: AuthorizedSession, project_id: str) -> list:
-    """List legacy Vertex AI featurestores across all locations.
+def _resolve_reference_time(create_str: str, update_str: str, now: datetime) -> Optional[datetime]:
+    """
+    Resolve reference_time_utc = max(createTime, updateTime) (spec 7).
 
-    Returns only stores with online serving configured (fixedNodeCount > 0 or
-    scaling.minNodeCount > 0). Returns [] if the API is not enabled (404).
-    Raises PermissionError on 403.
+    Future timestamps are discarded before the max. Returns None when neither
+    timestamp is parseable or both resolve to future values.
+    """
+    create_time = _parse_rfc3339(create_str)
+    update_time = _parse_rfc3339(update_str)
+
+    if create_time and create_time > now:
+        create_time = None
+    if update_time and update_time > now:
+        update_time = None
+
+    if create_time and update_time:
+        return max(create_time, update_time)
+    return create_time or update_time
+
+
+def _query_store_activity(
+    client: monitoring_v3.MetricServiceClient,
+    project_id: str,
+    store_id: str,
+    region: str,
+    metric_type: str,
+    resource_type: str,
+    id_label: str,
+    window_start: datetime,
+    window_end: datetime,
+    idle_days: int,
+) -> str:
+    """
+    Query the canonical request-count metric for a single store over the full window.
+
+    Applies the exact filter required by spec 8.2: metric.type, resource.type,
+    resource.labels.location, and the family-specific store ID label.
+
+    Validates coverage per spec 8.4:
+    - exactly one reduced series must remain
+    - exactly idle_days aligned daily datapoints
+    - each datapoint has a valid numeric value and no future timestamp
+    - no gap between adjacent datapoints exceeds the alignment period
+
+    Returns:
+        "confirmed_zero"    — full window, exactly idle_days buckets, total == 0
+        "positive_activity" — full coverage and aggregate total > 0
+        "unresolved"        — any coverage constraint violated
+
+    Raises:
+        Any exception from the Monitoring RPC layer (network, permission, etc.)
+        propagates to the caller so it can surface family-level visibility (spec 11.4).
+    """
+    start_ts = timestamp_pb2.Timestamp()
+    start_ts.FromDatetime(window_start)
+    end_ts = timestamp_pb2.Timestamp()
+    end_ts.FromDatetime(window_end)
+
+    interval = monitoring_v3.TimeInterval(start_time=start_ts, end_time=end_ts)
+
+    # spec 8.2: exact filter on all four required dimensions
+    filter_str = (
+        f'metric.type="{metric_type}"'
+        f' AND resource.type="{resource_type}"'
+        f' AND resource.labels.location="{region}"'
+        f' AND resource.labels.{id_label}="{store_id}"'
+    )
+
+    results = list(
+        client.list_time_series(
+            request={
+                "name": f"projects/{project_id}",
+                "filter": filter_str,
+                "interval": interval,
+                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+                "aggregation": monitoring_v3.Aggregation(
+                    alignment_period=duration_pb2.Duration(seconds=_ALIGNMENT_PERIOD_SECONDS),
+                    per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
+                    cross_series_reducer=monitoring_v3.Aggregation.Reducer.REDUCE_SUM,
+                    group_by_fields=[f"resource.labels.{id_label}"],
+                ),
+            }
+        )
+    )
+
+    # spec 8.4 point 1: exactly 1 reduced series
+    if len(results) != 1:
+        return "unresolved"
+
+    # spec 8.3 point 5: metric kind must resolve to DELTA
+    if results[0].metric_kind != _METRIC_KIND_DELTA:
+        return "unresolved"
+
+    points = list(results[0].points)
+
+    # spec 8.4 point 2: exactly idle_days aligned datapoints
+    if len(points) != idle_days:
+        return "unresolved"
+
+    # spec 8.4 point 3: pre-compute expected daily bucket end times as whole-second Unix
+    # timestamps. Cloud Monitoring returns ts.seconds with nanos=0; comparing against
+    # datetime objects derived from a sub-second-precise window_start would cause spurious
+    # mismatches. Integer-second comparison is both correct and tolerant of tiny variance.
+    _ws_secs = int(window_start.timestamp())
+    expected_bucket_end_seconds: frozenset = frozenset(
+        _ws_secs + n * _ALIGNMENT_PERIOD_SECONDS for n in range(1, idle_days + 1)
+    )
+
+    total = 0.0
+    timestamps = []
+    seen_bucket_seconds: set = set()
+
+    for point in points:
+        # spec 8.4 point 3/4: each point must map to exactly one documented bucket end
+        try:
+            ts = point.interval.end_time
+            point_dt = datetime.fromtimestamp(ts.seconds + ts.nanos / 1e9, tz=timezone.utc)
+            # whole-second membership check; duplicate seconds → same bucket twice
+            if ts.seconds not in expected_bucket_end_seconds or ts.seconds in seen_bucket_seconds:
+                return "unresolved"
+            seen_bucket_seconds.add(ts.seconds)
+            timestamps.append(point_dt)
+        except Exception:
+            return "unresolved"
+
+        # spec 8.4 point 5: valid numeric value — WhichOneof dispatch (0 is falsy)
+        which = point.value.WhichOneof("value")
+        if which == "int64_value":
+            val = float(point.value.int64_value)
+        elif which == "double_value":
+            val = float(point.value.double_value)
+        else:
+            return "unresolved"
+
+        total += val
+
+    # spec 8.4 point 6: no gap between adjacent points exceeds alignment period
+    timestamps.sort()
+    for i in range(1, len(timestamps)):
+        if (timestamps[i] - timestamps[i - 1]).total_seconds() > _ALIGNMENT_PERIOD_SECONDS:
+            return "unresolved"
+
+    return "confirmed_zero" if total == 0.0 else "positive_activity"
+
+
+def _list_featurestores(session: AuthorizedSession, project_id: str) -> list:
+    """
+    List legacy Vertex AI featurestores across all locations.
+
+    Returns all stores (filtering by online-serving capacity happens in the caller).
+    Returns [] if the API is not enabled (404). Raises PermissionError on 403.
 
     Tries the locations/- wildcard first; falls back to per-location queries
     when the wildcard returns 400 (not supported by all projects).
@@ -112,7 +309,6 @@ def _list_featurestores(session: AuthorizedSession, project_id: str) -> list:
     base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations"
 
     def _paginate_location(location: str) -> Optional[list]:
-        """Paginate one location. Returns None on 400 (unsupported), [] on 404."""
         results = []
         params: dict = {"pageSize": 100}
         while True:
@@ -128,24 +324,17 @@ def _list_featurestores(session: AuthorizedSession, project_id: str) -> list:
                 return None  # wildcard unsupported — signal caller to try per-location
             resp.raise_for_status()
             data = resp.json()
-            for store in data.get("featurestores", []):
-                config = store.get("onlineServingConfig") or {}
-                fixed = config.get("fixedNodeCount", 0)
-                scaling_min = (config.get("scaling") or {}).get("minNodeCount", 0)
-                if fixed > 0 or scaling_min > 0:
-                    results.append(store)
+            results.extend(data.get("featurestores", []))
             page_token = data.get("nextPageToken")
             if not page_token:
                 break
             params["pageToken"] = page_token
         return results
 
-    # Fast path: wildcard covers all regions in one call sequence
     result = _paginate_location("-")
     if result is not None:
         return result
 
-    # Fallback: per-location queries
     stores: list = []
     seen: set = set()
     for location in _FEATURESTORE_LOCATIONS:
@@ -161,17 +350,19 @@ def _list_featurestores(session: AuthorizedSession, project_id: str) -> list:
 
 
 def _list_feature_online_stores(session: AuthorizedSession, project_id: str) -> list:
-    """List new-generation Vertex AI Feature Online Stores across all locations.
+    """
+    List Vertex AI Feature Online Stores across all locations.
 
-    Returns [] if the API returns 404 (not enabled or no stores). Raises PermissionError on 403.
+    Returns all stores (filtering by storage type happens in the caller).
+    Returns [] if the API returns 404 (not enabled or no stores).
+    Raises PermissionError on 403.
 
     Tries the locations/- wildcard first; falls back to per-location queries
-    when the wildcard returns 400 (not supported by all projects).
+    when the wildcard returns 400.
     """
     base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations"
 
     def _paginate_location(location: str) -> Optional[list]:
-        """Paginate one location. Returns None on 400 (unsupported), [] on 404."""
         results = []
         params: dict = {"pageSize": 100}
         while True:
@@ -194,12 +385,10 @@ def _list_feature_online_stores(session: AuthorizedSession, project_id: str) -> 
             params["pageToken"] = page_token
         return results
 
-    # Fast path: wildcard covers all regions in one call sequence
     result = _paginate_location("-")
     if result is not None:
         return result
 
-    # Fallback: per-location queries
     stores: list = []
     seen: set = set()
     for location in _FEATURESTORE_LOCATIONS:
@@ -214,61 +403,6 @@ def _list_feature_online_stores(session: AuthorizedSession, project_id: str) -> 
     return stores
 
 
-def _fetch_request_counts(
-    credentials,
-    project_id: str,
-    idle_days: int,
-    metric: str,
-    id_label: str,
-) -> dict[str, int]:
-    """Fetch total online serving request counts per store over the past idle_days days.
-
-    Returns store_id → total_request_count. Returns {} on any error (monitoring optional).
-    """
-    try:
-        client = monitoring_v3.MetricServiceClient(credentials=credentials)
-        now = datetime.now(timezone.utc)
-        start = now - timedelta(days=idle_days)
-        interval = monitoring_v3.TimeInterval(
-            start_time=timestamp_pb2.Timestamp(seconds=int(start.timestamp())),
-            end_time=timestamp_pb2.Timestamp(seconds=int(now.timestamp())),
-        )
-        results = client.list_time_series(
-            request={
-                "name": f"projects/{project_id}",
-                "filter": f'metric.type="{metric}"',
-                "interval": interval,
-                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-                "aggregation": monitoring_v3.Aggregation(
-                    alignment_period=duration_pb2.Duration(seconds=86400),  # 1-day buckets
-                    per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
-                    cross_series_reducer=monitoring_v3.Aggregation.Reducer.REDUCE_SUM,
-                    group_by_fields=[f"resource.labels.{id_label}"],
-                ),
-            }
-        )
-        counts: dict[str, int] = {}
-        for ts in results:
-            store_id = ts.resource.labels.get(id_label, "")
-            if not store_id:
-                continue
-            if not ts.points:
-                # No data points — metric exists but no observations in window.
-                # Skip rather than treating as zero to avoid HIGH-confidence
-                # false positives when telemetry is absent.
-                continue
-            total = sum(int(p.value.int64_value) for p in ts.points)
-            counts[store_id] = counts.get(store_id, 0) + total
-        return counts
-    except Exception as e:
-        warnings.warn(
-            f"gcp.vertex.featurestore.idle: monitoring query failed for {metric} "
-            f"({type(e).__name__}: {e}) — falling back to age-based detection",
-            stacklevel=2,
-        )
-        return {}
-
-
 def find_idle_featurestores(
     *,
     project_id: str,
@@ -277,35 +411,50 @@ def find_idle_featurestores(
     idle_days: int = _DEFAULT_IDLE_DAYS,
 ) -> List[Finding]:
     """
-    Find Vertex AI Feature Store online stores with no serving activity for an extended period.
+    Find Vertex AI feature stores with zero online-serving requests for idle_days days.
 
-    Legacy featurestores and Bigtable-backed Feature Online Stores incur Bigtable compute
-    charges continuously while in STABLE state, regardless of whether any ReadFeatureValues
-    requests are made. A single-node legacy store costs ~$197/month; a 3-node HA store
-    costs ~$591/month. Optimized (BigQuery-backed) Feature Online Stores incur storage and
-    query compute charges instead of per-node billing (~$100+/month estimated).
-    These stores are often left running after a project winds down or a model is retired.
+    Emits findings only when documented provisioned online-serving capacity is present
+    and the canonical request-count metric confirms exactly zero activity for the full
+    aligned observation window (exactly idle_days daily aligned buckets, spec 8.4).
 
-    Detection logic:
-    - Lists legacy Vertex AI featurestores with online serving configured (fixedNodeCount > 0
-      or scaling.minNodeCount > 0) and new-generation Feature Online Stores via the Vertex AI
-      REST API (wildcard location with per-region fallback)
-    - Queries Cloud Monitoring for total online_serving/request_count over idle_days days
-    - Stores with zero requests are flagged as idle (HIGH confidence)
-    - If monitoring data is unavailable, stores older than idle_days are flagged
-      based on age alone (LOW confidence — heuristic: existence duration only)
+    No age-only or monitoring-absent fallback is used (spec 8.5).
 
     IAM permissions required:
     - aiplatform.featurestores.list (roles/aiplatform.viewer)
     - aiplatform.featureOnlineStores.list (roles/aiplatform.viewer)
-    - monitoring.timeSeries.list (roles/monitoring.viewer) — optional; fallback to age
+    - monitoring.timeSeries.list (roles/monitoring.viewer)
     """
     idle_days = max(1, idle_days)
     session = AuthorizedSession(credentials)
-    now = datetime.now(timezone.utc)
+    # Truncate to whole seconds so window boundaries are exact UTC instants with no
+    # sub-second component. This ensures int(window_start.timestamp()) is lossless and
+    # bucket boundaries in _query_store_activity match the spec's exact definition.
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    # spec 6.3 / 2.1: evaluation window
+    window_end = now
+    window_start = window_end - timedelta(seconds=idle_days * _ALIGNMENT_PERIOD_SECONDS)
+
     findings: List[Finding] = []
 
-    # --- Legacy featurestores ---
+    # Create monitoring client once; skip all per-store queries if creation fails.
+    # Emit a warning so the failure is operationally visible (spec 11.4).
+    try:
+        monitoring_client: Optional[monitoring_v3.MetricServiceClient] = (
+            monitoring_v3.MetricServiceClient(credentials=credentials)
+        )
+    except Exception as e:
+        warnings.warn(
+            f"gcp.vertex.featurestore.idle: monitoring client creation failed "
+            f"({type(e).__name__}: {e}) — all stores will be skipped (no age-only fallback)",
+            UserWarning,
+            stacklevel=2,
+        )
+        monitoring_client = None
+
+    # -------------------------------------------------------------------------
+    # Legacy featurestores (spec 9.1)
+    # -------------------------------------------------------------------------
     legacy_stores: list = []
     try:
         legacy_stores = _list_featurestores(session, project_id)
@@ -318,131 +467,170 @@ def find_idle_featurestores(
             stacklevel=2,
         )
 
-    legacy_counts = _fetch_request_counts(
-        credentials,
-        project_id,
-        idle_days,
-        _LEGACY_REQUEST_COUNT_METRIC,
-        "featurestore_id",
-    )
-
     for store in legacy_stores:
+        # spec 7: resource name and store ID must be present
         name = store.get("name", "")
+        if not name:
+            continue
         store_id = _parse_resource_id(name)
-        region = _parse_location(name) or "unknown"
-
-        if region_filter and not region.startswith(region_filter):
+        if not store_id:
             continue
 
-        state = store.get("state", "")
-        if state not in _ACTIVE_STATES:
+        # spec 7: region must be parseable from the resource name
+        region = _parse_location(name)
+        if not region:
             continue
 
-        config = store.get("onlineServingConfig") or {}
-        fixed_nodes = config.get("fixedNodeCount", 0)
-        scaling_min = (config.get("scaling") or {}).get("minNodeCount", 0)
-        node_count = fixed_nodes if fixed_nodes > 0 else scaling_min
-        is_autoscaled = fixed_nodes == 0 and scaling_min > 0
-        hourly = _BIGTABLE_NODE_HOURLY_COST * node_count
-        monthly = hourly * _HOURS_PER_MONTH
-
-        create_str = store.get("createTime", "")
-        age = _age_days(create_str, now)
-
-        request_count = legacy_counts.get(store_id)
-
-        if request_count is not None:
-            if request_count > 0:
-                continue  # Active — skip
-            confidence = ConfidenceLevel.HIGH
-            idle_signal = f"0 ReadFeatureValues requests over {idle_days}d (monitoring confirmed)"
-        elif age is not None and age >= idle_days:
-            confidence = ConfidenceLevel.LOW
-            idle_signal = (
-                f"no monitoring data; store has been STABLE for {age:.0f}d "
-                f"(heuristic: age only — request activity unknown)"
-            )
-        else:
+        # spec 4.4: exact region filter match
+        if region_filter and region != region_filter:
             continue
 
-        risk = RiskLevel.HIGH if confidence == ConfidenceLevel.HIGH else RiskLevel.MEDIUM
+        # spec 9.1.2: only STABLE state
+        if store.get("state") != "STABLE":
+            continue
 
-        display_name = (store.get("displayName") or "").strip() or store_id
-        age_str = f"{age:.1f}d" if age is not None else "unknown"
-
-        node_label = (
-            f"{node_count} Bigtable node{'s' if node_count != 1 else ''} (autoscaled min)"
-            if is_autoscaled
-            else f"{node_count} Bigtable node{'s' if node_count != 1 else ''} (fixed)"
+        # spec 7: reference_time = max(createTime, updateTime)
+        reference_time = _resolve_reference_time(
+            store.get("createTime", ""), store.get("updateTime", ""), now
         )
-        signals = [
-            f"Store state: STABLE (billable) — age: {age_str}",
-            f"Idle signal: {idle_signal}",
-            f"Online serving config: {node_label}",
-            f"Burn rate: ~${hourly:.2f}/hr (~${monthly:,.0f}/mo, {node_count} node{'s' if node_count != 1 else ''} × ${_BIGTABLE_NODE_HOURLY_COST}/hr)",
+        if reference_time is None:
+            continue
+
+        # spec 4.7: full observation window must be coverable
+        if reference_time > window_start:
+            continue
+
+        # spec 7: resolve legacy_online_serving_mode — malformed config skips (spec 11.3)
+        try:
+            config = store.get("onlineServingConfig") or {}
+            fixed_nodes = int(config.get("fixedNodeCount") or 0)
+            scaling = config.get("scaling") or {}
+            scaling_min = int(scaling.get("minNodeCount") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+        if fixed_nodes > 0 and scaling_min > 0:
+            # spec 7: invalid mode — both materially present
+            continue
+        elif fixed_nodes > 0:
+            serving_mode = "fixed"
+            provisioned_nodes = fixed_nodes
+        elif scaling_min > 0:
+            serving_mode = "autoscaled"
+            provisioned_nodes = scaling_min
+        else:
+            # no provisioned online-serving capacity
+            continue
+
+        # spec 8.5: no age-only or monitoring-absent fallback
+        if monitoring_client is None:
+            continue
+
+        # spec 8.2–8.4: per-store monitoring query with full coverage validation.
+        # RPC/network failures propagate as a warning and skip the store (spec 11.4).
+        try:
+            telemetry = _query_store_activity(
+                monitoring_client,
+                project_id,
+                store_id,
+                region,
+                _LEGACY_METRIC,
+                _LEGACY_RESOURCE_TYPE,
+                _LEGACY_ID_LABEL,
+                window_start,
+                window_end,
+                idle_days,
+            )
+        except Exception as e:
+            warnings.warn(
+                f"gcp.vertex.featurestore.idle: monitoring query failed for "
+                f"legacy store '{store_id}' ({type(e).__name__}: {e})",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+
+        if telemetry != "confirmed_zero":
+            continue  # positive_activity or unresolved — neither emits
+
+        # --- All conditions met: emit finding ---
+
+        signals_used = [
+            "Resource family: Vertex AI Feature Store (Legacy)",
+            "State: STABLE",
+            f"Region: {region}",
+            f"Reference time (max(createTime, updateTime)): {reference_time.isoformat()}",
+            f"Idle window: {idle_days} days (full window, exactly {idle_days} aligned daily buckets confirmed)",
+            f"Serving mode: {serving_mode}, provisioned node floor: {provisioned_nodes}",
+            f"Metric: {_LEGACY_METRIC}",
+            "Aggregate request count over full window: 0",
         ]
 
-        not_checked = [
-            "Periodic or low-frequency batch workflows that query less often than the idle window",
-            "Feature stores accessed by pipelines running on a schedule (e.g. weekly)",
-            "Committed use discounts — actual cost may be lower",
+        signals_not_checked = [
+            "Periodic or low-frequency batch workflows with access frequency below the idle window",
+            "Feature stores accessed by scheduled pipelines (e.g. weekly jobs)",
+            "Offline feature generation, sync, or BigQuery-backed workflows",
             "Stores intentionally kept warm for latency-sensitive cold-start mitigation",
         ]
 
-        evidence = Evidence(
-            signals_used=signals,
-            signals_not_checked=not_checked,
-            time_window=f"{idle_days}d",
-        )
+        details: dict = {
+            "store_name": name,
+            "store_id": store_id,
+            "store_family": "legacy_featurestore",
+            "state": "STABLE",
+            "region": region,
+            "reference_time": reference_time.isoformat(),
+            "idle_days_threshold": idle_days,
+            "legacy_serving_mode": serving_mode,
+            "provisioned_node_floor": provisioned_nodes,
+            "metric_type": _LEGACY_METRIC,
+            "metric_coverage_state": "full_window",
+            "telemetry_state": "confirmed_zero",
+            "request_count_total": 0,
+        }
+        if serving_mode == "fixed":
+            details["fixed_node_count"] = fixed_nodes
+        else:
+            details["scaling_min_node_count"] = scaling_min
 
         findings.append(
             Finding(
                 provider="gcp",
                 rule_id="gcp.vertex.featurestore.idle",
                 resource_type="gcp.vertex.featurestore",
-                resource_id=name or store_id,
+                resource_id=name,
                 region=region,
-                title=f"Idle Vertex AI Feature Store ({node_count} node{'s' if node_count != 1 else ''})",
+                title=(
+                    f"Idle Vertex AI Feature Store (Legacy, "
+                    f"{provisioned_nodes} node{'s' if provisioned_nodes != 1 else ''})"
+                ),
                 summary=(
-                    f"Vertex AI Feature Store '{display_name}' has had no online serving "
-                    f"requests for at least {idle_days} days while maintaining "
-                    f"{node_count} Bigtable node{'s' if node_count != 1 else ''}, "
-                    f"costing ~${hourly:.2f}/hr (~${monthly:,.0f}/mo)."
+                    f"Legacy Vertex AI Feature Store '{store_id}' ({serving_mode}, "
+                    f"{provisioned_nodes} node{'s' if provisioned_nodes != 1 else ''}) "
+                    f"in region '{region}' shows zero online-serving requests "
+                    f"over {idle_days} days."
                 ),
                 reason=(
-                    (
-                        f"Feature Store in STABLE state with zero ReadFeatureValues requests "
-                        f"for ≥{idle_days} days"
-                    )
-                    if request_count is not None
-                    else (
-                        f"Feature Store in STABLE state for ≥{idle_days} days "
-                        f"(heuristic: age only — no request data available)"
-                    )
+                    f"Aggregate online-serving request count == 0 over the {idle_days}-day "
+                    f"observation window ({_LEGACY_METRIC})"
                 ),
-                risk=risk,
-                confidence=confidence,
+                risk=RiskLevel.HIGH,
+                confidence=ConfidenceLevel.HIGH,
                 detected_at=now,
-                evidence=evidence,
-                estimated_monthly_cost_usd=round(monthly, 2),
-                details={
-                    "store_name": name,
-                    "store_id": store_id,
-                    "store_type": "legacy_featurestore",
-                    "region": region,
-                    "bigtable_node_count": node_count,
-                    "bigtable_scaling": "autoscaled" if is_autoscaled else "fixed",
-                    "age_days": round(age, 1) if age is not None else None,
-                    "request_count": request_count,
-                    "idle_days_threshold": idle_days,
-                    "hourly_cost_usd": round(hourly, 4),
-                    "pricing_confidence": "published",
-                    "pricing_scope": "us_central1_reference",
-                },
+                evidence=Evidence(
+                    signals_used=signals_used,
+                    signals_not_checked=signals_not_checked,
+                    time_window=f"{idle_days} days",
+                ),
+                details=details,
+                # spec 10.1: always None — pricing varies by backing, region, and commitment
+                estimated_monthly_cost_usd=None,
             )
         )
 
-    # --- New featureOnlineStores ---
+    # -------------------------------------------------------------------------
+    # Bigtable-backed FeatureOnlineStores (spec 9.2)
+    # -------------------------------------------------------------------------
     new_stores: list = []
     try:
         new_stores = _list_feature_online_stores(session, project_id)
@@ -455,138 +643,166 @@ def find_idle_featurestores(
             stacklevel=2,
         )
 
-    new_counts = _fetch_request_counts(
-        credentials,
-        project_id,
-        idle_days,
-        _NEW_REQUEST_COUNT_METRIC,
-        "feature_online_store_id",
-    )
-
     for store in new_stores:
+        # spec 7: resource name and store ID must be present
         name = store.get("name", "")
+        if not name:
+            continue
         store_id = _parse_resource_id(name)
-        region = _parse_location(name) or "unknown"
-
-        if region_filter and not region.startswith(region_filter):
+        if not store_id:
             continue
 
-        state = store.get("state", "")
-        if state not in _ACTIVE_STATES:
+        # spec 7: region must be parseable from the resource name
+        region = _parse_location(name)
+        if not region:
             continue
 
-        # Determine backing type and cost
-        bigtable_config = store.get("bigtable") or {}
-        is_optimized = store.get("optimized") is not None
-        autoscaling = bigtable_config.get("autoScaling") or {}
-        min_nodes = autoscaling.get("minNodeCount", 0)
-
-        if is_optimized:
-            # Optimized (BigQuery-backed) — flat estimate; no Bigtable node charges
-            hourly = _OPTIMIZED_STORE_MONTHLY_COST / _HOURS_PER_MONTH
-            monthly = _OPTIMIZED_STORE_MONTHLY_COST
-            backing_label = "Optimized (BigQuery-backed)"
-            pricing_confidence = "estimated"
-        elif min_nodes > 0:
-            hourly = _BIGTABLE_NODE_HOURLY_COST * min_nodes
-            monthly = hourly * _HOURS_PER_MONTH
-            backing_label = f"{min_nodes} Bigtable node{'s' if min_nodes != 1 else ''} (min)"
-            pricing_confidence = "published"
-        else:
-            # Unknown backing — still STABLE but can't estimate cost accurately
-            hourly = _BIGTABLE_NODE_HOURLY_COST  # conservative single-node floor
-            monthly = hourly * _HOURS_PER_MONTH
-            backing_label = "unknown backing"
-            pricing_confidence = "estimated"
-
-        create_str = store.get("createTime", "")
-        age = _age_days(create_str, now)
-
-        request_count = new_counts.get(store_id)
-
-        if request_count is not None:
-            if request_count > 0:
-                continue
-            confidence = ConfidenceLevel.HIGH
-            idle_signal = f"0 serving requests over {idle_days}d (monitoring confirmed)"
-        elif age is not None and age >= idle_days:
-            confidence = ConfidenceLevel.LOW
-            idle_signal = (
-                f"no monitoring data; store has been STABLE for {age:.0f}d "
-                f"(heuristic: age only — request activity unknown)"
-            )
-        else:
+        # spec 4.4: exact region filter match
+        if region_filter and region != region_filter:
             continue
 
-        risk = RiskLevel.HIGH if confidence == ConfidenceLevel.HIGH else RiskLevel.MEDIUM
+        # spec 9.2.2: only STABLE state
+        if store.get("state") != "STABLE":
+            continue
 
-        display_name = (store.get("displayName") or "").strip() or store_id
-        age_str = f"{age:.1f}d" if age is not None else "unknown"
-
-        signals = [
-            f"Store state: STABLE (billable) — age: {age_str}",
-            f"Idle signal: {idle_signal}",
-            f"Backing: {backing_label}",
-            f"Burn rate: ~${hourly:.2f}/hr (~${monthly:,.0f}/mo)",
-        ]
-
-        not_checked = [
-            "Periodic or low-frequency batch workflows that query less often than the idle window",
-            "Feature stores accessed by pipelines running on a schedule (e.g. weekly)",
-            "Optimized stores — cost estimate is conservative; actual cost depends on storage size and query volume",
-            "Committed use discounts — actual cost may be lower",
-        ]
-
-        evidence = Evidence(
-            signals_used=signals,
-            signals_not_checked=not_checked,
-            time_window=f"{idle_days}d",
+        # spec 7: reference_time = max(createTime, updateTime)
+        reference_time = _resolve_reference_time(
+            store.get("createTime", ""), store.get("updateTime", ""), now
         )
+        if reference_time is None:
+            continue
+
+        # spec 4.7: full observation window must be coverable
+        if reference_time > window_start:
+            continue
+
+        # spec 9.2.5, 9.3: storage type must be exactly Bigtable; optimized is out of scope
+        has_bigtable = "bigtable" in store
+        has_optimized = "optimized" in store
+
+        if not has_bigtable or has_optimized:
+            # neither-present or both-present → unusable union; optimized → out of scope
+            continue
+
+        # spec 7: bigtable.autoScaling must be present and structurally usable (spec 11.3)
+        try:
+            bigtable_config = store.get("bigtable") or {}
+            autoscaling = bigtable_config.get("autoScaling")
+            if not autoscaling:
+                continue
+            min_nodes = int(autoscaling.get("minNodeCount") or 0)
+            max_nodes = int(autoscaling.get("maxNodeCount") or 0)
+        except (TypeError, ValueError, AttributeError):
+            continue
+
+        # spec 7: min >= 1 and max >= min
+        if min_nodes < 1 or max_nodes < min_nodes:
+            continue
+
+        # spec 8.5: no age-only or monitoring-absent fallback
+        if monitoring_client is None:
+            continue
+
+        # spec 8.2–8.4: per-store monitoring query with full coverage validation.
+        # RPC/network failures propagate as a warning and skip the store (spec 11.4).
+        try:
+            telemetry = _query_store_activity(
+                monitoring_client,
+                project_id,
+                store_id,
+                region,
+                _NEW_METRIC,
+                _NEW_RESOURCE_TYPE,
+                _NEW_ID_LABEL,
+                window_start,
+                window_end,
+                idle_days,
+            )
+        except Exception as e:
+            warnings.warn(
+                f"gcp.vertex.featurestore.idle: monitoring query failed for "
+                f"feature online store '{store_id}' ({type(e).__name__}: {e})",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+
+        if telemetry != "confirmed_zero":
+            continue  # positive_activity or unresolved — neither emits
+
+        # --- All conditions met: emit finding ---
+
+        signals_used = [
+            "Resource family: Vertex AI Feature Online Store (Bigtable-backed)",
+            "State: STABLE",
+            f"Region: {region}",
+            f"Reference time (max(createTime, updateTime)): {reference_time.isoformat()}",
+            f"Idle window: {idle_days} days (full window, exactly {idle_days} aligned daily buckets confirmed)",
+            f"Bigtable autoscaling: minNodeCount={min_nodes}, maxNodeCount={max_nodes}",
+            f"Metric: {_NEW_METRIC}",
+            "Aggregate request count over full window: 0",
+        ]
+
+        signals_not_checked = [
+            "Periodic or low-frequency batch workflows with access frequency below the idle window",
+            "Feature stores accessed by scheduled pipelines (e.g. weekly jobs)",
+            "Offline feature generation, sync, or BigQuery-backed workflows",
+            "Stores intentionally kept warm for latency-sensitive cold-start mitigation",
+        ]
+
+        details: dict = {
+            "store_name": name,
+            "store_id": store_id,
+            "store_family": "feature_online_store",
+            "state": "STABLE",
+            "region": region,
+            "reference_time": reference_time.isoformat(),
+            "idle_days_threshold": idle_days,
+            "storage_type": "bigtable",
+            "bigtable_min_node_count": min_nodes,
+            "bigtable_max_node_count": max_nodes,
+            "metric_type": _NEW_METRIC,
+            "metric_coverage_state": "full_window",
+            "telemetry_state": "confirmed_zero",
+            "request_count_total": 0,
+        }
 
         findings.append(
             Finding(
                 provider="gcp",
                 rule_id="gcp.vertex.featurestore.idle",
                 resource_type="gcp.vertex.feature_online_store",
-                resource_id=name or store_id,
+                resource_id=name,
                 region=region,
-                title=f"Idle Vertex AI Feature Online Store ({backing_label})",
+                title=(
+                    f"Idle Vertex AI Feature Online Store "
+                    f"(Bigtable, min {min_nodes} node{'s' if min_nodes != 1 else ''})"
+                ),
                 summary=(
-                    f"Vertex AI Feature Online Store '{display_name}' ({backing_label}) "
-                    f"has had no serving requests for at least {idle_days} days, "
-                    f"costing ~${hourly:.2f}/hr (~${monthly:,.0f}/mo)."
+                    f"Vertex AI Feature Online Store '{store_id}' "
+                    f"(Bigtable, min {min_nodes} node{'s' if min_nodes != 1 else ''}) "
+                    f"in region '{region}' shows zero online-serving requests "
+                    f"over {idle_days} days."
                 ),
                 reason=(
-                    (
-                        f"Feature Online Store in STABLE state with zero serving requests "
-                        f"for ≥{idle_days} days"
-                    )
-                    if request_count is not None
-                    else (
-                        f"Feature Online Store in STABLE state for ≥{idle_days} days "
-                        f"(heuristic: age only — no request data available)"
-                    )
+                    f"Aggregate online-serving request count == 0 over the {idle_days}-day "
+                    f"observation window ({_NEW_METRIC})"
                 ),
-                risk=risk,
-                confidence=confidence,
+                risk=RiskLevel.HIGH,
+                confidence=ConfidenceLevel.HIGH,
                 detected_at=now,
-                evidence=evidence,
-                estimated_monthly_cost_usd=round(monthly, 2),
-                details={
-                    "store_name": name,
-                    "store_id": store_id,
-                    "store_type": "feature_online_store",
-                    "backing": "optimized" if is_optimized else "bigtable",
-                    "region": region,
-                    "bigtable_min_nodes": min_nodes if not is_optimized else None,
-                    "age_days": round(age, 1) if age is not None else None,
-                    "request_count": request_count,
-                    "idle_days_threshold": idle_days,
-                    "hourly_cost_usd": round(hourly, 4),
-                    "pricing_confidence": pricing_confidence,
-                    "pricing_scope": "us_central1_reference",
-                },
+                evidence=Evidence(
+                    signals_used=signals_used,
+                    signals_not_checked=signals_not_checked,
+                    time_window=f"{idle_days} days",
+                ),
+                details=details,
+                # spec 10.1: always None — pricing varies by backing, region, and commitment
+                estimated_monthly_cost_usd=None,
             )
         )
 
     return findings
+
+
+find_idle_featurestores.RULE_ID = "gcp.vertex.featurestore.idle"

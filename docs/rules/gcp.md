@@ -15,7 +15,7 @@
 | `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances with no activity 14+ days |
 | `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI jobs running beyond threshold |
 | `gcp.tpu.idle` | AI/ML | Cloud TPU nodes with near-zero utilization 7+ days |
-| `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores with zero serving requests 30+ days |
+| `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with zero serving requests 30+ days (Monitoring-confirmed only) |
 
 ---
 
@@ -203,14 +203,28 @@
 **Spec:** —
 
 #### `gcp.vertex.featurestore.idle`
-**Detects:** Vertex AI Feature Stores (legacy and new-gen) with zero `online_serving/request_count` for `idle_days`; Bigtable-backed stores bill ~$197/node/month regardless of utilization
+**Detects:** Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with provisioned online-serving capacity and zero `online_serving/request_count` confirmed by Cloud Monitoring for `idle_days`; no age-only or monitoring-absent fallback
 
-**Confidence / Risk:** HIGH (Cloud Monitoring confirms zero requests); LOW (Monitoring unavailable — age-only) / HIGH (HIGH confidence); MEDIUM (LOW confidence)
+**Confidence / Risk:** HIGH (Cloud Monitoring confirms zero requests for full aligned window) / HIGH
 
-**Permissions:** `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer, optional)
+**Cost:** `estimated_monthly_cost_usd = None` — pricing varies by backing, region, node count, and commitment model; no flat estimate is appropriate
+
+**Permissions:** `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 30)
 
-**Exclusions:** legacy featurestores with `fixedNodeCount == 0` and `scaling.minNodeCount == 0`; stores not in `STABLE` state
+**Exclusions:**
+- resource name malformed or store ID / region absent
+- region filter set and region does not exactly match
+- state not exactly `STABLE`
+- `reference_time` (`max(createTime, updateTime)`) absent, unparsable, or in the future
+- store younger than full `idle_days` observation window
+- legacy: `fixedNodeCount == 0` and `scaling.minNodeCount == 0` (no provisioned online-serving capacity)
+- legacy: both `fixedNodeCount > 0` and `scaling.minNodeCount > 0` simultaneously — invalid serving mode
+- FeatureOnlineStore: storage type not exactly Bigtable (`optimized` stores are out of scope)
+- FeatureOnlineStore: `bigtable.autoScaling` absent, or `maxNodeCount < minNodeCount`
+- monitoring client unavailable (no age-only fallback)
+- metric coverage unresolved — not exactly `idle_days` aligned daily buckets, query failure, future timestamp, or gap > 86 400 s between adjacent points
+- aggregate request count > 0 over the full window
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/featurestore_idle.md](../specs/gcp/ai/featurestore_idle.md)
