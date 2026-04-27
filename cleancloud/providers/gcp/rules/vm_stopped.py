@@ -161,8 +161,7 @@ def find_stopped_vms(
     # and NotFound fire during iteration, so the try/except wraps the full loop.
     try:
         for zone_scope, zone_instances in instances_client.aggregated_list(
-            project=project_id,
-            return_partial_success=True,
+            request={"project": project_id, "return_partial_success": True},
         ):
             # spec 9.1.4: surface partial-coverage warnings
             _warn = getattr(zone_instances, "warning", None)
