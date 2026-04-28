@@ -151,17 +151,34 @@
 ## AI/ML *(opt-in: `--category ai`)*
 
 #### `gcp.vertex.endpoint.idle`
-**Detects:** Vertex AI Online Prediction endpoints with `dedicatedResources` and zero predictions for `idle_days`
+**Detects:** Vertex AI Online Prediction endpoints with an always-deployed serving floor (`dedicatedResources.minReplicaCount >= 1` or `automaticResources.minReplicaCount >= 1`) and no usable endpoint-scoped request-count datapoint above `0` across the full `idle_days` observation window, confirmed by Cloud Monitoring telemetry with proven gap-free coverage
 
-**Confidence / Risk:** HIGH (zero predictions confirmed + age ≥ `idle_days`); MEDIUM (zero predictions, age ≥ 75% of threshold or age unknown) / HIGH (GPU-backed: T4, V100, A100, L4, H100, TPU); MEDIUM (CPU-only)
+**Confidence / Risk:** HIGH (sole emit path: full-window zero request-count telemetry with no heuristic fallback; no MEDIUM tier) / HIGH (any in-scope dedicated model with nonzero accelerator count and recognized GPU/TPU type); MEDIUM (CPU-only or automatic-resources-only endpoints)
+
+**Cost:** `estimated_monthly_cost_usd = None` -- pricing varies by machine type, accelerator, region, and usage option; no flat estimate is appropriate
 
 **Permissions:** `aiplatform.endpoints.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 14)
 
-**Exclusions:** endpoints using `automaticResources` (scale-to-zero); only `dedicatedResources` with `minReplicaCount > 0`
+**Exclusions:**
+- endpoint name or location malformed or absent
+- location filter set and location does not exactly match
+- endpoint `createTime` absent, unparsable, or future
+- no in-scope deployed models; `provisioned_serving_floor < 1`
+- shared-resource-only endpoint (`sharedResources` only; spec 11.4)
+- any in-scope deployed model `createTime` absent, unparsable, or future
+- `capacity_floor_start > evaluation_window_start` (full window not coverable)
+- malformed `minReplicaCount` or unrecognized prediction-resource union on any deployed model
+- monitoring client creation failure -- all endpoints skip; no fallback
+- monitoring query failure for a location -- all endpoints in that location skip
+- telemetry coverage unresolved: no series, leading gap > `idle_days * 86400s / 2`, any interior gap > `idle_days * 86400s / 2`, or trailing gap > `idle_days * 86400s / 2`
+- any usable request-count datapoint > `0` in the observation window
+- `dedicatedResources.minReplicaCount == 0` (scale-to-zero preview; no always-deployed floor)
+- `automaticResources.minReplicaCount == 0` (scale-to-zero; no always-deployed floor)
+- near-idle, low-traffic, age-only, trafficSplit, or missing-telemetry-as-zero fallbacks are explicitly forbidden
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/vertex_endpoint_idle.md](../specs/gcp/ai/vertex_endpoint_idle.md)
 
 #### `gcp.vertex.workbench.idle`
 **Detects:** Vertex AI Workbench instances `ACTIVE` with no control-plane activity (`updateTime`) for `idle_days`

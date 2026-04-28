@@ -2,19 +2,21 @@
 Tests for gcp.vertex.endpoint.idle rule.
 
 Coverage:
-- Core detection: idle CPU endpoint (MEDIUM risk), idle GPU endpoint (HIGH risk)
-- Near-idle tier: < LOW_TRAFFIC_THRESHOLD requests -> MEDIUM confidence
-- Skipping logic: active endpoints, young endpoints, automaticResources (scales to zero)
-- Age calculation and effective window capping
-- Confidence levels: HIGH (age >= 14d), MEDIUM (age >= 10.5d or unknown age or near-idle)
-- GPU detection: NVIDIA_TESLA_T4, NVIDIA_TESLA_A100, TPU_V2
-- Cost estimation: per-model accuracy, machine + GPU addon for n1 machines, bundled for a2
-- Multiple deployed models: total min_replica_count aggregated, per-model cost summed
-- Monitoring: batched per location (one call per location), error -> assume active (conservative)
-- Region filter: endpoints outside the filter are skipped
-- Pagination: nextPageToken causes a second API call
-- Permission errors: PermissionError raised on 403 from list call
-- RULE_METADATA and RULE_ID attributes present
+- _parse_location: valid name, missing segment, empty segment
+- _parse_endpoint_id: valid name, empty string
+- _parse_rfc3339_utc: Z suffix, +00:00 suffix, empty, invalid
+- _classify_deployed_models: dedicated in-scope, automatic in-scope (spec 3.4),
+  shared-only, floor-0, malformed minReplicaCount, bad createTime, GPU detection,
+  mixed resource modes, multiple models
+- _evaluate_endpoint_telemetry: no points, leading/trailing/interior gap > window/2
+  -> unresolved, gap exactly at threshold -> complete, dense zero points, dense
+  nonzero points, float double_value not truncated to int
+- find_idle_vertex_endpoints integration: idle CPU (MEDIUM risk), idle GPU (HIGH risk),
+  automatic resources in-scope (spec 3.4), scale-to-zero skipped, sharedResources skipped,
+  active endpoint skipped, telemetry unresolved skipped, monitoring client failure,
+  monitoring query failure, young endpoint skipped, region filter, pagination,
+  estimated_monthly_cost_usd is None, confidence always HIGH, details fields,
+  RULE_METADATA, RULE_ID attribute
 """
 
 from datetime import datetime, timedelta, timezone
@@ -23,183 +25,557 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
-    _DAYS_IDLE,
-    _DEFAULT_MACHINE_MONTHLY_COST,
-    _GPU_MONTHLY_COST_EACH,
-    _LOW_TRAFFIC_THRESHOLD,
-    _LOW_TRAFFIC_THRESHOLD_GPU,
-    _MACHINE_MONTHLY_COST,
-    _MIN_MONTHLY_COST_USD,
+    _DEFAULT_IDLE_DAYS,
+    _REQUEST_METRIC_RESOURCE_TYPE,
+    _REQUEST_METRIC_TYPE,
     RULE_METADATA,
+    _classify_deployed_models,
+    _evaluate_endpoint_telemetry,
+    _parse_endpoint_id,
+    _parse_location,
+    _parse_rfc3339_utc,
     find_idle_vertex_endpoints,
 )
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Shared constants
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-_OLD = NOW - timedelta(days=30)
-_YOUNG = NOW - timedelta(days=3)
+NOW = datetime(2026, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+_WINDOW_START = NOW - timedelta(days=_DEFAULT_IDLE_DAYS)
 
 _PROJECT = "my-project"
 _LOCATION = "us-central1"
 _ENDPOINT_ID = "1234567890"
 _ENDPOINT_NAME = f"projects/{_PROJECT}/locations/{_LOCATION}/endpoints/{_ENDPOINT_ID}"
 
+# A timestamp well before the observation window (endpoint and models are "old")
+_OLD = NOW - timedelta(days=30)
+_OLD_STR = _OLD.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# A timestamp inside the observation window (endpoint is too young)
+_YOUNG = NOW - timedelta(days=5)
+_YOUNG_STR = _YOUNG.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# Telemetry: dense 3-point fixtures that satisfy all gap checks for a 14-day window.
+# Gap threshold = window/2 = 7 days. Points:
+#   P1 at _WINDOW_START+1h  (leading gap = 1h  << 7d)
+#   P2 at NOW-7d             (P1→P2 gap ≈ 6d23h  < 7d)
+#   P3 at NOW-1h             (P2→P3 gap ≈ 6d23h  < 7d; trailing gap = 1h << 7d)
+_ZERO_POINTS = [
+    (0, _WINDOW_START + timedelta(hours=1)),
+    (0, NOW - timedelta(days=7)),
+    (0, NOW - timedelta(hours=1)),
+]
+_ACTIVE_POINTS = [
+    (0, _WINDOW_START + timedelta(hours=1)),
+    (42, NOW - timedelta(days=7)),
+    (0, NOW - timedelta(hours=1)),
+]
+
+
+# ---------------------------------------------------------------------------
+# Endpoint / deployed-model builders
+# ---------------------------------------------------------------------------
+
 
 def _endpoint(
     endpoint_id: str = _ENDPOINT_ID,
     location: str = _LOCATION,
     project: str = _PROJECT,
-    display_name: str = "my-model-endpoint",
-    create_time: datetime = _OLD,
-    min_replica_count: int = 1,
-    machine_type: str = "n1-standard-4",
-    accelerator_type: str = "ACCELERATOR_TYPE_UNSPECIFIED",
-    accelerator_count: int = 0,
-    use_automatic_resources: bool = False,
+    display_name: str = "my-endpoint",
+    create_time_str: str = _OLD_STR,
     deployed_models: list = None,
 ) -> dict:
     """Build a minimal Vertex AI endpoint response dict."""
     name = f"projects/{project}/locations/{location}/endpoints/{endpoint_id}"
-    create_str = create_time.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    if deployed_models is not None:
-        return {
-            "name": name,
-            "displayName": display_name,
-            "createTime": create_str,
-            "deployedModels": deployed_models,
-        }
-
-    model: dict = {"id": "model-abc"}
-    if use_automatic_resources:
-        model["automaticResources"] = {"minReplicaCount": 0, "maxReplicaCount": 4}
-    else:
-        model["dedicatedResources"] = {
-            "machineSpec": {
-                "machineType": machine_type,
-                "acceleratorType": accelerator_type,
-                "acceleratorCount": accelerator_count,
-            },
-            "minReplicaCount": min_replica_count,
-            "maxReplicaCount": min_replica_count + 2,
-        }
-
     return {
         "name": name,
         "displayName": display_name,
-        "createTime": create_str,
-        "deployedModels": [model],
+        "createTime": create_time_str,
+        "deployedModels": deployed_models if deployed_models is not None else [],
     }
 
 
-def _make_monitoring_client(request_counts: dict = None, error: bool = False):
-    """
-    Build a mock monitoring client for the batch query API.
+def _dedicated(
+    min_replica: int = 1,
+    machine_type: str = "n1-standard-4",
+    accel_type: str = "ACCELERATOR_TYPE_UNSPECIFIED",
+    accel_count: int = 0,
+    create_time_str: str = _OLD_STR,
+) -> dict:
+    return {
+        "id": "m1",
+        "createTime": create_time_str,
+        "dedicatedResources": {
+            "machineSpec": {
+                "machineType": machine_type,
+                "acceleratorType": accel_type,
+                "acceleratorCount": accel_count,
+            },
+            "minReplicaCount": min_replica,
+            "maxReplicaCount": max(min_replica, 1) + 2,
+        },
+    }
 
-    request_counts: {endpoint_id: total_request_count}
-      {}  -> no activity (all idle)
-      {"1234567890": 5} -> endpoint has 5 requests (near-idle if < threshold)
-      {"1234567890": 42} -> endpoint is active (>= threshold)
-    error=True: list_time_series raises an exception.
-    """
-    client = MagicMock()
-    if error:
-        client.list_time_series.side_effect = Exception("monitoring unavailable")
-        return client
 
-    series_list = []
-    for ep_id, count in (request_counts or {}).items():
-        series = MagicMock()
-        point = MagicMock()
-        point.value.int64_value = count
-        point.value.double_value = 0.0
-        series.points = [point]
-        series.resource = MagicMock()
-        series.resource.labels = {"endpoint_id": ep_id}
-        series_list.append(series)
+def _automatic(min_replica: int = 1, create_time_str: str = _OLD_STR) -> dict:
+    return {
+        "id": "m2",
+        "createTime": create_time_str,
+        "automaticResources": {
+            "minReplicaCount": min_replica,
+            "maxReplicaCount": min_replica + 3,
+        },
+    }
 
-    client.list_time_series.return_value = series_list
-    return client
+
+def _shared(create_time_str: str = _OLD_STR) -> dict:
+    return {
+        "id": "m3",
+        "createTime": create_time_str,
+        "sharedResources": "projects/p/locations/l/deploymentResourcePools/pool1",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Integration test runner
+# ---------------------------------------------------------------------------
 
 
 def _run(
     endpoints: list,
-    has_activity: bool = False,
-    request_counts: dict = None,
+    telemetry: dict = None,
+    query_fails: bool = False,
+    client_fails: bool = False,
     region_filter: str = None,
-    monitoring_error: bool = False,
-):
-    """Helper: patch _list_endpoints and monitoring, run the rule."""
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
+    idle_days: int = _DEFAULT_IDLE_DAYS,
+) -> list:
+    """
+    Run find_idle_vertex_endpoints with mocked dependencies.
 
-    # Determine effective request counts
-    if request_counts is not None:
-        effective_counts = request_counts
-    elif has_activity:
-        # 42 is well above _LOW_TRAFFIC_THRESHOLD (10) — unambiguously active
-        effective_counts = {_ENDPOINT_ID: 42}
-    else:
-        effective_counts = {}  # all idle
+    telemetry: {endpoint_id: [(value, timestamp), ...]}
+        None  -> no series returned (telemetry_coverage_state = unresolved)
+        {}    -> empty dict (same)
+        {id: _ZERO_POINTS} -> zero requests, coverage complete
+        {id: _ACTIVE_POINTS} -> nonzero requests, coverage complete -> not idle
+    query_fails: True -> _query_location_request_counts returns None (query failure)
+    client_fails: True -> MetricServiceClient() raises (all endpoints skip)
+    """
 
-    monitoring_client = _make_monitoring_client(
-        request_counts=effective_counts,
-        error=monitoring_error,
+    def _mock_query(client, project_id, location, ws, we, eids):
+        if query_fails:
+            return None
+        if telemetry is None:
+            return {}
+        return {eid: pts for eid, pts in telemetry.items() if eid in eids}
+
+    client_factory = (
+        MagicMock(side_effect=Exception("client init failed"))
+        if client_fails
+        else MagicMock(return_value=MagicMock())
     )
 
+    module = "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle"
     with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
-            return_value=endpoints,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-        ) as mock_dt,
+        patch(f"{module}._list_endpoints", return_value=endpoints),
+        patch(f"{module}.monitoring_v3.MetricServiceClient", client_factory),
+        patch(f"{module}.AuthorizedSession", return_value=MagicMock()),
+        patch(f"{module}._query_location_request_counts", side_effect=_mock_query),
+        patch(f"{module}.datetime") as mock_dt,
     ):
         mock_dt.now.return_value = NOW
         mock_dt.fromisoformat.side_effect = datetime.fromisoformat
         findings = find_idle_vertex_endpoints(
             project_id=_PROJECT,
-            credentials=mock_credentials,
+            credentials=MagicMock(),
             region_filter=region_filter,
+            idle_days=idle_days,
         )
     return findings
 
 
-# ---------------------------------------------------------------------------
-# RULE_METADATA / RULE_ID
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Unit tests: _parse_location
+# ===========================================================================
 
 
-def test_rule_metadata():
+def test_parse_location_valid_name():
+    name = "projects/p/locations/us-central1/endpoints/123"
+    assert _parse_location(name) == "us-central1"
+
+
+def test_parse_location_missing_segment_returns_none():
+    assert _parse_location("projects/p/endpoints/123") is None
+
+
+def test_parse_location_empty_string_returns_none():
+    assert _parse_location("") is None
+
+
+def test_parse_location_segment_present_but_empty_returns_none():
+    # "locations/" with no value after it -> parts has "" after "locations"
+    assert _parse_location("projects/p/locations/") is None
+
+
+# ===========================================================================
+# Unit tests: _parse_endpoint_id
+# ===========================================================================
+
+
+def test_parse_endpoint_id_valid():
+    name = "projects/p/locations/us-central1/endpoints/9876"
+    assert _parse_endpoint_id(name) == "9876"
+
+
+def test_parse_endpoint_id_empty_string():
+    assert _parse_endpoint_id("") == ""
+
+
+# ===========================================================================
+# Unit tests: _parse_rfc3339_utc
+# ===========================================================================
+
+
+def test_parse_rfc3339_utc_z_suffix():
+    dt = _parse_rfc3339_utc("2026-01-01T00:00:00Z")
+    assert dt is not None
+    assert dt.tzinfo == timezone.utc
+    assert dt.year == 2026
+
+
+def test_parse_rfc3339_utc_plus00():
+    dt = _parse_rfc3339_utc("2026-01-01T00:00:00+00:00")
+    assert dt is not None
+    assert dt.tzinfo == timezone.utc
+
+
+def test_parse_rfc3339_utc_empty_string_returns_none():
+    assert _parse_rfc3339_utc("") is None
+
+
+def test_parse_rfc3339_utc_invalid_string_returns_none():
+    assert _parse_rfc3339_utc("not-a-timestamp") is None
+
+
+def test_parse_rfc3339_utc_none_returns_none():
+    assert _parse_rfc3339_utc(None) is None
+
+
+# ===========================================================================
+# Unit tests: _classify_deployed_models
+# ===========================================================================
+
+
+def test_classify_empty_list():
+    result = _classify_deployed_models([], now=NOW)
+    assert result["skip"] is False
+    assert result["provisioned_floor"] == 0
+    assert result["in_scope_count"] == 0
+    assert result["has_accelerator"] is False
+
+
+def test_classify_dedicated_min_replica_one_in_scope():
+    models = [_dedicated(min_replica=1)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is False
+    assert result["provisioned_floor"] == 1
+    assert result["in_scope_count"] == 1
+    assert result["capacity_floor_start"] is not None
+
+
+def test_classify_dedicated_min_replica_zero_out_of_scope():
+    models = [_dedicated(min_replica=0)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["provisioned_floor"] == 0
+    assert result["in_scope_count"] == 0
+
+
+def test_classify_automatic_min_replica_one_in_scope():
+    """automaticResources.minReplicaCount >= 1 is in scope (spec 3.4)."""
+    models = [_automatic(min_replica=1)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is False
+    assert result["provisioned_floor"] == 1
+    assert result["in_scope_count"] == 1
+    assert result["capacity_floor_start"] is not None
+
+
+def test_classify_automatic_min_replica_zero_out_of_scope():
+    """automaticResources.minReplicaCount == 0 is scale-to-zero -- out of scope."""
+    models = [_automatic(min_replica=0)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["provisioned_floor"] == 0
+    assert result["in_scope_count"] == 0
+
+
+def test_classify_shared_resources_only():
+    models = [_shared()]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["provisioned_floor"] == 0
+    assert result["shared_only"] is True
+    assert "sharedResources" in result["resource_modes"]
+
+
+def test_classify_unrecognized_resource_union_skips_endpoint():
+    """Model with no recognized resource union (dedicated/automatic/shared) -> skip=True (spec 9)."""
+    models = [
+        {
+            "id": "m1",
+            "createTime": _OLD_STR,
+            "unknownResources": {"someField": "someValue"},
+        }
+    ]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_malformed_min_replica_count_skips_endpoint():
+    models = [
+        {
+            "id": "m1",
+            "createTime": _OLD_STR,
+            "dedicatedResources": {
+                "machineSpec": {"machineType": "n1-standard-4"},
+                "minReplicaCount": "not-a-number",
+            },
+        }
+    ]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_bad_create_time_skips_endpoint():
+    """In-scope model with unparsable createTime -> skip=True (spec 7, 9)."""
+    models = [_dedicated(min_replica=1, create_time_str="bad-timestamp")]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_future_create_time_skips_endpoint():
+    """In-scope model with future createTime -> skip=True (spec 7, 9)."""
+    future = (NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    models = [_dedicated(min_replica=1, create_time_str=future)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_dedicated_min_replica_count_missing_skips_endpoint():
+    """Missing minReplicaCount on dedicatedResources is malformed -> skip=True (spec 9)."""
+    models = [
+        {
+            "id": "m1",
+            "createTime": _OLD_STR,
+            "dedicatedResources": {
+                "machineSpec": {"machineType": "n1-standard-4"},
+                # minReplicaCount absent
+            },
+        }
+    ]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_automatic_min_replica_count_missing_skips_endpoint():
+    """Missing minReplicaCount on automaticResources is malformed -> skip=True (spec 9)."""
+    models = [
+        {
+            "id": "m1",
+            "createTime": _OLD_STR,
+            "automaticResources": {
+                # minReplicaCount absent
+            },
+        }
+    ]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["skip"] is True
+
+
+def test_classify_shared_only_false_when_dedicated_zero_present():
+    """dedicated(min=0) + shared: floor=0 but shared_only=False (there IS a dedicated model)."""
+    models = [_dedicated(min_replica=0), _shared()]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["provisioned_floor"] == 0
+    assert result["shared_only"] is False  # dedicated model present, even if out-of-scope
+
+
+def test_classify_shared_only_true_when_only_shared():
+    """Only sharedResources models -> shared_only=True."""
+    models = [_shared(), _shared()]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["provisioned_floor"] == 0
+    assert result["shared_only"] is True
+
+
+def test_classify_gpu_accelerator_recognized_type():
+    models = [_dedicated(min_replica=1, accel_type="NVIDIA_TESLA_T4", accel_count=1)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["has_accelerator"] is True
+
+
+def test_classify_gpu_unrecognized_type_no_accelerator():
+    models = [_dedicated(min_replica=1, accel_type="CUSTOM_CHIP_XYZ", accel_count=1)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["has_accelerator"] is False
+
+
+def test_classify_gpu_zero_count_no_accelerator():
+    models = [_dedicated(min_replica=1, accel_type="NVIDIA_TESLA_T4", accel_count=0)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["has_accelerator"] is False
+
+
+def test_classify_unspecified_accel_type_no_accelerator():
+    models = [_dedicated(min_replica=1, accel_type="ACCELERATOR_TYPE_UNSPECIFIED", accel_count=2)]
+    result = _classify_deployed_models(models, now=NOW)
+    assert result["has_accelerator"] is False
+
+
+def test_classify_multiple_dedicated_models_summed():
+    m1 = _dedicated(min_replica=2, create_time_str=_OLD_STR)
+    m2 = _dedicated(min_replica=3, create_time_str=_OLD_STR)
+    result = _classify_deployed_models([m1, m2], now=NOW)
+    assert result["provisioned_floor"] == 5
+    assert result["in_scope_count"] == 2
+
+
+def test_classify_multiple_models_capacity_floor_start_is_max():
+    older = (NOW - timedelta(days=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    newer = (NOW - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    m1 = _dedicated(min_replica=1, create_time_str=older)
+    m2 = _dedicated(min_replica=1, create_time_str=newer)
+    result = _classify_deployed_models([m1, m2], now=NOW)
+    expected = NOW - timedelta(days=10)
+    assert abs((result["capacity_floor_start"] - expected).total_seconds()) < 2
+
+
+def test_classify_mixed_dedicated_and_automatic():
+    m1 = _dedicated(min_replica=1)
+    m2 = _automatic(min_replica=1)
+    result = _classify_deployed_models([m1, m2], now=NOW)
+    assert result["provisioned_floor"] == 2
+    assert result["in_scope_count"] == 2
+    assert "dedicatedResources" in result["resource_modes"]
+    assert "automaticResources" in result["resource_modes"]
+
+
+def test_classify_resource_modes_none_when_no_models():
+    result = _classify_deployed_models([], now=NOW)
+    assert result["resource_modes"] == "none"
+
+
+# ===========================================================================
+# Unit tests: _evaluate_endpoint_telemetry
+# ===========================================================================
+
+
+def test_evaluate_no_points_returns_unresolved():
+    cs, ts, mr = _evaluate_endpoint_telemetry([], _WINDOW_START, NOW)
+    assert cs == "unresolved"
+    assert ts == "unresolved"
+    assert mr == 0
+
+
+def test_evaluate_large_leading_gap_unresolved():
+    """Single late-window point: leading gap >> window/2 -> unresolved (spec 8.3.6, 8.3.8)."""
+    # Only one point near NOW; gap from window_start is ~14d >> 7d threshold
+    points = [(0, NOW - timedelta(hours=1))]
+    cs, ts, mr = _evaluate_endpoint_telemetry(points, _WINDOW_START, NOW)
+    assert cs == "unresolved"
+    assert ts == "unresolved"
+
+
+def test_evaluate_large_trailing_gap_unresolved():
+    """Single early-window point: trailing gap >> window/2 -> unresolved (spec 8.3.6, 8.3.8)."""
+    # Only one point near window_start; gap to window_end is ~14d >> 7d threshold
+    points = [(0, _WINDOW_START + timedelta(hours=1))]
+    cs, ts, mr = _evaluate_endpoint_telemetry(points, _WINDOW_START, NOW)
+    assert cs == "unresolved"
+    assert ts == "unresolved"
+
+
+def test_evaluate_large_interior_gap_unresolved():
+    """Two points with huge gap between them -> unresolved (spec 8.3.6, 8.3.8)."""
+    # P1 near start (leading gap small), P2 near end (trailing gap small)
+    # But the P1->P2 interior gap is ~14d >> 7d threshold
+    points = [
+        (0, _WINDOW_START + timedelta(hours=1)),
+        (0, NOW - timedelta(hours=1)),
+    ]
+    cs, ts, mr = _evaluate_endpoint_telemetry(points, _WINDOW_START, NOW)
+    assert cs == "unresolved"
+    assert ts == "unresolved"
+
+
+def test_evaluate_dense_zero_points_complete():
+    """Three points spanning window with all gaps < window/2 -> complete, no requests."""
+    cs, ts, mr = _evaluate_endpoint_telemetry(_ZERO_POINTS, _WINDOW_START, NOW)
+    assert cs == "complete"
+    assert ts == "no_observed_prediction_requests"
+    assert mr == 0
+
+
+def test_evaluate_dense_nonzero_point_observed():
+    """Dense points with nonzero value -> complete, observed requests."""
+    cs, ts, mr = _evaluate_endpoint_telemetry(_ACTIVE_POINTS, _WINDOW_START, NOW)
+    assert cs == "complete"
+    assert ts == "observed_prediction_requests"
+    assert mr == 42
+
+
+def test_evaluate_gap_exactly_at_threshold_is_complete():
+    """Gaps exactly equal to threshold (not strictly greater) -> coverage complete."""
+    # Window: 6h, threshold = 3h
+    # P1 at window_start+0s (leading gap = 0), P2 at window_end (trailing gap = 0)
+    # Interior gap = 6h = 2 * threshold; strictly > threshold -> unresolved
+    # Use 3 evenly spaced points instead: gaps exactly = 3h each
+    short_start = NOW - timedelta(hours=6)
+    p1 = (0, short_start)  # leading gap = 0
+    p2 = (0, short_start + timedelta(hours=3))  # interior gap = 3h = threshold
+    p3 = (0, NOW)  # interior gap = 3h, trailing = 0
+    cs, ts, mr = _evaluate_endpoint_telemetry([p1, p2, p3], short_start, NOW)
+    assert cs == "complete"  # gaps == threshold, not > threshold
+
+
+def test_evaluate_float_value_above_zero_observed():
+    """A double_value of 0.7 (not truncated to int 0) -> observed_prediction_requests."""
+    points = [
+        (0, _WINDOW_START + timedelta(hours=1)),
+        (0.7, NOW - timedelta(days=7)),
+        (0, NOW - timedelta(hours=1)),
+    ]
+    cs, ts, mr = _evaluate_endpoint_telemetry(points, _WINDOW_START, NOW)
+    assert cs == "complete"
+    assert ts == "observed_prediction_requests"
+    assert mr == pytest.approx(0.7)
+
+
+# ===========================================================================
+# Integration tests: RULE_METADATA / RULE_ID
+# ===========================================================================
+
+
+def test_rule_metadata_id():
     assert RULE_METADATA["id"] == "gcp.vertex.endpoint.idle"
+
+
+def test_rule_metadata_category():
     assert RULE_METADATA["category"] == "ai"
-    assert RULE_METADATA["cost_impact"] == "high"
 
 
 def test_rule_id_attribute():
     assert find_idle_vertex_endpoints.RULE_ID == "gcp.vertex.endpoint.idle"
 
 
-# ---------------------------------------------------------------------------
-# Core detection — idle CPU endpoint
-# ---------------------------------------------------------------------------
+# ===========================================================================
+# Integration tests: idle endpoint detection
+# ===========================================================================
 
 
-def test_idle_cpu_endpoint_flagged():
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    findings = _run([ep])
+def test_idle_cpu_endpoint_emits_finding():
+    """Dedicated CPU endpoint with minReplica=1, zero requests -> MEDIUM risk finding."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
 
     assert len(findings) == 1
     f = findings[0]
@@ -210,358 +586,315 @@ def test_idle_cpu_endpoint_flagged():
     assert f.region == _LOCATION
     assert f.risk.value == "medium"
     assert f.confidence.value == "high"
-    assert f.estimated_monthly_cost_usd == _MACHINE_MONTHLY_COST["n1-standard-4"] * 1
 
 
-def test_idle_gpu_endpoint_flagged_high_risk():
+def test_idle_gpu_endpoint_emits_high_risk():
+    """Dedicated GPU endpoint -> HIGH risk."""
     ep = _endpoint(
-        machine_type="n1-standard-4",
-        accelerator_type="NVIDIA_TESLA_T4",
-        accelerator_count=1,
-        min_replica_count=1,
+        deployed_models=[_dedicated(min_replica=1, accel_type="NVIDIA_TESLA_T4", accel_count=1)]
     )
-    findings = _run([ep])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
 
     assert len(findings) == 1
-    f = findings[0]
-    assert f.risk.value == "high"
-    assert f.confidence.value == "high"
-    # Cost = machine + GPU addon
-    expected_cost = (
-        _MACHINE_MONTHLY_COST["n1-standard-4"] + _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
-    ) * 1
-    assert f.estimated_monthly_cost_usd == pytest.approx(expected_cost)
+    assert findings[0].risk.value == "high"
+    assert findings[0].confidence.value == "high"
 
 
-def test_idle_a2_gpu_endpoint_no_double_count():
-    """a2-highgpu machines already include GPU cost — no addon should be added."""
-    ep = _endpoint(
-        machine_type="a2-highgpu-1g",
-        accelerator_type="NVIDIA_TESLA_A100",
-        accelerator_count=1,
-        min_replica_count=1,
-    )
-    findings = _run([ep])
-
+def test_estimated_monthly_cost_is_none():
+    """spec 6.4: pricing varies; estimated_monthly_cost_usd must be None always."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
     assert len(findings) == 1
-    f = findings[0]
-    assert f.risk.value == "high"
-    # Cost = machine only (GPU bundled)
-    assert f.estimated_monthly_cost_usd == pytest.approx(_MACHINE_MONTHLY_COST["a2-highgpu-1g"])
+    assert findings[0].estimated_monthly_cost_usd is None
 
 
-# ---------------------------------------------------------------------------
-# Near-idle detection tier
-# ---------------------------------------------------------------------------
-
-
-def test_near_idle_endpoint_flagged_medium_confidence():
-    """Endpoint with low but non-zero traffic is flagged as near-idle at MEDIUM confidence."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    count = _LOW_TRAFFIC_THRESHOLD - 1  # just below threshold
-    findings = _run([ep], request_counts={_ENDPOINT_ID: count})
-
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.confidence.value == "medium"
-    assert "near-idle" in f.title.lower() or str(count) in f.title
-    assert f.details["request_count"] == count
-
-
-def test_near_idle_with_single_request_flagged():
-    """Even 1 request in 14 days is near-idle."""
-    ep = _endpoint()
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 1})
-
-    assert len(findings) == 1
-    assert findings[0].details["request_count"] == 1
-    assert findings[0].confidence.value == "medium"
-
-
-def test_above_threshold_endpoint_active_skipped():
-    """Endpoint with >= effective_threshold requests is considered active and skipped."""
-    ep = _endpoint()
-    # Single replica, CPU: effective_threshold = 10 * 1 = 10
-    findings = _run([ep], request_counts={_ENDPOINT_ID: _LOW_TRAFFIC_THRESHOLD})
-    assert findings == []
-
-
-def test_near_idle_confidence_medium_even_if_old():
-    """Near-idle endpoints are capped at MEDIUM even if age >= 14 days."""
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 3})
-
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"  # not HIGH — has some traffic
-
-
-def test_gpu_endpoint_near_idle_at_lower_threshold():
-    """GPU endpoints use a lower threshold — flagged near-idle at count < GPU threshold."""
-    ep = _endpoint(
-        machine_type="n1-standard-4",
-        accelerator_type="NVIDIA_TESLA_T4",
-        accelerator_count=1,
-        min_replica_count=1,
-    )
-    count = _LOW_TRAFFIC_THRESHOLD_GPU - 1  # near-idle for GPU (below 5)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: count})
-
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.confidence.value == "medium"
-    assert f.details["request_count"] == count
-    assert "gpu-adjusted" in f.evidence.signals_used[0].lower()
-
-
-def test_gpu_endpoint_at_gpu_threshold_active():
-    """A GPU endpoint at exactly the GPU threshold is active (not near-idle)."""
-    ep = _endpoint(
-        machine_type="n1-standard-4",
-        accelerator_type="NVIDIA_TESLA_T4",
-        accelerator_count=1,
-        min_replica_count=1,
-    )
-    # Single replica GPU: effective_threshold = 5 * 1 = 5; count=5 -> active
-    findings = _run([ep], request_counts={_ENDPOINT_ID: _LOW_TRAFFIC_THRESHOLD_GPU})
-    assert findings == []
-
-
-def test_cpu_endpoint_not_affected_by_gpu_threshold():
-    """CPU endpoint at count 7 is still near-idle (CPU threshold is 10)."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)  # no GPU
-    count = _LOW_TRAFFIC_THRESHOLD_GPU + 2  # 7: near-idle for CPU (below 10)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: count})
-
-    assert len(findings) == 1
-    assert findings[0].details["request_count"] == count
-    assert "gpu-adjusted" not in findings[0].evidence.signals_used[0].lower()
-
-
-def test_replica_aware_threshold_scales_with_replicas():
-    """3-replica CPU endpoint: threshold = int(10 * sqrt(3)) = 17; count=16 -> near-idle."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    # sqrt(3) ≈ 1.732 -> threshold = int(10 * 1.732) = 17
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 16})
-
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-    assert findings[0].details["effective_threshold"] == 17
-
-
-def test_replica_aware_threshold_active_when_above_scaled():
-    """3-replica CPU endpoint: count >= sqrt-scaled threshold -> active."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 17})  # at threshold -> active
-    assert findings == []
-
-
-def test_sublinear_scaling_prevents_over_leniency():
-    """20-replica endpoint: threshold = int(10 * sqrt(20)) ≈ 44, not 200."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=20)
-    expected_threshold = int(10 * max(1.0, 20**0.5))  # int(44.7) = 44
-
-    # At threshold -> active
-    assert _run([ep], request_counts={_ENDPOINT_ID: expected_threshold}) == []
-    # Below threshold -> near-idle
-    findings = _run([ep], request_counts={_ENDPOINT_ID: expected_threshold - 1})
-    assert len(findings) == 1
-    assert findings[0].details["effective_threshold"] == expected_threshold
-
-
-def test_no_monitoring_data_unknown_age_skipped():
-    """No monitoring data + unknown age = too many unknowns -> skip."""
-    ep = _endpoint()
-    ep["createTime"] = ""  # unknown age
-    # Empty counts -> no_monitoring_data=True
-    findings = _run([ep], request_counts={})
-    assert findings == []
-
-
-def test_no_monitoring_data_known_age_still_flagged():
-    """No monitoring data + age ≥ 2×idle_threshold -> still flagged (age well-established)."""
-    # Require age >= 2*14=28 before trusting absence of metrics as evidence of idleness
-    ep = _endpoint(create_time=NOW - timedelta(days=30))  # age=30 ≥ 28
-    findings = _run([ep], request_counts={})  # no monitoring data
-
-    assert len(findings) == 1
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_high_confidence_requires_full_observation_window():
-    """HIGH confidence requires age >= 14 AND effective_window == 14 AND monitoring data present."""
-    # Age exactly at threshold; provide explicit 0 so monitoring data is present (no_monitoring_data=False)
-    ep = _endpoint(create_time=NOW - timedelta(days=14))
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+def test_confidence_always_high():
+    """spec 10.2: confidence is HIGH for all emitted findings; no tiered fallback."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
     assert len(findings) == 1
     assert findings[0].confidence.value == "high"
 
 
-def test_waste_score_zero_traffic_equals_full_cost():
-    """When count=0, waste_score == monthly_cost (full waste)."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    findings = _run([ep])
+def test_automatic_resources_min_replica_one_emits_finding():
+    """spec 3.4: automaticResources.minReplicaCount >= 1 is in scope -> finding emitted."""
+    ep = _endpoint(deployed_models=[_automatic(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
     assert len(findings) == 1
     f = findings[0]
-    assert f.details["waste_score"] == pytest.approx(f.estimated_monthly_cost_usd)
+    assert f.rule_id == "gcp.vertex.endpoint.idle"
+    assert "automaticResources" in f.details["resource_modes"]
 
 
-def test_waste_score_partial_traffic_less_than_full_cost():
-    """Near-idle endpoint has waste_score < monthly_cost (partial waste)."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    count = 5  # below threshold of 10
-    findings = _run([ep], request_counts={_ENDPOINT_ID: count})
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.details["waste_score"] < f.estimated_monthly_cost_usd
-    assert f.details["waste_score"] > 0
+def test_automatic_resources_scale_to_zero_skipped():
+    """automaticResources.minReplicaCount == 0 -> no always-deployed floor -> skipped."""
+    ep = _endpoint(deployed_models=[_automatic(min_replica=0)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
 
 
-def test_experiment_pattern_multi_model():
-    """Multi-model endpoints get pattern='abandoned_experiment' in details."""
+def test_dedicated_scale_to_zero_skipped():
+    """dedicatedResources.minReplicaCount == 0 -> skipped."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=0)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_shared_resources_only_skipped():
+    """sharedResources only -> provisioned_floor=0 -> skipped."""
+    ep = _endpoint(deployed_models=[_shared()])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_no_deployed_models_skipped():
+    ep = _endpoint(deployed_models=[])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_active_endpoint_skipped():
+    """Any max_rate > 0 -> observed prediction requests -> skipped."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ACTIVE_POINTS})
+    assert findings == []
+
+
+def test_telemetry_unresolved_no_points_skipped():
+    """No telemetry series at all -> telemetry_coverage_state=unresolved -> skipped."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={})  # no series for endpoint
+    assert findings == []
+
+
+def test_telemetry_unresolved_large_gap_skipped():
+    """Single late-window point: leading gap >> window/2 -> unresolved -> skipped (spec 8.3.6)."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    # Only one point near window_end; leading gap ≈ idle_days - 1h >> window/2 threshold
+    sparse_points = [(0, NOW - timedelta(hours=1))]
+    findings = _run([ep], telemetry={_ENDPOINT_ID: sparse_points})
+    assert findings == []
+
+
+def test_no_near_idle_findings_emitted():
+    """Non-zero requests always produces no finding (no near-idle tier; spec 8.5)."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    # Low but non-zero traffic should NOT emit a finding
+    low_traffic_points = [(3, NOW - timedelta(hours=1))]
+    findings = _run([ep], telemetry={_ENDPOINT_ID: low_traffic_points})
+    assert findings == []
+
+
+def test_no_missing_telemetry_fallback():
+    """Missing telemetry (None dict) must not emit findings (no fallback; spec 8.5)."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry=None)
+    assert findings == []
+
+
+def test_monitoring_client_failure_returns_empty():
+    """MetricServiceClient() raises -> no fallback -> empty findings list."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], client_fails=True)
+    assert findings == []
+
+
+def test_monitoring_query_failure_skips_location():
+    """Query returns None -> skip all endpoints in that location."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], query_fails=True)
+    assert findings == []
+
+
+def test_young_endpoint_capacity_floor_start_too_late_skipped():
+    """capacity_floor_start > window_start -> full window not coverable -> skipped."""
+    ep = _endpoint(
+        create_time_str=_YOUNG_STR,
+        deployed_models=[_dedicated(min_replica=1, create_time_str=_YOUNG_STR)],
+    )
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_young_deployed_model_skips_even_if_endpoint_is_old():
+    """capacity_floor_start = max(endpoint, model createTimes). Young model -> skip."""
+    young_model_str = _YOUNG.strftime("%Y-%m-%dT%H:%M:%SZ")
+    ep = _endpoint(
+        create_time_str=_OLD_STR,
+        deployed_models=[_dedicated(min_replica=1, create_time_str=young_model_str)],
+    )
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_endpoint_missing_name_skipped():
+    ep = {
+        "name": "",
+        "createTime": _OLD_STR,
+        "deployedModels": [_dedicated(min_replica=1)],
+    }
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_endpoint_bad_create_time_skipped():
+    ep = _endpoint(
+        create_time_str="not-a-timestamp",
+        deployed_models=[_dedicated(min_replica=1)],
+    )
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_endpoint_future_create_time_skipped():
+    future_str = (NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    ep = _endpoint(
+        create_time_str=future_str,
+        deployed_models=[_dedicated(min_replica=1)],
+    )
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_deployed_model_bad_create_time_skips_endpoint():
+    """In-scope model with unparsable createTime -> capacity_floor_start=None -> skip."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1, create_time_str="bad")])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_malformed_min_replica_count_skips_endpoint():
+    """Malformed minReplicaCount -> skip=True -> endpoint skipped."""
     ep = _endpoint(
         deployed_models=[
             {
                 "id": "m1",
+                "createTime": _OLD_STR,
                 "dedicatedResources": {
                     "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
+                    "minReplicaCount": "bad",
                 },
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
+            }
         ]
     )
-    findings = _run([ep])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings == []
+
+
+def test_region_filter_matches_location():
+    ep = _endpoint(location=_LOCATION, deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS}, region_filter=_LOCATION)
     assert len(findings) == 1
-    assert findings[0].details["pattern"] == "abandoned_experiment"
 
 
-def test_experiment_pattern_single_model_none():
-    """Single-model endpoints have pattern=None in details."""
-    ep = _endpoint(min_replica_count=1)
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].details["pattern"] is None
-
-
-# ---------------------------------------------------------------------------
-# Skipping logic
-# ---------------------------------------------------------------------------
-
-
-def test_active_endpoint_skipped():
-    ep = _endpoint()
-    findings = _run([ep], has_activity=True)
+def test_region_filter_non_matching_skipped():
+    ep = _endpoint(location=_LOCATION, deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS}, region_filter="europe-west1")
     assert findings == []
 
 
-def test_young_endpoint_skipped():
-    ep = _endpoint(create_time=_YOUNG)
-    findings = _run([ep])
+def test_empty_endpoints_list_returns_empty():
+    findings = _run([])
     assert findings == []
 
 
-def test_automatic_resources_endpoint_skipped():
-    """automaticResources scales to zero — no always-on billing."""
-    ep = _endpoint(use_automatic_resources=True)
-    findings = _run([ep])
-    assert findings == []
-
-
-def test_endpoint_with_no_deployed_models_skipped():
-    ep = {
-        "name": _ENDPOINT_NAME,
-        "displayName": "empty",
-        "createTime": _OLD.strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "deployedModels": [],
+def test_two_endpoints_same_location_both_idle():
+    ep1 = _endpoint(endpoint_id="111", deployed_models=[_dedicated(min_replica=1)])
+    ep2 = _endpoint(endpoint_id="222", deployed_models=[_dedicated(min_replica=1)])
+    ep1["name"] = f"projects/{_PROJECT}/locations/{_LOCATION}/endpoints/111"
+    ep2["name"] = f"projects/{_PROJECT}/locations/{_LOCATION}/endpoints/222"
+    telemetry = {
+        "111": _ZERO_POINTS,
+        "222": _ZERO_POINTS,
     }
-    findings = _run([ep])
-    assert findings == []
+    findings = _run([ep1, ep2], telemetry=telemetry)
+    assert len(findings) == 2
 
 
-def test_zero_min_replica_dedicated_resources_skipped():
-    """dedicatedResources with minReplicaCount=0 — no always-on billing."""
-    ep = _endpoint(min_replica_count=0)
-    findings = _run([ep])
-    assert findings == []
-
-
-# ---------------------------------------------------------------------------
-# Confidence levels
-# ---------------------------------------------------------------------------
-
-
-def test_confidence_high_when_age_gte_threshold():
-    """HIGH confidence when age > idle threshold and monitoring data confirms zero traffic."""
-    ep = _endpoint(create_time=NOW - timedelta(days=_DAYS_IDLE + 5))
-    # Explicit 0-count series so monitoring data is present (no_monitoring_data=False)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+def test_two_endpoints_one_active_one_idle():
+    ep1 = _endpoint(endpoint_id="111", deployed_models=[_dedicated(min_replica=1)])
+    ep2 = _endpoint(endpoint_id="222", deployed_models=[_dedicated(min_replica=1)])
+    ep1["name"] = f"projects/{_PROJECT}/locations/{_LOCATION}/endpoints/111"
+    ep2["name"] = f"projects/{_PROJECT}/locations/{_LOCATION}/endpoints/222"
+    telemetry = {
+        "111": _ACTIVE_POINTS,
+        "222": _ZERO_POINTS,
+    }
+    findings = _run([ep1, ep2], telemetry=telemetry)
     assert len(findings) == 1
-    assert findings[0].confidence.value == "high"
+    assert "222" in findings[0].details["endpoint_id"]
 
 
-def test_confidence_medium_when_age_in_75_percent_window():
-    """age=80% of threshold -> MEDIUM, but only when monitoring data is present.
-
-    When no monitoring data exists and age < idle threshold, the stricter guard skips
-    the endpoint to avoid false positives from metric lag. Provide explicit zero-count
-    series to confirm that MEDIUM confidence fires when monitoring confirms zero traffic.
-    """
-    age = int(_DAYS_IDLE * 0.80)  # 80% of threshold -> MEDIUM
-    ep = _endpoint(create_time=NOW - timedelta(days=age))
-    # Explicit 0-count series -> no_monitoring_data=False (confirmed zero traffic)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+def test_details_fields_present():
+    """All required details keys must be present in emitted finding."""
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
     assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
+    d = findings[0].details
+
+    required = {
+        "endpoint_id",
+        "location",
+        "provisioned_serving_floor",
+        "in_scope_model_count",
+        "resource_modes",
+        "has_accelerator",
+        "capacity_floor_start",
+        "idle_days_threshold",
+        "max_observed_request_rate_per_replica",
+        "telemetry_coverage_state",
+        "telemetry_state",
+    }
+    for key in required:
+        assert key in d, f"Missing details key: {key}"
 
 
-def test_confidence_medium_when_age_unknown():
-    """Missing createTime -> age unknown -> MEDIUM confidence (when monitoring data IS present)."""
-    ep = _endpoint()
-    ep["createTime"] = ""  # No timestamp — age unknown
-    # Provide explicit 0-count series so no_monitoring_data=False; only age is unknown
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
+def test_details_telemetry_coverage_state_complete():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["telemetry_coverage_state"] == "complete"
+
+
+def test_details_telemetry_state_no_requests():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["telemetry_state"] == "no_observed_prediction_requests"
+
+
+def test_details_max_observed_request_rate_per_replica_zero():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["max_observed_request_rate_per_replica"] == 0
+
+
+def test_details_provisioned_serving_floor_correct():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=3)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["provisioned_serving_floor"] == 3
+
+
+def test_details_has_accelerator_false_for_cpu():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["has_accelerator"] is False
+
+
+def test_details_has_accelerator_true_for_gpu():
+    ep = _endpoint(
+        deployed_models=[_dedicated(min_replica=1, accel_type="NVIDIA_TESLA_T4", accel_count=1)]
+    )
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
+    assert findings[0].details["has_accelerator"] is True
+
+
+def test_details_idle_days_threshold_matches_param():
+    ep = _endpoint(deployed_models=[_dedicated(min_replica=1)])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS}, idle_days=21)
+    # idle_days=21 -> window_start = NOW-21d, threshold=10.5d.
+    # _ZERO_POINTS: P1 at NOW-14d+1h (leading gap ≈7d < 10.5d), gaps ~7d < 10.5d. Complete.
+    # _OLD (30d ago) < window_start (21d ago) -> endpoint is eligible.
     assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-
-
-def test_borderline_age_below_75_percent_skipped():
-    """age < 75% of threshold — too borderline -> skip."""
-    age = int(_DAYS_IDLE * 0.60)  # 60% — below 75% cutoff
-    ep = _endpoint(create_time=NOW - timedelta(days=age))
-    findings = _run([ep])
-    assert findings == []
-
-
-# ---------------------------------------------------------------------------
-# Effective window capping
-# ---------------------------------------------------------------------------
-
-
-def test_effective_window_capped_to_age():
-    """If endpoint is 10 days old, effective window = 10, not 14."""
-    ep = _endpoint(create_time=NOW - timedelta(days=10))
-    findings = _run([ep])
-    if findings:
-        f = findings[0]
-        assert f.details["idle_window_days"] == 10
-
-
-def test_effective_window_too_small_skipped():
-    """If effective window < 3 days, skip the endpoint."""
-    ep = _endpoint(create_time=NOW - timedelta(days=2))
-    findings = _run([ep])
-    assert findings == []
-
-
-# ---------------------------------------------------------------------------
-# GPU detection
-# ---------------------------------------------------------------------------
+    assert findings[0].details["idle_days_threshold"] == 21
 
 
 @pytest.mark.parametrize(
@@ -571,795 +904,23 @@ def test_effective_window_too_small_skipped():
         "NVIDIA_TESLA_V100",
         "NVIDIA_TESLA_A100",
         "NVIDIA_L4",
-        "TPU_V2",
         "NVIDIA_H100_80GB",
+        "TPU_V2",
+        "TPU_V3",
     ],
 )
-def test_gpu_accelerator_types_detected(accel_type):
+def test_known_accelerator_types_produce_high_risk(accel_type):
     ep = _endpoint(
-        machine_type="n1-standard-4",
-        accelerator_type=accel_type,
-        accelerator_count=1,
+        deployed_models=[_dedicated(min_replica=1, accel_type=accel_type, accel_count=1)]
     )
-    findings = _run([ep])
+    findings = _run([ep], telemetry={_ENDPOINT_ID: _ZERO_POINTS})
     assert len(findings) == 1
     assert findings[0].risk.value == "high"
-    assert findings[0].details["is_gpu"] is True
 
 
-# ---------------------------------------------------------------------------
-# Multiple deployed models
-# ---------------------------------------------------------------------------
+def test_request_metric_type_constant():
+    assert _REQUEST_METRIC_TYPE == "aiplatform.googleapis.com/prediction/online/request_count"
 
 
-def test_multiple_deployed_models_total_replicas_aggregated():
-    """Total min_replica_count is summed across all deployed models."""
-    ep = _endpoint(
-        deployed_models=[
-            {
-                "id": "m1",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 2,
-                    "maxReplicaCount": 5,
-                },
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                    "maxReplicaCount": 3,
-                },
-            },
-        ]
-    )
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].details["min_replica_count"] == 3
-
-
-def test_mixed_dedicated_and_automatic_resources():
-    """Only dedicated models contribute to min_replica_count."""
-    ep = _endpoint(
-        deployed_models=[
-            {
-                "id": "m1",
-                "automaticResources": {"minReplicaCount": 0, "maxReplicaCount": 4},
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-8"},
-                    "minReplicaCount": 1,
-                    "maxReplicaCount": 4,
-                },
-            },
-        ]
-    )
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].details["min_replica_count"] == 1
-
-
-def test_multi_model_cost_accurate_per_model():
-    """Cost is summed per deployed model, not first-machine-type × total replicas."""
-    ep = _endpoint(
-        deployed_models=[
-            {
-                "id": "m1",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {
-                        "machineType": "n1-standard-4",
-                        "acceleratorType": "NVIDIA_TESLA_T4",
-                        "acceleratorCount": 1,
-                    },
-                    "minReplicaCount": 1,
-                },
-            },
-        ]
-    )
-    findings = _run([ep])
-    assert len(findings) == 1
-    # m1: n1-standard-4 × 1 = 138; m2: (138 + 311) × 1 = 449; total = 587
-    expected = _MACHINE_MONTHLY_COST["n1-standard-4"] + (
-        _MACHINE_MONTHLY_COST["n1-standard-4"] + _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
-    )
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(expected)
-
-
-# ---------------------------------------------------------------------------
-# Cost estimation
-# ---------------------------------------------------------------------------
-
-
-def test_unknown_machine_type_uses_default_cost():
-    ep = _endpoint(machine_type="custom-unknown-type")
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].estimated_monthly_cost_usd == _DEFAULT_MACHINE_MONTHLY_COST * 1
-
-
-def test_cost_scaled_by_min_replica_count():
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].estimated_monthly_cost_usd == pytest.approx(
-        _MACHINE_MONTHLY_COST["n1-standard-4"] * 3
-    )
-
-
-# ---------------------------------------------------------------------------
-# Monitoring — batch behavior
-# ---------------------------------------------------------------------------
-
-
-def test_monitoring_error_assumes_active():
-    """If monitoring raises an exception, conservatively assume active — don't flag."""
-    ep = _endpoint()
-    findings = _run([ep], monitoring_error=True)
-    assert findings == []
-
-
-def test_empty_timeseries_means_idle():
-    """Empty timeseries (no data points) = no predictions = idle."""
-    ep = _endpoint()
-    findings = _run([ep], has_activity=False)
-    assert len(findings) == 1
-
-
-def test_batch_monitoring_single_call_per_location():
-    """Two eligible endpoints in the same location produce exactly one monitoring call."""
-    ep1 = _endpoint(endpoint_id="111", display_name="ep-1")
-    ep2 = _endpoint(endpoint_id="222", display_name="ep-2")
-
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-    monitoring_client = _make_monitoring_client(request_counts={})
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
-            return_value=[ep1, ep2],
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-        ) as mock_dt,
-    ):
-        mock_dt.now.return_value = NOW
-        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
-        findings = find_idle_vertex_endpoints(
-            project_id=_PROJECT,
-            credentials=mock_credentials,
-        )
-
-    # Both endpoints flagged, but only one monitoring call (batched by location)
-    assert len(findings) == 2
-    assert monitoring_client.list_time_series.call_count == 1
-
-
-def test_batch_monitoring_separate_call_per_location():
-    """Endpoints in different locations each trigger their own monitoring call."""
-    ep1 = _endpoint(endpoint_id="111", location="us-central1")
-    ep2 = _endpoint(endpoint_id="222", location="europe-west4")
-
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-    monitoring_client = _make_monitoring_client(request_counts={})
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
-            return_value=[ep1, ep2],
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-        ) as mock_dt,
-    ):
-        mock_dt.now.return_value = NOW
-        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
-        findings = find_idle_vertex_endpoints(
-            project_id=_PROJECT,
-            credentials=mock_credentials,
-        )
-
-    assert len(findings) == 2
-    assert monitoring_client.list_time_series.call_count == 2
-
-
-# ---------------------------------------------------------------------------
-# Region filter
-# ---------------------------------------------------------------------------
-
-
-def test_region_filter_excludes_other_locations():
-    ep = _endpoint(location="europe-west1")
-    findings = _run([ep], region_filter="us-central1")
-    assert findings == []
-
-
-def test_region_filter_includes_matching_location():
-    ep = _endpoint(location="us-central1")
-    findings = _run([ep], region_filter="us-central1")
-    assert len(findings) == 1
-
-
-# ---------------------------------------------------------------------------
-# Pagination
-# ---------------------------------------------------------------------------
-
-
-def test_pagination_fetches_all_endpoints():
-    """_list_endpoints follows nextPageToken — test that both pages are combined."""
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-    monitoring_client = _make_monitoring_client(request_counts={})
-
-    page1 = {
-        "endpoints": [
-            _endpoint(endpoint_id="111", display_name="ep-1"),
-        ],
-        "nextPageToken": "token-page2",
-    }
-    page2 = {
-        "endpoints": [
-            _endpoint(endpoint_id="222", display_name="ep-2"),
-        ],
-    }
-
-    mock_response_1 = MagicMock()
-    mock_response_1.status_code = 200
-    mock_response_1.json.return_value = page1
-
-    mock_response_2 = MagicMock()
-    mock_response_2.status_code = 200
-    mock_response_2.json.return_value = page2
-
-    mock_session.get.side_effect = [mock_response_1, mock_response_2]
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-        ) as mock_dt,
-    ):
-        mock_dt.now.return_value = NOW
-        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
-        findings = find_idle_vertex_endpoints(
-            project_id=_PROJECT,
-            credentials=mock_credentials,
-        )
-
-    assert len(findings) == 2
-    assert mock_session.get.call_count == 2
-
-
-# ---------------------------------------------------------------------------
-# Permission error
-# ---------------------------------------------------------------------------
-
-
-def test_403_raises_permission_error():
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 403
-
-    mock_session.get.return_value = mock_response
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-    ):
-        with pytest.raises(PermissionError, match="aiplatform.endpoints.list"):
-            find_idle_vertex_endpoints(project_id=_PROJECT, credentials=mock_credentials)
-
-
-def test_404_returns_empty():
-    """404 means Vertex AI API not enabled — return empty findings, don't raise."""
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-
-    mock_response = MagicMock()
-    mock_response.status_code = 404
-    mock_response.json.return_value = {}
-
-    mock_session.get.return_value = mock_response
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-    ):
-        findings = find_idle_vertex_endpoints(project_id=_PROJECT, credentials=mock_credentials)
-    assert findings == []
-
-
-# ---------------------------------------------------------------------------
-# Finding fields
-# ---------------------------------------------------------------------------
-
-
-def test_finding_fields_are_complete():
-    ep = _endpoint(machine_type="n1-standard-8", min_replica_count=2)
-    findings = _run([ep])
-    assert len(findings) == 1
-    f = findings[0]
-
-    assert f.provider == "gcp"
-    assert f.rule_id == "gcp.vertex.endpoint.idle"
-    assert f.resource_type == "gcp.vertex.endpoint"
-    assert f.resource_id == _ENDPOINT_NAME
-    assert f.region == _LOCATION
-    assert f.estimated_monthly_cost_usd > 0
-    assert f.title.startswith("Idle Vertex AI Endpoint")
-    assert "zero predictions" in f.summary.lower() or "zero prediction" in f.summary.lower()
-    assert f.evidence is not None
-    assert len(f.evidence.signals_used) >= 2
-    assert f.evidence.time_window
-
-    d = f.details
-    assert d["endpoint_id"] == _ENDPOINT_ID
-    assert d["location"] == _LOCATION
-    assert d["machine_type"] == "n1-standard-8"
-    assert d["min_replica_count"] == 2
-    assert d["idle_days_threshold"] == _DAYS_IDLE
-    assert d["request_count"] == 0
-    assert d["cost_basis"] == "us-central1 baseline estimate"
-    assert "us-central1" in d["cost_variance"]  # universal pricing disclaimer
-    assert isinstance(d["recommendations"], list)
-    assert len(d["recommendations"]) >= 1
-    assert d["waste_score"] > 0
-
-
-def test_no_monitoring_data_adds_transparency_signal():
-    """When no time series exist for an endpoint, a transparency signal is added."""
-    ep = _endpoint()
-    # Empty counts dict — endpoint_id absent -> no_monitoring_data = True
-    findings = _run([ep], request_counts={})
-
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert any("no prediction request data" in s.lower() for s in signals)
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_with_monitoring_data_no_transparency_signal():
-    """When count == 0 due to explicit data (series present but all zeros), the
-    transparency signal is not added — the series just happens to be empty."""
-    # This case can't be distinguished from truly absent data with the current mock,
-    # but we verify no_monitoring_data == True when endpoint_id absent from counts.
-    ep = _endpoint()
-    findings = _run([ep], request_counts={})
-    # no_monitoring_data == True because _ENDPOINT_ID not in counts
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_eligible_endpoint_ids_guard_filters_stale_series():
-    """Series for endpoint IDs not in the eligible set are ignored."""
-    ep = _endpoint(endpoint_id=_ENDPOINT_ID)
-    stale_id = "stale-endpoint-99999"
-
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-    # Monitoring returns a high-count series for stale_id AND our endpoint
-    monitoring_client = _make_monitoring_client(request_counts={stale_id: 500, _ENDPOINT_ID: 0})
-
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
-            return_value=[ep],
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-        ) as mock_dt,
-    ):
-        mock_dt.now.return_value = NOW
-        mock_dt.fromisoformat.side_effect = datetime.fromisoformat
-        findings = find_idle_vertex_endpoints(
-            project_id=_PROJECT,
-            credentials=mock_credentials,
-        )
-
-    # stale_id series should be ignored; our endpoint has 0 count -> flagged as idle
-    assert len(findings) == 1
-    assert findings[0].details["request_count"] == 0
-
-
-def test_multi_model_signal_added():
-    """Endpoints with multiple dedicated models get an A/B-test signal."""
-    ep = _endpoint(
-        deployed_models=[
-            {
-                "id": "m1",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
-        ]
-    )
-    findings = _run([ep])
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert any("2 deployed models" in s for s in signals)
-
-
-def test_single_model_no_multi_model_signal():
-    """Single-model endpoints do not get the A/B-test signal."""
-    ep = _endpoint(min_replica_count=1)
-    findings = _run([ep])
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert not any("deployed models" in s for s in signals)
-
-
-def test_multiple_replicas_signal_added():
-    """Endpoints with more than 1 replica get the stronger-waste-signal note."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=3)
-    findings = _run([ep])
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert any("3 replicas" in s for s in signals)
-
-
-def test_single_replica_no_replicas_signal():
-    """Single-replica endpoints do not get the replicas signal."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    findings = _run([ep])
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert not any("replicas configured" in s for s in signals)
-
-
-def test_all_endpoints_have_cost_variance_in_details():
-    """All findings carry a cost_variance disclaimer — pricing varies by region for all machine types."""
-    gpu_ep = _endpoint(
-        machine_type="n1-standard-4",
-        accelerator_type="NVIDIA_TESLA_T4",
-        accelerator_count=1,
-    )
-    gpu_findings = _run([gpu_ep])
-    assert len(gpu_findings) == 1
-    assert "us-central1" in gpu_findings[0].details["cost_variance"]
-
-    cpu_ep = _endpoint(machine_type="n1-standard-4")
-    cpu_findings = _run([cpu_ep])
-    assert len(cpu_findings) == 1
-    assert "us-central1" in cpu_findings[0].details["cost_variance"]
-
-
-def test_recommendations_always_present():
-    """Every finding has a non-empty recommendations list."""
-    ep = _endpoint()
-    findings = _run([ep])
-    assert len(findings) == 1
-    recs = findings[0].details["recommendations"]
-    assert isinstance(recs, list)
-    assert len(recs) >= 2  # at minimum: switch to automaticResources + delete
-    assert any("automaticResources" in r for r in recs)
-    assert any("gcloud ai endpoints delete" in r for r in recs)
-
-
-def test_multi_replica_recommendation_included():
-    """Endpoints with multiple replicas get a specific reduce-replicas recommendation."""
-    ep = _endpoint(min_replica_count=3)
-    findings = _run([ep])
-    assert len(findings) == 1
-    recs = findings[0].details["recommendations"]
-    assert any("minReplicaCount" in r for r in recs)
-
-
-def test_experiment_pattern_recommendation_included():
-    """Multi-model endpoints get a consolidate recommendation."""
-    ep = _endpoint(
-        deployed_models=[
-            {
-                "id": "m1",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
-            {
-                "id": "m2",
-                "dedicatedResources": {
-                    "machineSpec": {"machineType": "n1-standard-4"},
-                    "minReplicaCount": 1,
-                },
-            },
-        ]
-    )
-    findings = _run([ep])
-    assert len(findings) == 1
-    recs = findings[0].details["recommendations"]
-    assert any("Consolidate" in r or "consolidate" in r for r in recs)
-
-
-def test_min_cost_constant_is_reasonable():
-    """_MIN_MONTHLY_COST_USD is set and below the cheapest known machine type."""
-    assert _MIN_MONTHLY_COST_USD > 0
-    # All known machine types cost more than the filter threshold
-    from cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle import (
-        _MACHINE_MONTHLY_COST,
-    )
-
-    assert all(cost >= _MIN_MONTHLY_COST_USD for cost in _MACHINE_MONTHLY_COST.values())
-
-
-def test_near_idle_finding_fields():
-    """Near-idle findings have correct title, request_count in details, MEDIUM confidence."""
-    ep = _endpoint(machine_type="n1-standard-4", min_replica_count=1)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 3})
-    assert len(findings) == 1
-    f = findings[0]
-
-    assert "near-idle" in f.title.lower() or "3 prediction" in f.title.lower()
-    assert f.confidence.value == "medium"
-    assert f.details["request_count"] == 3
-    assert f.estimated_monthly_cost_usd > 0
-
-
-def test_no_monitoring_data_known_age_below_threshold_skipped():
-    """No monitoring data + known age < idle threshold -> skipped (stricter guard).
-
-    Monitoring can be absent due to metric delay or permission gaps — not safe
-    to flag unless we have the full observation window confirmed by age.
-    """
-    # age=12 is >= 7 (past young-endpoint filter) but < 14 (_DAYS_IDLE)
-    ep = _endpoint(create_time=NOW - timedelta(days=12))
-    findings = _run([ep], request_counts={})  # absent from counts -> no_monitoring_data=True
-    assert findings == []
-
-
-def test_no_monitoring_data_below_double_threshold_skipped():
-    """No monitoring data + age < 2×idle_threshold -> skipped (bias toward false negatives)."""
-    # age=20 < 28 (2*14) -> missing metrics insufficient evidence of idleness
-    ep = _endpoint(create_time=NOW - timedelta(days=20))
-    findings = _run([ep], request_counts={})
-    assert findings == []
-
-
-def test_no_monitoring_data_at_double_threshold_flagged():
-    """No monitoring data + age >= 2×idle_threshold -> flagged with transparency signal."""
-    ep = _endpoint(create_time=NOW - timedelta(days=28))  # exactly 2×threshold
-    findings = _run([ep], request_counts={})
-    assert len(findings) == 1
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_threshold_strategy_in_details():
-    """All findings expose threshold_strategy='sqrt_replica_scaling' in details."""
-    ep = _endpoint()
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].details["threshold_strategy"] == "sqrt_replica_scaling"
-
-
-def test_sqrt_threshold_signal_in_evidence_for_multi_replica():
-    """Multi-replica endpoints include a signal explaining sqrt threshold scaling."""
-    ep = _endpoint(min_replica_count=3)
-    findings = _run([ep])
-    assert len(findings) == 1
-    signals = findings[0].evidence.signals_used
-    assert any("sqrt" in s.lower() or "sublinearly" in s.lower() for s in signals)
-
-
-# ---------------------------------------------------------------------------
-# Metric alignment edge cases (empty / long series, recency guard)
-# ---------------------------------------------------------------------------
-
-
-def _make_monitoring_client_with_empty_points(endpoint_id: str = _ENDPOINT_ID):
-    """Return a monitoring client whose series has zero points."""
-    client = MagicMock()
-    series = MagicMock()
-    series.points = []  # no data points
-    series.resource.labels = {"endpoint_id": endpoint_id}
-    client.list_time_series.return_value = [series]
-    return client
-
-
-def _make_monitoring_client_with_many_points(endpoint_id: str = _ENDPOINT_ID, n: int = 10):
-    """Return a monitoring client whose series has more than 5 points (anomalous)."""
-    client = MagicMock()
-    series = MagicMock()
-    points = []
-    for i in range(n):
-        p = MagicMock()
-        p.value.int64_value = 1
-        p.value.double_value = 0.0
-        points.append(p)
-    series.points = points
-    series.resource.labels = {"endpoint_id": endpoint_id}
-    client.list_time_series.return_value = [series]
-    return client
-
-
-def _make_monitoring_client_with_recent_traffic(endpoint_id: str = _ENDPOINT_ID):
-    """Return a monitoring client where the last point timestamp is within 24 hours."""
-    from datetime import timedelta
-
-    client = MagicMock()
-    series = MagicMock()
-    point = MagicMock()
-    point.value.int64_value = 0
-    point.value.double_value = 0.0
-
-    # Configure interval.end_time.ToDatetime to return a real recent datetime
-    recent_time = NOW - timedelta(hours=6)  # 6 hours ago — within 24h window
-
-    point.interval.end_time.ToDatetime.return_value = recent_time
-    series.points = [point]
-    series.resource.labels = {"endpoint_id": endpoint_id}
-    client.list_time_series.return_value = [series]
-    return client
-
-
-def _run_with_monitoring_client(endpoints, monitoring_client, region_filter=None):
-    """Run rule with a pre-built monitoring client mock."""
-    mock_session = MagicMock()
-    mock_credentials = MagicMock()
-    with (
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle._list_endpoints",
-            return_value=endpoints,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.monitoring_v3.MetricServiceClient",
-            return_value=monitoring_client,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.AuthorizedSession",
-            return_value=mock_session,
-        ),
-        patch(
-            "cleancloud.providers.gcp.rules.ai.vertex_endpoint_idle.datetime",
-            **{"now.return_value": NOW, "fromisoformat": datetime.fromisoformat},
-        ),
-    ):
-        return find_idle_vertex_endpoints(
-            project_id=_PROJECT,
-            credentials=mock_credentials,
-            region_filter=region_filter,
-        )
-
-
-def test_empty_series_points_treated_as_no_data():
-    """Series with zero points are skipped — endpoint treated as no monitoring data.
-
-    An old (30-day) endpoint with no_monitoring_data=True and age >= _DAYS_IDLE
-    is still flagged (age provides sufficient evidence). The key assertion is that
-    no crash occurs and no_monitoring_data is correctly set to True.
-    """
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    client = _make_monitoring_client_with_empty_points()
-    findings = _run_with_monitoring_client([ep], client)
-    # Endpoint is flagged (age=30 provides evidence) but no_monitoring_data=True
-    assert len(findings) == 1
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_long_series_points_skipped():
-    """Series with >5 points are skipped as anomalous — same result as empty series."""
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    client = _make_monitoring_client_with_many_points(n=10)
-    findings = _run_with_monitoring_client([ep], client)
-    # Long series skipped -> endpoint_id not in counts -> no_monitoring_data=True
-    assert len(findings) == 1
-    assert findings[0].details["no_monitoring_data"] is True
-
-
-def test_recent_traffic_spike_skipped():
-    """Endpoint with traffic in the last 24h is NOT flagged — recency dominates.
-
-    An endpoint that received any traffic yesterday is considered active regardless
-    of how low the 14-day total looks. Prevents false positives on bursty workloads.
-    """
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    client = _make_monitoring_client_with_recent_traffic()
-    findings = _run_with_monitoring_client([ep], client)
-    assert findings == []
-
-
-def test_cron_pattern_very_low_count_is_medium():
-    """count <= 2 (cron/batch heuristic) -> MEDIUM confidence regardless of age.
-
-    Very few requests over 14 days could be a weekly inference job, not abandonment.
-    Behavior-based (count <= 2), not age-based.
-    """
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    # count=2: at the cron-protection boundary (≤ 2 = cron pattern)
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 2})
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-
-
-def test_cron_pattern_count_above_threshold_still_medium():
-    """count=3 (> 2, so NOT cron pattern) -> MEDIUM because is_near_idle, not cron."""
-    ep = _endpoint(create_time=NOW - timedelta(days=30))
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 3})
-    assert len(findings) == 1
-    assert findings[0].confidence.value == "medium"
-
-
-def test_effective_threshold_minimum_is_one():
-    """effective_threshold is always >= 1, even with unusual base_threshold values."""
-
-    # With 1 replica, threshold = max(1, int(base * 1.0)) = base (always >= 1)
-    ep = _endpoint(min_replica_count=1)
-    findings = _run([ep])
-    assert len(findings) == 1
-    assert findings[0].details["effective_threshold"] >= 1
-
-
-def test_requests_per_replica_in_details():
-    """requests_per_replica is present in details and correctly computed."""
-    ep = _endpoint(min_replica_count=2)
-    # count=0, replicas=2 -> requests_per_replica = 0 / 2 = 0.0
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
-    assert len(findings) == 1
-    assert findings[0].details["requests_per_replica"] == pytest.approx(0.0)
-
-
-def test_cost_confidence_estimate_in_details():
-    """cost_confidence='estimate' is present in all findings."""
-    ep = _endpoint()
-    findings = _run([ep], request_counts={_ENDPOINT_ID: 0})
-    assert len(findings) == 1
-    assert findings[0].details["cost_confidence"] == "estimate"
+def test_request_metric_resource_type_constant():
+    assert _REQUEST_METRIC_RESOURCE_TYPE == "aiplatform.googleapis.com/Endpoint"

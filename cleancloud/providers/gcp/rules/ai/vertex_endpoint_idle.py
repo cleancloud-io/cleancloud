@@ -1,10 +1,69 @@
+"""
+Rule: gcp.vertex.endpoint.idle
+
+    (spec -- docs/specs/gcp/ai/vertex_endpoint_idle.md)
+
+Intent:
+    Detect Vertex AI Endpoints with a documented always-deployed serving floor
+    and no observed online prediction request activity over a conservative review
+    window, using documented Cloud Monitoring request-count telemetry.
+
+    This is a precision-first review-candidate rule. It is not proof that the
+    endpoint is safe to delete, not proof that all endpoint verbs are unused,
+    and not proof of a specific monthly saving.
+
+Covered resource families:
+    - Vertex AI Endpoint (projects.locations.endpoints, aiplatform v1 REST API)
+
+In-scope deployed models (spec 3.3, 3.4):
+    - dedicatedResources.minReplicaCount >= 1  (always-deployed serving floor)
+    - automaticResources.minReplicaCount >= 1  (always-deployed serving floor)
+
+Out-of-scope:
+    - sharedResources deployments (shared pool cost not directly attributable; spec 11.4)
+    - dedicatedResources.minReplicaCount == 0  (scale-to-zero preview; no always-deployed floor)
+    - automaticResources.minReplicaCount == 0  (scale-to-zero; no always-deployed floor)
+    - endpoints with no deployed models
+    - shared-resource-only endpoints (spec 11.4)
+
+Exclusions:
+    - endpoint name or location malformed (spec 7)
+    - location filter set and location does not exactly match (spec 9)
+    - no in-scope deployed models; provisioned_serving_floor < 1 (spec 9)
+    - shared-resource-only endpoint (spec 9, 11.4)
+    - any in-scope deployed model createTime missing, future, or unparsable (spec 7)
+    - endpoint createTime missing, future, or unparsable (spec 7)
+    - capacity_floor_start > evaluation_window_start (window not fully coverable; spec 9)
+    - monitoring client creation failure -- all endpoints skip; no fallback (spec 11.2)
+    - monitoring query failure for a location (spec 11.2)
+    - telemetry_coverage_state != "complete" (spec 8.3, 9)
+    - max_observed_request_rate_per_replica > 0 (spec 9)
+
+Detection (all must be true to emit):
+    - provisioned_serving_floor >= 1
+    - capacity_floor_start_utc <= evaluation_window_start_utc
+    - telemetry_coverage_state == "complete"
+    - max_observed_request_rate_per_replica == 0
+
+Cost model (spec 6.4):
+    estimated_monthly_cost_usd = None
+    Pricing varies by machine type, accelerator, region, and usage option;
+    a flat estimate would be misleading.
+
+APIs:
+    - aiplatform.googleapis.com/v1: projects/{project}/locations/-/endpoints
+    - monitoring.googleapis.com: aiplatform.googleapis.com/prediction/online/request_count
+      on aiplatform.googleapis.com/Endpoint
+"""
+
+import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional, Tuple
 
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import monitoring_v3
-from google.protobuf import duration_pb2, timestamp_pb2
+from google.protobuf import timestamp_pb2
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence
@@ -18,7 +77,14 @@ RULE_METADATA = {
     "cost_impact": "high",
 }
 
-# Accelerator types treated as GPU/high-cost
+_DEFAULT_IDLE_DAYS = 14
+
+# Canonical metric and resource type (spec 8.1, 8.2)
+_REQUEST_METRIC_TYPE = "aiplatform.googleapis.com/prediction/online/request_count"
+_REQUEST_METRIC_RESOURCE_TYPE = "aiplatform.googleapis.com/Endpoint"
+
+# Accelerator types for risk classification (spec 10.2).
+# Risk is HIGH when any in-scope dedicated model has a nonzero accelerator count/type.
 _GPU_ACCELERATORS = frozenset(
     {
         "NVIDIA_TESLA_T4",
@@ -35,68 +101,345 @@ _GPU_ACCELERATORS = frozenset(
     }
 )
 
-# Monthly cost per node for the machine type alone (on-demand, us-central1, 730 h/month)
-# Source: https://cloud.google.com/vertex-ai/pricing (Online Prediction node hours)
-_MACHINE_MONTHLY_COST = {
-    "n1-standard-2": 69.0,
-    "n1-standard-4": 138.0,
-    "n1-standard-8": 277.0,
-    "n1-standard-16": 554.0,
-    "n1-standard-32": 1_107.0,
-    "n1-highmem-2": 93.0,
-    "n1-highmem-4": 187.0,
-    "n1-highmem-8": 374.0,
-    "n1-highmem-16": 748.0,
-    "n2-standard-2": 78.0,
-    "n2-standard-4": 157.0,
-    "n2-standard-8": 314.0,
-    "n2-standard-16": 628.0,
-    "c2-standard-4": 166.0,
-    "c2-standard-8": 332.0,
-    "c2-standard-16": 665.0,
-    # a2-* and g2-* include accelerator cost — no separate GPU add-on
-    "a2-highgpu-1g": 2_933.0,
-    "a2-highgpu-2g": 5_866.0,
-    "a2-highgpu-4g": 11_732.0,
-    "a2-highgpu-8g": 23_464.0,
-    "a2-ultragpu-1g": 5_103.0,
-    "a2-ultragpu-2g": 10_206.0,
-    "g2-standard-4": 706.0,
-    "g2-standard-8": 1_060.0,
-    "g2-standard-12": 1_414.0,
-    "g2-standard-16": 2_120.0,
-    "g2-standard-24": 3_181.0,
-    "g2-standard-32": 4_241.0,
-    "g2-standard-48": 6_361.0,
-    "g2-standard-96": 12_722.0,
-}
-_DEFAULT_MACHINE_MONTHLY_COST = 150.0
 
-# Additional monthly cost per GPU when attached to n1-*/n2-* machines.
-# a2-* and g2-* already include GPU cost in the machine price above.
-_GPU_MONTHLY_COST_EACH = {
-    "NVIDIA_TESLA_T4": 311.0,
-    "NVIDIA_TESLA_V100": 1_385.0,
-    "NVIDIA_TESLA_P100": 1_022.0,
-    "NVIDIA_TESLA_K80": 392.0,
-    "NVIDIA_TESLA_A100": 2_933.0,
-    "NVIDIA_L4": 680.0,
-    "NVIDIA_H100_80GB": 8_000.0,
-}
+def _parse_location(name: str) -> Optional[str]:
+    """Extract location from endpoint resource name.
 
-_DAYS_IDLE = 14
+    Resolves from the exact 'locations/{location}' segment (spec 7).
+    Returns None if the segment is absent or empty.
+    """
+    parts = name.split("/")
+    try:
+        idx = parts.index("locations")
+        loc = parts[idx + 1]
+        return loc if loc else None
+    except (ValueError, IndexError):
+        return None
 
-# Endpoints with fewer than this many prediction requests in the idle window are
-# flagged as "near-idle" (MEDIUM confidence). Zero requests -> fully idle.
-# GPU endpoints use a lower threshold — higher cost justifies more aggressive flagging.
-# Threshold is then scaled by sqrt(replicas) so large deployments can't hide inefficiency
-# behind a linearly growing bar (20 replicas -> ×4.5, not ×20).
-_LOW_TRAFFIC_THRESHOLD = 10
-_LOW_TRAFFIC_THRESHOLD_GPU = 5
 
-# Findings below this estimated cost are suppressed — avoids noise from cheap endpoints
-# and builds user trust by keeping findings actionable.
-_MIN_MONTHLY_COST_USD = 50
+def _parse_endpoint_id(name: str) -> str:
+    """Extract endpoint ID from the final segment of the resource name."""
+    return name.rsplit("/", 1)[-1] if name else ""
+
+
+def _parse_rfc3339_utc(ts: str) -> Optional[datetime]:
+    """Parse an RFC3339 timestamp string into a timezone-aware UTC datetime."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _classify_deployed_models(
+    deployed_models: list,
+    now: datetime,
+) -> dict:
+    """
+    Classify deployed models on an endpoint per spec 3.3, 3.4, 7, 9.
+
+    In-scope (spec 3.3, 3.4):
+        dedicatedResources.minReplicaCount >= 1
+        automaticResources.minReplicaCount >= 1
+
+    Out-of-scope (skip model, not endpoint):
+        sharedResources (shared pool; not endpoint-attributable; spec 11.4)
+        any resource mode with minReplicaCount == 0
+
+    skip=True cases (caller must skip entire endpoint per spec 9):
+        malformed or missing minReplicaCount on any model
+        unrecognized prediction-resource union on any model
+        unusable createTime (missing, future, unparsable) on any in-scope model
+
+    Returns a dict:
+        skip (bool): True -> caller must skip the endpoint (malformed record).
+        provisioned_floor (int): sum of minReplicaCount across in-scope models;
+            0 means no always-deployed serving floor.
+        shared_only (bool): True only when all models use sharedResources and
+            none use dedicatedResources or automaticResources (spec 11.4).
+        has_accelerator (bool): any in-scope dedicated model has a nonzero
+            GPU/TPU accelerator count and a recognized accelerator type (spec 10.2).
+        capacity_floor_start (datetime | None): max createTime across in-scope
+            models; None when provisioned_floor == 0 (no in-scope models).
+        resource_modes (str): resource mode types seen on the endpoint.
+        in_scope_count (int): number of in-scope deployed models.
+    """
+    _skip = {
+        "skip": True,
+        "provisioned_floor": 0,
+        "shared_only": False,
+        "has_accelerator": False,
+        "capacity_floor_start": None,
+        "resource_modes": "malformed",
+        "in_scope_count": 0,
+    }
+
+    if not deployed_models:
+        return {
+            "skip": False,
+            "provisioned_floor": 0,
+            "shared_only": False,
+            "has_accelerator": False,
+            "capacity_floor_start": None,
+            "resource_modes": "none",
+            "in_scope_count": 0,
+        }
+
+    provisioned_floor = 0
+    has_accelerator = False
+    in_scope_create_times: List[datetime] = []
+    seen_modes: List[str] = []
+    in_scope_count = 0
+
+    for model in deployed_models:
+        dedicated = model.get("dedicatedResources")
+        automatic = model.get("automaticResources")
+        shared = model.get("sharedResources")
+
+        if dedicated is not None:
+            if "dedicatedResources" not in seen_modes:
+                seen_modes.append("dedicatedResources")
+            raw = dedicated.get("minReplicaCount")
+            if raw is None:
+                # minReplicaCount is required; missing is malformed (spec 9)
+                return _skip
+            try:
+                min_rep = int(raw)
+            except (TypeError, ValueError):
+                return _skip
+            if min_rep >= 1:
+                in_scope_count += 1
+                provisioned_floor += min_rep
+                spec = dedicated.get("machineSpec") or {}
+                at = spec.get("acceleratorType", "ACCELERATOR_TYPE_UNSPECIFIED")
+                try:
+                    ac = int(spec.get("acceleratorCount") or 0)
+                except (TypeError, ValueError):
+                    ac = 0
+                if (
+                    at
+                    and at != "ACCELERATOR_TYPE_UNSPECIFIED"
+                    and ac > 0
+                    and at in _GPU_ACCELERATORS
+                ):
+                    has_accelerator = True
+                ct = _parse_rfc3339_utc(model.get("createTime") or "")
+                if ct is None or ct > now:
+                    # Unusable createTime on in-scope model -> skip endpoint (spec 7, 9)
+                    return _skip
+                in_scope_create_times.append(ct)
+
+        elif automatic is not None:
+            if "automaticResources" not in seen_modes:
+                seen_modes.append("automaticResources")
+            raw = automatic.get("minReplicaCount")
+            if raw is None:
+                # minReplicaCount is required; missing is malformed (spec 9)
+                return _skip
+            try:
+                min_rep = int(raw)
+            except (TypeError, ValueError):
+                return _skip
+            if min_rep >= 1:
+                # automaticResources does not expose machineSpec; no accelerator check (spec 10.2)
+                in_scope_count += 1
+                provisioned_floor += min_rep
+                ct = _parse_rfc3339_utc(model.get("createTime") or "")
+                if ct is None or ct > now:
+                    # Unusable createTime on in-scope model -> skip endpoint (spec 7, 9)
+                    return _skip
+                in_scope_create_times.append(ct)
+
+        elif shared is not None:
+            if "sharedResources" not in seen_modes:
+                seen_modes.append("sharedResources")
+        else:
+            # Unrecognized prediction-resource union -> malformed record; skip endpoint (spec 9)
+            return _skip
+
+    resource_modes = ", ".join(seen_modes) if seen_modes else "none"
+
+    # shared_only: endpoint has sharedResources models and no dedicated or automatic models at all
+    shared_only = (
+        provisioned_floor == 0
+        and "sharedResources" in seen_modes
+        and "dedicatedResources" not in seen_modes
+        and "automaticResources" not in seen_modes
+    )
+
+    if provisioned_floor == 0:
+        return {
+            "skip": False,
+            "provisioned_floor": 0,
+            "shared_only": shared_only,
+            "has_accelerator": False,
+            "capacity_floor_start": None,
+            "resource_modes": resource_modes,
+            "in_scope_count": 0,
+        }
+
+    # provisioned_floor >= 1 and all in-scope createTimes are valid (fail-fast above catches bad ones)
+    return {
+        "skip": False,
+        "provisioned_floor": provisioned_floor,
+        "shared_only": False,
+        "has_accelerator": has_accelerator,
+        "capacity_floor_start": max(in_scope_create_times),
+        "resource_modes": resource_modes,
+        "in_scope_count": in_scope_count,
+    }
+
+
+def _query_location_request_counts(
+    client: monitoring_v3.MetricServiceClient,
+    project_id: str,
+    location: str,
+    window_start: datetime,
+    window_end: datetime,
+    eligible_endpoint_ids: set,
+) -> Optional[Dict[str, List[Tuple[float, datetime]]]]:
+    """
+    Query request-count telemetry for all eligible endpoints in a location.
+
+    Issues a single monitoring call for the location (spec 8.2: batching allowed).
+    Exact endpoint attribution is enforced from resource.labels.endpoint_id (spec 8.2).
+    No cross_series_reducer -- per-endpoint series identity is preserved (spec 8.2).
+    No per-series aligner -- raw request-count values are preserved for zero/nonzero
+    evaluation without any transform step (spec 8.2.7).
+
+    Returns a dict mapping endpoint_id -> list of (value, timestamp) tuples for
+    in-window usable datapoints, or None if the query fails (caller must skip all
+    endpoints in this location; spec 11.2).
+
+    In-window: point.interval.end_time falls within [window_start, window_end].
+    Value extraction: int64_value first, else double_value kept as float -- a
+    positive non-integer double (e.g. 0.7) must not be truncated to zero (spec 8.4.3).
+    Null, NaN, and unsupported value shapes are ignored.
+    """
+    try:
+        results = client.list_time_series(
+            request={
+                "name": f"projects/{project_id}",
+                "filter": (
+                    f'metric.type="{_REQUEST_METRIC_TYPE}"'
+                    f' AND resource.type="{_REQUEST_METRIC_RESOURCE_TYPE}"'
+                    f' AND resource.labels.location="{location}"'
+                ),
+                "interval": monitoring_v3.TimeInterval(
+                    start_time=timestamp_pb2.Timestamp(seconds=int(window_start.timestamp())),
+                    end_time=timestamp_pb2.Timestamp(seconds=int(window_end.timestamp())),
+                ),
+                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+                # No aggregation: preserves raw request-count values per spec 8.2.7.
+                # No cross_series_reducer: preserves per-endpoint series identity per spec 8.2.
+            }
+        )
+
+        per_endpoint: Dict[str, List[Tuple[float, datetime]]] = {}
+
+        for series in results:
+            ep_id = series.resource.labels.get("endpoint_id", "")
+            if not ep_id or ep_id not in eligible_endpoint_ids:
+                continue  # not in eligible set; exact attribution required (spec 8.2)
+
+            if ep_id not in per_endpoint:
+                per_endpoint[ep_id] = []
+
+            for point in series.points:
+                # Get point end timestamp (spec 8.4.1: use monitoring timestamps)
+                try:
+                    if point.interval and point.interval.end_time:
+                        pt_ts = point.interval.end_time.ToDatetime(tzinfo=timezone.utc)
+                    else:
+                        continue
+                except (AttributeError, TypeError):
+                    continue
+
+                # Ignore points outside the full observation window (spec 8.4.2)
+                if pt_ts < window_start or pt_ts > window_end:
+                    continue
+
+                # Extract value: int64_value first, else double_value as float (spec 8.4.3).
+                # Keep double as float -- do not truncate to int; 0.7 must remain 0.7 > 0.
+                val: float = float(point.value.int64_value)
+                if val == 0.0:
+                    try:
+                        dval = point.value.double_value
+                        if dval and dval == dval:  # truthy and not NaN
+                            val = float(dval)
+                    except (AttributeError, TypeError):
+                        pass
+
+                per_endpoint[ep_id].append((val, pt_ts))
+
+        return per_endpoint
+
+    except Exception:
+        return None  # conservative: caller skips all endpoints in this location (spec 11.2)
+
+
+def _evaluate_endpoint_telemetry(
+    points: List[Tuple[float, datetime]],
+    window_start: datetime,
+    window_end: datetime,
+) -> Tuple[str, str, float]:
+    """
+    Evaluate telemetry coverage and activity state from collected in-window datapoints.
+
+    Returns (telemetry_coverage_state, telemetry_state, max_observed_rate):
+        telemetry_coverage_state: "complete" or "unresolved"
+        telemetry_state: "no_observed_prediction_requests",
+            "observed_prediction_requests", or "unresolved"
+        max_observed_rate: maximum usable in-window value; 0.0 when unresolved
+
+    Coverage rules (spec 8.3):
+        - No in-window points -> unresolved (spec 8.3.1).
+        - Gap-based coverage checks (spec 8.3.6, 8.3.8):
+            Threshold: (window_end - window_start).total_seconds() / 2.
+            Leading gap (window_start to first point): > threshold -> unresolved.
+            Interior gap (between consecutive points): > threshold -> unresolved.
+            Trailing gap (last point to window_end): > threshold -> unresolved.
+            A gap larger than half the observation window cannot be proven to
+            preserve sufficient observation across the full window. The threshold
+            is relative to the window -- not a fixed cadence assumption -- consistent
+            with the spec prohibition on inventing a sampling cadence or mandatory
+            trailing ingestion buffer (spec 8.3).
+        - All gaps within threshold -> coverage complete.
+
+    Activity rules (spec 8.4):
+        - max value > 0 -> observed_prediction_requests (spec 8.4.5)
+        - max value == 0 -> no_observed_prediction_requests (spec 8.4.6)
+    """
+    if not points:
+        return "unresolved", "unresolved", 0.0
+
+    threshold_s = (window_end - window_start).total_seconds() / 2
+
+    # Sort by timestamp to check gaps in chronological order
+    sorted_pts = sorted(points, key=lambda x: x[1])
+    timestamps = [ts for _, ts in sorted_pts]
+
+    # Leading gap: window_start to first observed point (spec 8.3.6, 8.3.8)
+    if (timestamps[0] - window_start).total_seconds() > threshold_s:
+        return "unresolved", "unresolved", 0.0
+
+    # Interior gaps: between consecutive observed points (spec 8.3.6, 8.3.8)
+    for i in range(1, len(timestamps)):
+        if (timestamps[i] - timestamps[i - 1]).total_seconds() > threshold_s:
+            return "unresolved", "unresolved", 0.0
+
+    # Trailing gap: last observed point to window_end (spec 8.3.6, 8.3.8)
+    if (window_end - timestamps[-1]).total_seconds() > threshold_s:
+        return "unresolved", "unresolved", 0.0
+
+    max_val = max(v for v, _ in points)
+    if max_val > 0:
+        return "complete", "observed_prediction_requests", max_val
+    return "complete", "no_observed_prediction_requests", 0.0
 
 
 def find_idle_vertex_endpoints(
@@ -104,383 +447,254 @@ def find_idle_vertex_endpoints(
     project_id: str,
     credentials,
     region_filter: Optional[str] = None,
+    idle_days: int = _DEFAULT_IDLE_DAYS,
 ) -> List[Finding]:
     """
-    Find Vertex AI Online Prediction endpoints with zero or near-zero predictions
-    for 14 days.
+    Find Vertex AI endpoints with an always-deployed serving floor and zero observed
+    prediction requests over the full observation window.
 
-    Vertex AI endpoints with dedicatedResources.minReplicaCount > 0 keep instances
-    running continuously regardless of traffic — billing is per node-hour regardless
-    of prediction volume. GPU-backed endpoints (T4, V100, A100) cost $300–$8K/month
-    per GPU plus machine cost. Endpoints created for experiments are frequently
-    abandoned after the model demo or prototype phase.
+    Emits a finding only when all of the following are true (spec 9):
+        1. at least one deployed model is in scope with provisioned_serving_floor >= 1
+        2. capacity_floor_start_utc <= evaluation_window_start_utc (full window coverable)
+        3. telemetry_coverage_state == "complete"
+        4. max_observed_request_rate_per_replica == 0
 
-    Detection tiers:
-    - IDLE: Zero prediction requests over the idle window -> HIGH/MEDIUM confidence
-    - NEAR-IDLE: < 10 requests over the idle window -> MEDIUM confidence
+    No age-only, traffic-split, or missing-telemetry fallback is performed (spec 8.5).
 
-    Endpoints using automaticResources (auto-scaling to zero) are excluded — they
-    incur no compute cost when idle.
-
-    Monitoring queries are batched per location — one API call per region rather
-    than one call per endpoint.
-
-    IAM permissions:
-    - aiplatform.endpoints.list (roles/aiplatform.viewer)
-    - monitoring.timeSeries.list (roles/monitoring.viewer)
+    IAM permissions required:
+        aiplatform.endpoints.list  (roles/aiplatform.viewer)
+        monitoring.timeSeries.list (roles/monitoring.viewer)
     """
-    findings: List[Finding] = []
-    now = datetime.now(timezone.utc)
+    idle_days = max(1, idle_days)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    window_end = now
+    window_start = window_end - timedelta(seconds=idle_days * 86400)
 
     session = AuthorizedSession(credentials)
+    endpoints = _list_endpoints(session, project_id)
+    if not endpoints:
+        return []
 
     try:
         monitoring_client: Optional[monitoring_v3.MetricServiceClient] = (
             monitoring_v3.MetricServiceClient(credentials=credentials)
         )
-    except Exception:
-        monitoring_client = None
+    except Exception as exc:
+        warnings.warn(
+            f"gcp.vertex.endpoint.idle: monitoring client creation failed "
+            f"({type(exc).__name__}: {exc}) -- all endpoints will be skipped (no fallback)",
+            UserWarning,
+            stacklevel=2,
+        )
+        return []
 
-    try:
-        endpoints = _list_endpoints(session, project_id)
-    except PermissionError:
-        raise
-
-    # -----------------------------------------------------------------------
-    # Phase 1: collect eligible endpoints, grouped by location for batching
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------------
+    # Phase 1: pre-check each endpoint; group eligible ones by location
+    # -------------------------------------------------------------------------
     eligible_by_location: Dict[str, List[dict]] = defaultdict(list)
 
     for endpoint in endpoints:
-        endpoint_name = endpoint.get("name", "")
-        display_name = endpoint.get("displayName", "")
+        name = (endpoint.get("name") or "").strip()
+        if not name:
+            continue
 
-        # Extract location and numeric ID from resource name:
-        # projects/{proj}/locations/{loc}/endpoints/{id}
-        parts = endpoint_name.split("/")
-        location = parts[3] if len(parts) > 3 else ""
-        endpoint_id = parts[-1] if parts else ""
+        endpoint_id = _parse_endpoint_id(name)
+        if not endpoint_id:
+            continue
+
+        location = _parse_location(name)
+        if not location:
+            continue
 
         if region_filter and location != region_filter:
             continue
 
-        # Aggregate dedicated resources across all deployed models
-        total_min_replicas, machine_type, accel_type, accel_count, is_gpu = _parse_deployed_models(
-            endpoint.get("deployedModels", [])
-        )
-
-        # Skip endpoints with no always-on dedicated capacity — automaticResources
-        # scale to zero and incur no idle compute cost
-        if total_min_replicas == 0:
+        # Parse endpoint createTime (spec 7)
+        endpoint_create_time = _parse_rfc3339_utc(endpoint.get("createTime") or "")
+        if endpoint_create_time is None or endpoint_create_time > now:
             continue
 
-        # Age calculation — use endpoint createTime, not deployed model createTime
-        age_days: Optional[int] = None
-        create_time_str = endpoint.get("createTime", "")
-        if create_time_str:
-            try:
-                created_at = datetime.fromisoformat(create_time_str.replace("Z", "+00:00"))
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=timezone.utc)
-                age_days = (now - created_at).days
-                # Skip endpoints younger than half the idle threshold —
-                # too new to reliably classify as abandoned
-                if age_days < max(_DAYS_IDLE // 2, 7):
-                    continue
-            except ValueError:
-                pass
+        # Classify deployed models (spec 3.3, 3.4, 7)
+        deployed_models = endpoint.get("deployedModels") or []
+        mc = _classify_deployed_models(deployed_models, now)
 
-        # Effective window: cap to age so we don't look back before the endpoint existed
-        effective_window = min(_DAYS_IDLE, age_days) if age_days is not None else _DAYS_IDLE
+        if mc["skip"]:
+            continue  # malformed minReplicaCount
 
-        # Accurate cost: sum per deployed model (handles mixed machine types correctly)
-        deployed_models = endpoint.get("deployedModels", [])
-        monthly_cost = _compute_multi_model_cost(deployed_models)
-        num_dedicated_models = sum(1 for m in deployed_models if m.get("dedicatedResources"))
+        if mc["provisioned_floor"] < 1:
+            continue  # no always-deployed serving floor (covers shared_only too)
+
+        if mc["capacity_floor_start"] is None:
+            continue  # in-scope deployed model createTime unusable (spec 7)
+
+        # capacity_floor_start = max(endpoint createTime, in-scope model createTimes) (spec 7)
+        capacity_floor_start = max(endpoint_create_time, mc["capacity_floor_start"])
+
+        if capacity_floor_start > window_start:
+            continue  # full observation window not coverable (spec 9)
 
         eligible_by_location[location].append(
             {
-                "endpoint_name": endpoint_name,
+                "name": name,
                 "endpoint_id": endpoint_id,
-                "display_name": display_name,
                 "location": location,
-                "total_min_replicas": total_min_replicas,
-                "machine_type": machine_type,
-                "accel_type": accel_type,
-                "accel_count": accel_count,
-                "is_gpu": is_gpu,
-                "age_days": age_days,
-                "effective_window": effective_window,
-                "monthly_cost": monthly_cost,
-                "num_dedicated_models": num_dedicated_models,
+                "display_name": (endpoint.get("displayName") or "").strip(),
+                "endpoint_create_time": endpoint_create_time,
+                "capacity_floor_start": capacity_floor_start,
+                "provisioned_floor": mc["provisioned_floor"],
+                "has_accelerator": mc["has_accelerator"],
+                "resource_modes": mc["resource_modes"],
+                "in_scope_count": mc["in_scope_count"],
             }
         )
 
-    # -----------------------------------------------------------------------
-    # Phase 2: batch monitoring query per location, then build findings
-    # -----------------------------------------------------------------------
-    if monitoring_client is None:
-        return findings  # conservative: skip all if monitoring unavailable
+    # -------------------------------------------------------------------------
+    # Phase 2: batch monitoring query per location; evaluate; build findings
+    # -------------------------------------------------------------------------
+    findings: List[Finding] = []
 
     for location, ep_list in eligible_by_location.items():
-        # One monitoring call covers all endpoints in this location.
-        # Pass eligible IDs so results from stale/unrelated series are ignored.
         eligible_ids = {ep["endpoint_id"] for ep in ep_list}
-        result = _get_prediction_counts_batch(
-            monitoring_client, project_id, location, _DAYS_IDLE, eligible_ids
+        telemetry_data = _query_location_request_counts(
+            monitoring_client,
+            project_id,
+            location,
+            window_start,
+            window_end,
+            eligible_ids,
         )
 
-        for ep_info in ep_list:
-            if result is None:
-                # Monitoring error for this location — assume active (conservative)
-                continue
-
-            counts, recently_active_ids = result
-
-            # Suppress noise from very cheap endpoints early — avoids wasting
-            # confidence/signal computation on findings below the noise floor.
-            if ep_info["monthly_cost"] < _MIN_MONTHLY_COST_USD:
-                continue
-
-            endpoint_id_key = ep_info["endpoint_id"]
-            is_recently_active = endpoint_id_key in recently_active_ids
-            # Endpoints in recently_active_ids have monitoring data — they were detected
-            # as recently active and excluded from counts intentionally, not because
-            # metrics are missing.
-            no_monitoring_data = endpoint_id_key not in counts and not is_recently_active
-            count = counts.get(endpoint_id_key, 0)
-
-            # GPU endpoints are flagged more aggressively — higher cost warrants it.
-            # Sqrt scaling by replica count prevents large deployments from hiding
-            # inefficiency behind a linearly growing bar.
-            is_gpu = ep_info["is_gpu"]
-            total_min_replicas_ep = ep_info["total_min_replicas"]
-            # Recency dominates: endpoint with traffic in the last 24h is considered active
-            # regardless of how low the 14-day total looks.
-            if is_recently_active:
-                continue
-
-            base_threshold = _LOW_TRAFFIC_THRESHOLD_GPU if is_gpu else _LOW_TRAFFIC_THRESHOLD
-            # Sqrt scaling is sublinear so large deployments can't hide inefficiency.
-            # Cap at 50 to keep the threshold intuitive — 100-node endpoints still only
-            # need 50+ requests to be considered "active" at the detection level.
-            effective_threshold = min(
-                50,
-                max(1, int(base_threshold * max(1.0, total_min_replicas_ep**0.5))),
+        if telemetry_data is None:
+            # Query failure -- skip all endpoints in this location (spec 11.2)
+            warnings.warn(
+                f"gcp.vertex.endpoint.idle: monitoring query failed for location "
+                f"'{location}' -- all endpoints in this location will be skipped",
+                UserWarning,
+                stacklevel=2,
             )
-            if count >= effective_threshold:
-                continue  # genuinely active endpoint
+            continue
 
-            is_near_idle = count > 0
-            age_days = ep_info["age_days"]
-            effective_window = ep_info["effective_window"]
+        for ep_info in ep_list:
+            ep_id = ep_info["endpoint_id"]
+            points = telemetry_data.get(ep_id, [])
 
-            # Safety guard: missing monitoring data ≠ zero traffic.
-            # Monitoring can be absent due to metric delays, permission gaps, or
-            # misconfiguration. Require 2× the idle window before trusting absence
-            # as evidence of idleness — CleanCloud biases toward false negatives
-            # over false positives to maintain enterprise trust.
-            if no_monitoring_data and (age_days is None or age_days < _DAYS_IDLE * 2):
-                continue
+            coverage_state, telemetry_state, max_rate = _evaluate_endpoint_telemetry(
+                points, window_start, window_end
+            )
 
-            # Cron/batch pattern protection: counts at or below 20% of the capacity-adjusted
-            # threshold suggest periodic (e.g. weekly) usage rather than abandonment.
-            # Scales with effective_threshold so large deployments are handled consistently.
-            is_low_frequency_use = is_near_idle and count <= max(2, int(effective_threshold * 0.2))
+            if coverage_state != "complete":
+                continue  # telemetry not sufficiently observed (spec 8.3, 9)
 
-            # Confidence based on traffic and age.
-            # HIGH requires: zero traffic, full observation window, established age.
-            if is_low_frequency_use:
-                # Very low count — could be weekly/cron job; cap at MEDIUM
-                confidence = ConfidenceLevel.MEDIUM
-            elif is_near_idle:
-                # Some traffic exists (> 2 requests) — cap at MEDIUM regardless of age
-                confidence = ConfidenceLevel.MEDIUM
-            elif age_days is not None and age_days >= _DAYS_IDLE and effective_window == _DAYS_IDLE:
-                confidence = ConfidenceLevel.HIGH
-            elif age_days is None or age_days >= int(_DAYS_IDLE * 0.75):
-                confidence = ConfidenceLevel.MEDIUM
-            else:
-                continue  # too borderline
+            if max_rate > 0:
+                continue  # observed prediction requests (spec 9)
 
-            endpoint_name = ep_info["endpoint_name"]
+            # All conditions satisfied -- build finding
+            name = ep_info["name"]
             endpoint_id = ep_info["endpoint_id"]
             display_name = ep_info["display_name"]
-            total_min_replicas = total_min_replicas_ep
-            machine_type = ep_info["machine_type"]
-            accel_type = ep_info["accel_type"]
-            accel_count = ep_info["accel_count"]
-            monthly_cost = ep_info["monthly_cost"]
-            num_dedicated_models = ep_info["num_dedicated_models"]
+            provisioned_floor = ep_info["provisioned_floor"]
+            has_accelerator = ep_info["has_accelerator"]
+            resource_modes = ep_info["resource_modes"]
+            in_scope_count = ep_info["in_scope_count"]
+            capacity_floor_start = ep_info["capacity_floor_start"]
+            endpoint_create_time = ep_info["endpoint_create_time"]
 
-            risk = RiskLevel.HIGH if is_gpu else RiskLevel.MEDIUM
+            # Confidence always HIGH: emits only on full-window zero request-count
+            # telemetry with no heuristic fallback (spec 10.2)
+            confidence = ConfidenceLevel.HIGH
+            # Risk HIGH if any in-scope dedicated model has nonzero accelerator (spec 10.2)
+            risk = RiskLevel.HIGH if has_accelerator else RiskLevel.MEDIUM
 
-            # Waste score: full cost when count=0; scales down as traffic approaches threshold.
-            # Useful for future sorting / prioritization — not yet exposed in UI.
-            waste_fraction = (
-                1.0 - min(count / effective_threshold, 1.0) if effective_threshold > 0 else 1.0
-            )
-            waste_score = round(monthly_cost * waste_fraction, 2)
+            node_display = display_name or endpoint_id
 
-            is_experiment_pattern = num_dedicated_models > 1
-
-            # Context-aware action recommendations
-            recommendations: List[str] = []
-            if total_min_replicas > 1:
-                recommendations.append(
-                    "Reduce minReplicaCount to 1 if high availability is not required"
-                )
-            recommendations.append(
-                "Switch to automaticResources (minReplicaCount=0) to eliminate idle compute cost "
-                "if the workload is not latency-critical — scales to zero when idle"
-            )
-            if is_experiment_pattern:
-                recommendations.append(
-                    "Consolidate deployed models or delete unused A/B test deployments"
-                )
-            recommendations.append(
-                f"Delete endpoint if no longer needed: "
-                f"gcloud ai endpoints delete {endpoint_id} "
-                f"--region={location} --project=PROJECT_ID"
-            )
-
-            if is_near_idle:
-                title = (
-                    f"Near-Idle Vertex AI Endpoint "
-                    f"({count} Prediction{'s' if count != 1 else ''} in {effective_window} Days)"
-                )
-                traffic_signal = (
-                    f"{count} prediction request(s) in {effective_window} days — "
-                    f"near-idle (capacity-adjusted threshold: {effective_threshold} requests"
-                    f"{', GPU-adjusted' if is_gpu else ''})"
-                )
-            else:
-                title = f"Idle Vertex AI Endpoint (No Predictions for {effective_window} Days)"
-                traffic_signal = (
-                    f"Zero prediction requests for {effective_window} days "
-                    "(Cloud Monitoring: aiplatform.googleapis.com/prediction/online/request_count)"
-                )
-
-            # Pricing is region-dependent — always flag estimate as approximate
-            cost_note = f"~${monthly_cost:,.0f}/month (us-central1 baseline)"
-            gpu_prefix = "GPU-backed endpoint — " if is_gpu else ""
-
-            if is_near_idle:
-                summary = (
-                    f"{gpu_prefix}Vertex AI endpoint '{display_name or endpoint_id}' in '{location}' "
-                    f"had only {count} prediction request(s) in {effective_window} days but keeps "
-                    f"{total_min_replicas} dedicated node(s) running continuously, "
-                    f"incurring an estimated {cost_note} in compute charges."
-                )
-            else:
-                summary = (
-                    f"{gpu_prefix}Vertex AI endpoint '{display_name or endpoint_id}' in '{location}' "
-                    f"has received zero predictions for {effective_window} days but keeps "
-                    f"{total_min_replicas} dedicated node(s) running continuously, "
-                    f"incurring an estimated {cost_note} in compute charges."
-                )
-
-            requests_per_replica = count / max(total_min_replicas, 1)
             signals = [
-                traffic_signal,
-                f"Dedicated capacity configured: minReplicaCount={total_min_replicas} "
-                "(always-on compute — billed continuously regardless of traffic)",
-                f"Requests per replica: {requests_per_replica:.2f} over {effective_window} days"
-                + (
-                    " — effectively unused"
-                    if requests_per_replica < 0.1
-                    else (" — extremely low utilization" if requests_per_replica < 1.0 else "")
+                f"Location: {location}",
+                f"Endpoint createTime: {endpoint_create_time.isoformat()}",
+                (
+                    f"Capacity floor start (max of endpoint createTime and in-scope "
+                    f"deployed model createTimes): {capacity_floor_start.isoformat()}"
+                ),
+                (
+                    f"Observation window: {window_start.isoformat()} to "
+                    f"{window_end.isoformat()} ({idle_days}d)"
+                ),
+                (
+                    f"Provisioned serving floor: {provisioned_floor} total min replica(s) "
+                    f"across {in_scope_count} in-scope deployed model(s)"
+                ),
+                f"Resource modes present on endpoint: {resource_modes}",
+                (
+                    f"Request metric: {_REQUEST_METRIC_TYPE} "
+                    f"(resource: {_REQUEST_METRIC_RESOURCE_TYPE})"
+                ),
+                (
+                    f"Max observed request-count value over full window: {max_rate} "
+                    f"(telemetry_coverage_state: {coverage_state})"
+                ),
+                (
+                    "Endpoint-scoped request-count telemetry showed no datapoint above 0 "
+                    f"over the full {idle_days}d observation window"
                 ),
             ]
-            if no_monitoring_data and not is_near_idle:
+            if has_accelerator:
                 signals.append(
-                    "No prediction request data found in Cloud Monitoring — "
-                    "may indicate metrics are not enabled; classification less reliable. "
-                    "Verify roles/monitoring.viewer and metrics ingestion before acting."
+                    "Accelerator-backed in-scope dedicated model detected -- "
+                    "risk is HIGH (nonzero accelerator count and recognized type)"
                 )
-            if age_days is not None:
-                signals.append(f"Endpoint age: {age_days} days")
-            if machine_type:
-                signals.append(f"Machine type: {machine_type}")
-            if accel_type and accel_type != "ACCELERATOR_TYPE_UNSPECIFIED":
-                signals.append(f"Accelerator: {accel_type} × {accel_count}")
-            if is_gpu:
-                signals.append(f"GPU-backed endpoint — high continuous cost ({cost_note})")
-            if num_dedicated_models > 1:
-                signals.append(
-                    f"{num_dedicated_models} deployed models with low aggregate traffic "
-                    "— possible abandoned A/B test or failed experiment"
-                )
-            if total_min_replicas > 1:
-                signals.append(
-                    f"{total_min_replicas} replicas configured — stronger waste signal "
-                    "than single warm-endpoint pattern"
-                )
-                signals.append(
-                    f"Traffic threshold scaled sublinearly with replica count "
-                    f"(sqrt({total_min_replicas}) × {base_threshold} = {effective_threshold} requests) "
-                    "— prevents large deployments from masking inefficiency behind a linearly growing bar"
-                )
-            if display_name and display_name != endpoint_id:
-                signals.append(f"Display name: {display_name}")
 
-            evidence = Evidence(
-                signals_used=signals,
-                signals_not_checked=[
-                    "Scheduled or batch prediction requests outside the observation window",
-                    "Internal health-check or canary traffic not tracked by Cloud Monitoring",
-                    "Planned future usage or upcoming model promotion",
-                    "Shadow mode or A/B test routing with low traffic share",
-                    "Endpoints kept warm for latency-sensitive production traffic",
-                ],
-                time_window=f"{effective_window} days",
-            )
+            not_checked = [
+                "Explain-only, health-check, or non-prediction endpoint usage",
+                "Shared DeploymentResourcePool cost attributable to this endpoint",
+                "Scheduled or batch traffic outside the observation window",
+                "Planned future usage or upcoming model promotion",
+                "Endpoints intentionally kept warm for latency-sensitive production traffic",
+            ]
 
             findings.append(
                 Finding(
                     provider="gcp",
                     rule_id="gcp.vertex.endpoint.idle",
                     resource_type="gcp.vertex.endpoint",
-                    resource_id=endpoint_name,
+                    resource_id=name,
                     region=location,
-                    estimated_monthly_cost_usd=monthly_cost,
-                    title=title,
-                    summary=summary,
+                    title=(
+                        f"Idle Vertex AI Endpoint "
+                        f"({provisioned_floor} replica(s) always on, zero requests)"
+                    ),
+                    summary=(
+                        f"Vertex AI endpoint '{node_display}' in '{location}' has "
+                        f"{provisioned_floor} always-deployed replica(s) but "
+                        f"endpoint-scoped request-count telemetry showed no prediction "
+                        f"activity over the full {idle_days}d observation window."
+                    ),
                     reason=(
-                        f"Vertex AI endpoint has {count} prediction(s) in {effective_window} days "
-                        f"with dedicated capacity (minReplicaCount={total_min_replicas})"
+                        f"Endpoint has provisioned serving floor of {provisioned_floor} "
+                        f"replica(s); endpoint-scoped request-count telemetry "
+                        f"(coverage: complete) shows max observed rate == 0 over "
+                        f"{idle_days}d window"
                     ),
                     risk=risk,
                     confidence=confidence,
                     detected_at=now,
-                    evidence=evidence,
+                    evidence=Evidence(
+                        signals_used=signals,
+                        signals_not_checked=not_checked,
+                        time_window=f"{idle_days}d",
+                    ),
+                    estimated_monthly_cost_usd=None,  # spec 6.4: pricing varies; no flat estimate
                     details={
                         "endpoint_id": endpoint_id,
-                        "display_name": display_name,
+                        "display_name": display_name or None,
                         "location": location,
-                        "machine_type": machine_type,
-                        "accelerator_type": accel_type,
-                        "accelerator_count": accel_count,
-                        "is_gpu": is_gpu,
-                        "min_replica_count": total_min_replicas,
-                        "age_days": age_days if age_days is not None else "unknown",
-                        "idle_window_days": effective_window,
-                        "idle_days_threshold": _DAYS_IDLE,
-                        "request_count": count,
-                        "effective_threshold": effective_threshold,
-                        "threshold_strategy": "sqrt_replica_scaling",
-                        "no_monitoring_data": no_monitoring_data,
-                        "waste_score": waste_score,
-                        "requests_per_replica": round(requests_per_replica, 4),
-                        "pattern": ("abandoned_experiment" if is_experiment_pattern else None),
-                        "cost_confidence": "estimate",
-                        "cost_basis": "us-central1 baseline estimate",
-                        "cost_variance": (
-                            "Estimated based on us-central1 on-demand pricing; "
-                            "varies by region and discounts."
-                        ),
-                        "estimated_monthly_cost": f"~${monthly_cost:,.0f}/month",
-                        "recommendations": recommendations,
+                        "provisioned_serving_floor": provisioned_floor,
+                        "in_scope_model_count": in_scope_count,
+                        "resource_modes": resource_modes,
+                        "has_accelerator": has_accelerator,
+                        "capacity_floor_start": capacity_floor_start.isoformat(),
+                        "idle_days_threshold": idle_days,
+                        "max_observed_request_rate_per_replica": max_rate,
+                        "telemetry_coverage_state": coverage_state,
+                        "telemetry_state": telemetry_state,
                     },
                 )
             )
@@ -521,7 +735,7 @@ def _list_endpoints(session: AuthorizedSession, project_id: str) -> list:
     """
     List all Vertex AI Online Prediction endpoints across all locations.
 
-    Attempts the locations/- wildcard (AIP-131) first — a single paginated call
+    Attempts the locations/- wildcard (AIP-131) first -- a single paginated call
     covering every region. Falls back to querying each known location individually
     when the wildcard returns 400 (some projects only support specific locations
     such as 'global').
@@ -531,7 +745,6 @@ def _list_endpoints(session: AuthorizedSession, project_id: str) -> list:
     base_url = f"https://aiplatform.googleapis.com/v1/projects/{project_id}/locations"
 
     def _paginate(url: str) -> list:
-        """Paginate a single location URL and return all endpoints."""
         results = []
         params: dict = {"pageSize": 100}
         while True:
@@ -541,9 +754,9 @@ def _list_endpoints(session: AuthorizedSession, project_id: str) -> list:
                     "aiplatform.endpoints.list permission required (roles/aiplatform.viewer)"
                 )
             if resp.status_code == 404:
-                return []  # Vertex AI API not enabled for this project
+                return []
             if resp.status_code == 400:
-                return None  # signal to caller to try fallback
+                return None  # signal fallback to per-location queries
             resp.raise_for_status()
             data = resp.json()
             results.extend(data.get("endpoints", []))
@@ -553,223 +766,19 @@ def _list_endpoints(session: AuthorizedSession, project_id: str) -> list:
             params["pageToken"] = next_token
         return results
 
-    # Fast path: wildcard covers all regions in one call sequence
     result = _paginate(f"{base_url}/-/endpoints")
     if result is not None:
         return result
 
-    # Fallback: wildcard not supported (e.g. project only has 'global' endpoints).
-    # Query each known location; skip 400s for unsupported regions.
     all_endpoints = []
     seen_names: set = set()
     for location in _VERTEX_LOCATIONS:
         loc_result = _paginate(f"{base_url}/{location}/endpoints")
         if loc_result is None:
-            continue  # 400 = unsupported location, skip
+            continue
         for ep in loc_result:
-            name = ep.get("name", "")
-            if name and name not in seen_names:
-                seen_names.add(name)
+            ep_name = ep.get("name", "")
+            if ep_name and ep_name not in seen_names:
+                seen_names.add(ep_name)
                 all_endpoints.append(ep)
     return all_endpoints
-
-
-def _parse_deployed_models(
-    deployed_models: list,
-) -> Tuple[int, Optional[str], Optional[str], int, bool]:
-    """
-    Aggregate dedicated resources across all deployed models on an endpoint.
-
-    Only models with dedicatedResources are counted — automaticResources scale
-    to zero and do not incur idle compute cost.
-
-    Returns (total_min_replicas, machine_type, accel_type, accel_count, is_gpu).
-    machine_type / accel_type are taken from the first dedicated model found
-    (used for display/reporting; cost is computed separately by
-    _compute_multi_model_cost for accuracy).
-    """
-    total_min_replicas = 0
-    machine_type: Optional[str] = None
-    accel_type: Optional[str] = None
-    accel_count = 0
-    is_gpu = False
-
-    for model in deployed_models:
-        dr = model.get("dedicatedResources")
-        if not dr:
-            continue  # automaticResources / sharedResources — scales to zero
-
-        min_replicas = dr.get("minReplicaCount", 0) or 0
-        total_min_replicas += min_replicas
-
-        spec = dr.get("machineSpec", {})
-        if machine_type is None:
-            machine_type = spec.get("machineType")
-
-        at = spec.get("acceleratorType", "ACCELERATOR_TYPE_UNSPECIFIED")
-        ac = int(spec.get("acceleratorCount", 0) or 0)
-
-        if at and at != "ACCELERATOR_TYPE_UNSPECIFIED":
-            if accel_type is None:
-                accel_type = at
-                accel_count = ac
-            if at in _GPU_ACCELERATORS:
-                is_gpu = True
-
-    return total_min_replicas, machine_type, accel_type, accel_count, is_gpu
-
-
-def _compute_multi_model_cost(deployed_models: list) -> float:
-    """
-    Compute total monthly cost by summing cost per deployed model accurately.
-
-    Unlike the single-model estimate, this handles endpoints with multiple deployed
-    models of different machine types — each model's replicas are costed at their
-    own machine/GPU rate and summed.
-    """
-    total = 0.0
-    for model in deployed_models:
-        dr = model.get("dedicatedResources")
-        if not dr:
-            continue
-        min_replicas = dr.get("minReplicaCount", 0) or 0
-        if min_replicas == 0:
-            continue
-        spec = dr.get("machineSpec", {})
-        machine_type = spec.get("machineType")
-        at = spec.get("acceleratorType", "ACCELERATOR_TYPE_UNSPECIFIED")
-        ac = int(spec.get("acceleratorCount", 0) or 0)
-        accel_type = at if at and at != "ACCELERATOR_TYPE_UNSPECIFIED" else None
-        total += _estimate_cost(machine_type, accel_type, ac, min_replicas)
-    return total
-
-
-def _estimate_cost(
-    machine_type: Optional[str],
-    accel_type: Optional[str],
-    accel_count: int,
-    min_replicas: int,
-) -> float:
-    """
-    Estimate total monthly cost for min_replicas always-on dedicated nodes.
-
-    For a2-* and g2-* machines the GPU cost is already included in the machine price.
-    For n1-*/n2-* machines with attached GPUs, add the per-GPU cost separately.
-    """
-    machine_cost = _MACHINE_MONTHLY_COST.get(machine_type or "", _DEFAULT_MACHINE_MONTHLY_COST)
-
-    gpu_addon_cost = 0.0
-    if accel_type and accel_type in _GPU_MONTHLY_COST_EACH:
-        # a2-* and g2-* bundle GPU cost — don't double-count
-        is_gpu_machine = (machine_type or "").startswith(("a2-", "g2-"))
-        if not is_gpu_machine:
-            gpu_addon_cost = _GPU_MONTHLY_COST_EACH[accel_type] * max(accel_count, 1)
-
-    return (machine_cost + gpu_addon_cost) * min_replicas
-
-
-def _get_prediction_counts_batch(
-    monitoring_client: monitoring_v3.MetricServiceClient,
-    project_id: str,
-    location: str,
-    days: int,
-    eligible_endpoint_ids: Optional[set] = None,
-) -> Optional[Tuple[Dict[str, int], set]]:
-    """
-    Batch query prediction counts for all Vertex AI endpoints in a location.
-
-    Issues a single Cloud Monitoring call for the entire location (filtered by
-    metric type and location label) rather than one call per endpoint.
-
-    eligible_endpoint_ids: if provided, series for endpoint IDs not in this set
-    are ignored — guards against stale or misattributed series from Cloud Monitoring.
-
-    Returns (counts, recently_active_ids):
-    - counts: {endpoint_id: total_request_count} — endpoints with no data points
-      are absent from the dict (caller treats absence as "no monitoring data").
-    - recently_active_ids: set of endpoint_ids that had traffic in the last 24 hours
-      — kept separate from counts to preserve clean signal semantics.
-
-    Returns None on any error; callers should skip all endpoints in the location
-    (conservative fallback).
-    """
-    try:
-        now = datetime.now(timezone.utc)
-        start = now - timedelta(days=max(days, 1))
-
-        end_ts = timestamp_pb2.Timestamp()
-        end_ts.FromDatetime(now)
-        start_ts = timestamp_pb2.Timestamp()
-        start_ts.FromDatetime(start)
-
-        interval = monitoring_v3.TimeInterval(start_time=start_ts, end_time=end_ts)
-
-        # ALIGN_SUM over the full window collapses all data points into one per
-        # series, preventing double-counting from overlapping metric intervals.
-        aggregation = monitoring_v3.Aggregation(
-            alignment_period=duration_pb2.Duration(seconds=max(days, 1) * 86400),
-            per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_SUM,
-        )
-
-        results = monitoring_client.list_time_series(
-            request={
-                "name": f"projects/{project_id}",
-                "filter": (
-                    'metric.type="aiplatform.googleapis.com/prediction/online/request_count"'
-                    f' AND resource.labels.location="{location}"'
-                ),
-                "interval": interval,
-                "aggregation": aggregation,
-                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-            }
-        )
-
-        now_ts = datetime.now(timezone.utc)
-        counts: Dict[str, int] = {}
-        recently_active_ids: set = set()
-        for series in results:
-            ep_id = series.resource.labels.get("endpoint_id", "")
-            if not ep_id:
-                continue
-            # Ignore series for endpoints not in our eligible set — guards against
-            # stale metrics or partial aggregation from unrelated endpoints
-            if eligible_endpoint_ids is not None and ep_id not in eligible_endpoint_ids:
-                continue
-            if not series.points:
-                # No data points — treat as absent (caller handles no_monitoring_data)
-                continue
-            # Sanity guard: ALIGN_SUM should yield ≤1 point per series; >5 suggests
-            # unexpected partial windows or aggregation edge cases — skip to be safe
-            if len(series.points) > 5:
-                continue
-            # Recency guard: if any traffic landed in the last 24 hours, the endpoint
-            # is recently active — tracked separately to keep count semantics clean
-            try:
-                timestamps = [
-                    p.interval.end_time.ToDatetime(tzinfo=timezone.utc)
-                    for p in series.points
-                    if p.interval and p.interval.end_time
-                ]
-                if timestamps:
-                    latest_ts = max(timestamps)
-                    # Arithmetic raises TypeError if latest_ts is not a real datetime
-                    # (e.g. an unexpected protobuf type) — caught below
-                    if now_ts - latest_ts < timedelta(hours=24):
-                        recently_active_ids.add(ep_id)
-                        continue
-            except (TypeError, AttributeError):
-                pass  # no usable timestamp — fall through to normal count
-            # ALIGN_SUM over the full window should produce exactly one point per
-            # series. Sum across points defensively; duplicate/split points are
-            # accumulated rather than double-counted because each represents a
-            # distinct aligned window (non-overlapping by GCP guarantee).
-            series_total = sum(
-                point.value.int64_value or int(point.value.double_value or 0)
-                for point in series.points
-            )
-            counts[ep_id] = counts.get(ep_id, 0) + series_total
-
-        return counts, recently_active_ids
-
-    except Exception:
-        return None  # conservative: caller skips all endpoints in this location

@@ -64,6 +64,54 @@ def test_gcp_ai_rules_run_without_error():
 
 @pytest.mark.e2e
 @pytest.mark.gcp
+def test_vertex_endpoint_idle_returns_list_of_findings():
+    """Smoke test: gcp.vertex.endpoint.idle runs without error and returns typed findings."""
+    session = create_gcp_session()
+    projects = session.list_projects()
+    assert projects, "No accessible GCP projects found -- check ADC credentials"
+
+    project_id = projects[0]["id"]
+    credentials = session.credentials
+
+    try:
+        findings = find_idle_vertex_endpoints(project_id=project_id, credentials=credentials)
+    except PermissionError as e:
+        pytest.fail(f"Missing IAM permissions: {e}")
+
+    assert isinstance(findings, list)
+    for f in findings:
+        assert isinstance(f, Finding)
+        assert f.rule_id == "gcp.vertex.endpoint.idle"
+        assert f.resource_type == "gcp.vertex.endpoint"
+        assert f.provider == "gcp"
+        assert f.resource_id
+        assert f.region
+        assert f.detected_at and isinstance(f.detected_at, datetime)
+        # spec 6.4: pricing varies; no flat estimate
+        assert f.estimated_monthly_cost_usd is None
+        # spec 10.2: confidence is always HIGH; no tiered fallback
+        assert f.confidence.value == "high"
+        assert f.risk.value in ("high", "medium")
+        # required details fields
+        assert "endpoint_id" in f.details
+        assert "location" in f.details
+        assert "provisioned_serving_floor" in f.details
+        assert f.details["provisioned_serving_floor"] >= 1
+        assert "in_scope_model_count" in f.details
+        assert "resource_modes" in f.details
+        assert "has_accelerator" in f.details
+        assert "capacity_floor_start" in f.details
+        assert "idle_days_threshold" in f.details
+        assert "max_observed_request_rate_per_replica" in f.details
+        assert f.details["max_observed_request_rate_per_replica"] == 0
+        assert "telemetry_coverage_state" in f.details
+        assert f.details["telemetry_coverage_state"] == "complete"
+        assert "telemetry_state" in f.details
+        assert f.details["telemetry_state"] == "no_observed_prediction_requests"
+
+
+@pytest.mark.e2e
+@pytest.mark.gcp
 def test_vertex_training_job_long_running_returns_list_of_findings():
     """Smoke test: rule runs without error and returns typed findings."""
     session = create_gcp_session()
