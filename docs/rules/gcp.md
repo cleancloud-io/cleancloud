@@ -11,10 +11,10 @@
 | `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
 | `gcp.compute.ip.unused` | Network | Reserved static IPs in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections 14+ days |
-| `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI endpoints with dedicated capacity and zero predictions 14+ days |
+| `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI endpoints with an always-deployed serving floor and zero observed request activity 14+ days |
 | `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances with no activity 14+ days |
 | `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI jobs running beyond threshold |
-| `gcp.tpu.idle` | AI/ML | Cloud TPU nodes with near-zero utilization 7+ days |
+| `gcp.tpu.idle` | AI/ML | Standalone Cloud TPU nodes in READY state with monitoring-based idle detection; currently no findings emit until worker-to-node join is documented |
 | `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with zero serving requests 30+ days (Monitoring-confirmed only) |
 
 ---
