@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cleancloud"
-version = "1.28.0"
+version = "1.29.0"
 description = "Read-only cloud hygiene for AWS, Azure, and GCP. Multi-account org scanning, CI/CD enforcement, and deterministic cost modeling. No agents, no telemetry."
 readme = "README.md"
 requires-python = ">=3.10"
