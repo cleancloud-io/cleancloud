@@ -136,6 +136,8 @@ def test_tpu_idle_returns_list_of_findings():
     except PermissionError as e:
         pytest.fail(f"Missing IAM permissions: {e}")
 
+    # gcp.tpu.idle currently emits no findings (join barrier, spec 8.3): the loop
+    # below is vacuously empty today but must stay correct for when emission is unblocked.
     assert isinstance(findings, list)
     for f in findings:
         assert isinstance(f, Finding)
@@ -145,15 +147,17 @@ def test_tpu_idle_returns_list_of_findings():
         assert f.resource_id
         assert f.region
         assert f.detected_at and isinstance(f.detected_at, datetime)
-        assert f.estimated_monthly_cost_usd is not None
-        assert f.estimated_monthly_cost_usd > 0
+        assert f.estimated_monthly_cost_usd is None  # pricing varies; no flat estimate
         assert f.confidence.value in ("high", "medium", "low")
         assert f.risk.value in ("critical", "high", "medium")
         assert "node_id" in f.details
-        assert "chip_count" in f.details
-        assert "hourly_cost_usd" in f.details
+        assert "zone" in f.details
+        assert "tpu_type" in f.details
         assert "idle_days_threshold" in f.details
-        assert "pricing_scope" in f.details
+        assert "duty_cycle_threshold_pct" in f.details
+        assert "telemetry_join_state" in f.details
+        assert "telemetry_coverage_state" in f.details
+        assert "telemetry_state" in f.details
 
 
 @pytest.mark.e2e

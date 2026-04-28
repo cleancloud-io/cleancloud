@@ -190,17 +190,31 @@
 **Spec:** —
 
 #### `gcp.tpu.idle`
-**Detects:** Cloud TPU nodes in `READY` state with max `duty_cycle ≤ 2%` across all workers for `idle_days`
+**Detects:** Standalone Cloud TPU nodes in exact `READY` state where complete worker-joined duty-cycle telemetry (`tpu.googleapis.com/accelerator/duty_cycle` on `tpu.googleapis.com/GceTpuWorker`) confirms max observed duty cycle <= 2% across all joined workers and accelerators over the full buffered `idle_days` window; monitoring is required — no age-only, partial-join, or cadence-assumed fallback
 
-**Confidence / Risk:** HIGH (Cloud Monitoring confirms near-zero duty cycle); LOW (Monitoring unavailable — age-only heuristic) / CRITICAL (HIGH confidence + hourly cost ≥ $10/hr); HIGH (HIGH confidence + < $10/hr); MEDIUM (LOW confidence)
+**Confidence / Risk:** HIGH / HIGH (when emitting — requires monitoring-confirmed complete join; no tiered fallback)
 
-**Permissions:** `tpu.nodes.list` (roles/tpu.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer, optional — falls back to age-based)
+**Current emission status:** No findings are emitted. The `GceTpuWorker` monitored resource labels (`resource_container`, `location`, `worker_id`) do not include a TPU Node name. No documented first-party Google Cloud surface maps `worker_id` to the owning TPU Node, so `telemetry_join_state` cannot be proven `complete` (spec 8.3). Emission requires `telemetry_join_state == complete` (spec 9, condition 7). The monitoring query is issued per zone to surface permission errors. When Google publishes a documented worker-to-node identity surface, implement the join in `_run_zone_diagnostic`.
+
+**Cost:** `estimated_monthly_cost_usd = None` — pricing varies by TPU type, region, and usage option; no flat estimate is appropriate
+
+**Permissions:** `tpu.nodes.list` (roles/tpu.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 7)
 
-**Exclusions:** nodes not in `READY` state; nodes younger than `idle_days`
+**Exclusions (pre-checks applied before monitoring):**
+- node name malformed, node ID or zone absent/unresolvable
+- region filter set and derived region does not exactly match
+- state not exactly `READY`
+- `createTime` absent, unparsable, future, or node younger than full buffered window (`now - 180s - idle_days * 86400s`)
+- `queuedResource` non-empty string (queued-resource-managed node)
+- `multisliceNode == true` (multislice node)
+- malformed `queuedResource` (non-string/non-null) or `multisliceNode` (non-bool/non-null)
+- monitoring client creation failure (all nodes skip — no age-only fallback)
+- monitoring query failure for a node (that node skips, warning issued)
+- `telemetry_join_state` not `complete` — currently always the case (see above)
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/tpu_idle.md](../specs/gcp/ai/tpu_idle.md)
 
 #### `gcp.vertex.featurestore.idle`
 **Detects:** Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with provisioned online-serving capacity and zero `online_serving/request_count` confirmed by Cloud Monitoring for `idle_days`; no age-only or monitoring-absent fallback
