@@ -11,11 +11,11 @@
 | `gcp.compute.snapshot.old` | Storage | Disk snapshots older than 90 days |
 | `gcp.compute.ip.unused` | Network | Reserved static IPs in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections 14+ days |
-| `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI endpoints with dedicated capacity and zero predictions 14+ days |
+| `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI endpoints with an always-deployed serving floor and zero observed request activity 14+ days |
 | `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances with no activity 14+ days |
 | `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI jobs running beyond threshold |
-| `gcp.tpu.idle` | AI/ML | Cloud TPU nodes with near-zero utilization 7+ days |
-| `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores with zero serving requests 30+ days |
+| `gcp.tpu.idle` | AI/ML | Standalone Cloud TPU nodes in READY state with monitoring-based idle detection; currently no findings emit until worker-to-node join is documented |
+| `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with zero serving requests 30+ days (Monitoring-confirmed only) |
 
 ---
 
@@ -151,17 +151,34 @@
 ## AI/ML *(opt-in: `--category ai`)*
 
 #### `gcp.vertex.endpoint.idle`
-**Detects:** Vertex AI Online Prediction endpoints with `dedicatedResources` and zero predictions for `idle_days`
+**Detects:** Vertex AI Online Prediction endpoints with an always-deployed serving floor (`dedicatedResources.minReplicaCount >= 1` or `automaticResources.minReplicaCount >= 1`) and no usable endpoint-scoped request-count datapoint above `0` across the full `idle_days` observation window, confirmed by Cloud Monitoring telemetry with proven gap-free coverage
 
-**Confidence / Risk:** HIGH (zero predictions confirmed + age ≥ `idle_days`); MEDIUM (zero predictions, age ≥ 75% of threshold or age unknown) / HIGH (GPU-backed: T4, V100, A100, L4, H100, TPU); MEDIUM (CPU-only)
+**Confidence / Risk:** HIGH (sole emit path: full-window zero request-count telemetry with no heuristic fallback; no MEDIUM tier) / HIGH (any in-scope dedicated model with nonzero accelerator count and recognized GPU/TPU type); MEDIUM (CPU-only or automatic-resources-only endpoints)
+
+**Cost:** `estimated_monthly_cost_usd = None` -- pricing varies by machine type, accelerator, region, and usage option; no flat estimate is appropriate
 
 **Permissions:** `aiplatform.endpoints.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 14)
 
-**Exclusions:** endpoints using `automaticResources` (scale-to-zero); only `dedicatedResources` with `minReplicaCount > 0`
+**Exclusions:**
+- endpoint name or location malformed or absent
+- location filter set and location does not exactly match
+- endpoint `createTime` absent, unparsable, or future
+- no in-scope deployed models; `provisioned_serving_floor < 1`
+- shared-resource-only endpoint (`sharedResources` only; spec 11.4)
+- any in-scope deployed model `createTime` absent, unparsable, or future
+- `capacity_floor_start > evaluation_window_start` (full window not coverable)
+- malformed `minReplicaCount` or unrecognized prediction-resource union on any deployed model
+- monitoring client creation failure -- all endpoints skip; no fallback
+- monitoring query failure for a location -- all endpoints in that location skip
+- telemetry coverage unresolved: no series, leading gap > `idle_days * 86400s / 2`, any interior gap > `idle_days * 86400s / 2`, or trailing gap > `idle_days * 86400s / 2`
+- any usable request-count datapoint > `0` in the observation window
+- `dedicatedResources.minReplicaCount == 0` (scale-to-zero preview; no always-deployed floor)
+- `automaticResources.minReplicaCount == 0` (scale-to-zero; no always-deployed floor)
+- near-idle, low-traffic, age-only, trafficSplit, or missing-telemetry-as-zero fallbacks are explicitly forbidden
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/vertex_endpoint_idle.md](../specs/gcp/ai/vertex_endpoint_idle.md)
 
 #### `gcp.vertex.workbench.idle`
 **Detects:** Vertex AI Workbench instances `ACTIVE` with no control-plane activity (`updateTime`) for `idle_days`
@@ -190,27 +207,55 @@
 **Spec:** —
 
 #### `gcp.tpu.idle`
-**Detects:** Cloud TPU nodes in `READY` state with max `duty_cycle ≤ 2%` across all workers for `idle_days`
+**Detects:** Standalone Cloud TPU nodes in exact `READY` state where complete worker-joined duty-cycle telemetry (`tpu.googleapis.com/accelerator/duty_cycle` on `tpu.googleapis.com/GceTpuWorker`) confirms max observed duty cycle <= 2% across all joined workers and accelerators over the full buffered `idle_days` window; monitoring is required — no age-only, partial-join, or cadence-assumed fallback
 
-**Confidence / Risk:** HIGH (Cloud Monitoring confirms near-zero duty cycle); LOW (Monitoring unavailable — age-only heuristic) / CRITICAL (HIGH confidence + hourly cost ≥ $10/hr); HIGH (HIGH confidence + < $10/hr); MEDIUM (LOW confidence)
+**Confidence / Risk:** HIGH / HIGH (when emitting — requires monitoring-confirmed complete join; no tiered fallback)
 
-**Permissions:** `tpu.nodes.list` (roles/tpu.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer, optional — falls back to age-based)
+**Current emission status:** No findings are emitted. The `GceTpuWorker` monitored resource labels (`resource_container`, `location`, `worker_id`) do not include a TPU Node name. No documented first-party Google Cloud surface maps `worker_id` to the owning TPU Node, so `telemetry_join_state` cannot be proven `complete` (spec 8.3). Emission requires `telemetry_join_state == complete` (spec 9, condition 7). The monitoring query is issued per zone to surface permission errors. When Google publishes a documented worker-to-node identity surface, implement the join in `_run_zone_diagnostic`.
+
+**Cost:** `estimated_monthly_cost_usd = None` — pricing varies by TPU type, region, and usage option; no flat estimate is appropriate
+
+**Permissions:** `tpu.nodes.list` (roles/tpu.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 7)
 
-**Exclusions:** nodes not in `READY` state; nodes younger than `idle_days`
+**Exclusions (pre-checks applied before monitoring):**
+- node name malformed, node ID or zone absent/unresolvable
+- region filter set and derived region does not exactly match
+- state not exactly `READY`
+- `createTime` absent, unparsable, future, or node younger than full buffered window (`now - 180s - idle_days * 86400s`)
+- `queuedResource` non-empty string (queued-resource-managed node)
+- `multisliceNode == true` (multislice node)
+- malformed `queuedResource` (non-string/non-null) or `multisliceNode` (non-bool/non-null)
+- monitoring client creation failure (all nodes skip — no age-only fallback)
+- monitoring query failure for a node (that node skips, warning issued)
+- `telemetry_join_state` not `complete` — currently always the case (see above)
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/tpu_idle.md](../specs/gcp/ai/tpu_idle.md)
 
 #### `gcp.vertex.featurestore.idle`
-**Detects:** Vertex AI Feature Stores (legacy and new-gen) with zero `online_serving/request_count` for `idle_days`; Bigtable-backed stores bill ~$197/node/month regardless of utilization
+**Detects:** Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with provisioned online-serving capacity and zero `online_serving/request_count` confirmed by Cloud Monitoring for `idle_days`; no age-only or monitoring-absent fallback
 
-**Confidence / Risk:** HIGH (Cloud Monitoring confirms zero requests); LOW (Monitoring unavailable — age-only) / HIGH (HIGH confidence); MEDIUM (LOW confidence)
+**Confidence / Risk:** HIGH (Cloud Monitoring confirms zero requests for full aligned window) / HIGH
 
-**Permissions:** `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer, optional)
+**Cost:** `estimated_monthly_cost_usd = None` — pricing varies by backing, region, node count, and commitment model; no flat estimate is appropriate
+
+**Permissions:** `aiplatform.featurestores.list`, `aiplatform.featureOnlineStores.list` (roles/aiplatform.viewer), `monitoring.timeSeries.list` (roles/monitoring.viewer)
 
 **Params:** `idle_days` (default: 30)
 
-**Exclusions:** legacy featurestores with `fixedNodeCount == 0` and `scaling.minNodeCount == 0`; stores not in `STABLE` state
+**Exclusions:**
+- resource name malformed or store ID / region absent
+- region filter set and region does not exactly match
+- state not exactly `STABLE`
+- `reference_time` (`max(createTime, updateTime)`) absent, unparsable, or in the future
+- store younger than full `idle_days` observation window
+- legacy: `fixedNodeCount == 0` and `scaling.minNodeCount == 0` (no provisioned online-serving capacity)
+- legacy: both `fixedNodeCount > 0` and `scaling.minNodeCount > 0` simultaneously — invalid serving mode
+- FeatureOnlineStore: storage type not exactly Bigtable (`optimized` stores are out of scope)
+- FeatureOnlineStore: `bigtable.autoScaling` absent, or `maxNodeCount < minNodeCount`
+- monitoring client unavailable (no age-only fallback)
+- metric coverage unresolved — not exactly `idle_days` aligned daily buckets, query failure, future timestamp, or gap > 86 400 s between adjacent points
+- aggregate request count > 0 over the full window
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/featurestore_idle.md](../specs/gcp/ai/featurestore_idle.md)

@@ -1,16 +1,70 @@
+"""
+Rule: gcp.tpu.idle
+
+    (spec — docs/specs/gcp/ai/tpu_idle.md)
+
+Intent:
+    Detect standalone Cloud TPU Nodes in documented billable READY state that
+    show no observed accelerator-processing activity above a conservative
+    threshold over a buffered review window, using documented Cloud Monitoring
+    duty-cycle telemetry.
+
+    This is a precision-first review-candidate rule. It is not proof that the
+    TPU-backed job is abandoned, not proof the node is safe to stop or delete,
+    and not proof of a specific monthly saving.
+
+Covered resource families:
+    - Cloud TPU Node (projects.locations.nodes, TPU v2 REST API)
+
+Exclusions:
+    - node name malformed, node ID or zone absent / unresolvable (spec 7)
+    - region filter set and derived region does not exactly match (spec 7)
+    - state not exactly READY (spec 3.1, 9)
+    - createTime absent, unparsable, future, or node younger than full buffered
+      window — create_time_utc > evaluation_window_start_utc (spec 7, 9)
+    - queuedResource non-empty string — queued-resource-managed node (spec 3.5, 9)
+    - multisliceNode == true — multislice node (spec 3.5, 9)
+    - malformed queuedResource (non-string/non-null) or multisliceNode
+      (non-bool/non-null) (spec 7)
+    - monitoring client creation failure — all nodes skip; no age-only fallback
+      (spec 8.6, 11.2)
+    - monitoring query failure for a node — that node skips, warning issued
+      (spec 11.1)
+    - telemetry join state not confirmed "complete" (spec 8.3, 9) — currently
+      always the case; see Current status below
+
+Detection (pre-checks currently applied; emission blocked — see Current status):
+    - state == "READY"
+    - queuedResource absent/empty and not malformed
+    - multisliceNode != true and not malformed
+    - create_time_utc <= evaluation_window_start_utc
+    - telemetry join state confirmed "complete" (spec 8.3) [blocked — see Current status]
+
+Current status — join barrier (spec 8.3):
+    The duty-cycle metric (tpu.googleapis.com/accelerator/duty_cycle) is
+    published on the tpu.googleapis.com/GceTpuWorker monitored resource with
+    labels resource_container, location, and worker_id. These labels do not
+    include a TPU Node name. No documented first-party Google Cloud surface maps
+    worker_id to the owning TPU Node, so telemetry_join_state cannot be proven
+    "complete". The rule currently emits no findings. When Google publishes a
+    documented worker-to-node identity surface, implement the join in
+    _run_zone_diagnostic().
+
+Cost model (spec 3.2, 10.1):
+    estimated_monthly_cost_usd = None
+    Pricing varies by TPU type, region, and usage option (on-demand, spot,
+    committed-use); no flat estimate is appropriate.
+
+APIs:
+    - tpu.googleapis.com/v2: projects/{project}/locations/-/nodes
+    - monitoring.googleapis.com: tpu.googleapis.com/accelerator/duty_cycle
+      on tpu.googleapis.com/GceTpuWorker
+"""
+
 import warnings
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
-from google.api_core.exceptions import (
-    BadGateway,
-    DeadlineExceeded,
-    GatewayTimeout,
-    InternalServerError,
-    ResourceExhausted,
-    ServiceUnavailable,
-    TooManyRequests,
-)
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import monitoring_v3
 from google.protobuf import duration_pb2, timestamp_pb2
@@ -30,37 +84,20 @@ RULE_METADATA = {
 # Default idle window — 7 days of near-zero duty_cycle = confidently idle
 _DEFAULT_IDLE_DAYS = 7
 
-# duty_cycle fraction at or below which a node is considered idle.
-# 2% allows for brief health-check spikes without masking genuine utilization.
-# max() is used (not mean/p95) so that any single active sample keeps the node
-# out of the idle bucket — this avoids flagging intermittently-used nodes.
-_DUTY_CYCLE_IDLE_THRESHOLD = 0.02
+# 180-second monitoring visibility buffer (spec 3.4)
+_MONITORING_BUFFER_SECONDS = 180
 
-# TPU node states that incur compute charges.
-# NOTE: If GCP adds new billable states (e.g. HIBERNATED), update this set.
-# Source: https://cloud.google.com/tpu/docs/managing-tpus-tpu-vm
-_BILLABLE_STATES = {"READY"}
+# Idle threshold in percent units [0,100] (spec 6.4); values are percent not fraction.
+# Referenced in the unreachable finding block below; not yet in a live decision path.
+_DUTY_CYCLE_THRESHOLD_PCT = 2.0
 
-# Per-chip hourly cost — us-central1 on-demand reference rates.
-# All values are per chip-hour. Actual cost varies by region and commitment.
-_CHIP_HOURLY_COST: dict[str, float] = {
-    "V2": 1.50,  # $1.50/chip-hr (v2 pod, published GCP rate)
-    "V3": 2.20,  # $2.20/chip-hr (v3 device; v3 pod is $2.00 — use higher)
-    "V4": 3.22,  # $3.22/chip-hr (published GCP rate, us-central1)
-    "V5LITE_POD": 1.20,  # $1.20/chip-hr (TPU v5e litepod, published)
-    "V5P": 4.20,  # $4.20/chip-hr (TPU v5p, published)
-    "V6E": 2.40,  # $2.40/chip-hr [est] — no confirmed published rate as of 2025
-}
-_DEFAULT_CHIP_HOURLY_COST = 2.00  # conservative fallback for unknown/future types
+# Monitoring alignment period for the non-semantic placeholder aggregation in
+# _run_zone_diagnostic; not yet in a live decision path (spec 8.4, 8.5).
+_ALIGNMENT_PERIOD_SECONDS = 3600
 
-# Types whose per-chip pricing is estimated (not yet officially published).
-_PRICING_ESTIMATED_TYPES = frozenset({"V6E"})
-
-# Types where topology-based chip counting is unreliable: for V5+/V6E pod slices,
-# topology encodes the full pod shape rather than the per-node slice count.
-_TOPOLOGY_UNRELIABLE_TYPES = frozenset({"V5LITE_POD", "V5P", "V6E"})
-
-_HOURS_PER_MONTH = 730.0
+# Canonical metric and resource type (spec 8.1)
+_DUTY_CYCLE_METRIC = "tpu.googleapis.com/accelerator/duty_cycle"
+_DUTY_CYCLE_RESOURCE_TYPE = "tpu.googleapis.com/GceTpuWorker"
 
 
 def _parse_location(name: str) -> Optional[str]:
@@ -78,23 +115,31 @@ def _parse_node_id(name: str) -> str:
     return name.rsplit("/", 1)[-1] if name else ""
 
 
-def _zone_to_region(zone: str) -> str:
-    """Derive GCP region from zone (e.g. 'us-central1-f' → 'us-central1').
+def _zone_to_region(zone: str) -> Optional[str]:
+    """Derive GCP region from zone (e.g. 'us-central1-f' -> 'us-central1').
 
-    Uses split/join rather than rsplit to handle multi-hyphen region prefixes
-    (e.g. 'northamerica-northeast1-a' → 'northamerica-northeast1') correctly.
-    Falls back to the zone itself if it has no hyphen.
+    Returns None when the zone string has no hyphen and region cannot be derived.
     """
     parts = zone.split("-")
-    return "-".join(parts[:-1]) if len(parts) > 1 else zone
+    if len(parts) < 2:
+        return None
+    return "-".join(parts[:-1])
+
+
+def _parse_rfc3339_utc(ts: str) -> Optional[datetime]:
+    """Parse an RFC3339 timestamp string into a timezone-aware UTC datetime."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        dt = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except (ValueError, AttributeError):
+        return None
 
 
 def _tpu_type_from_legacy(accel_type: str) -> str:
-    """Map legacy acceleratorType string to acceleratorConfig.type key.
-
-    Examples: "v2-8" → "V2", "v4-8" → "V4", "v5litepod-4" → "V5LITE_POD".
-    Returns "" if the type is unrecognised.
-    """
+    """Map legacy acceleratorType string to acceleratorConfig.type key (context only)."""
     lower = accel_type.lower()
     if lower.startswith("v2"):
         return "V2"
@@ -111,101 +156,7 @@ def _tpu_type_from_legacy(accel_type: str) -> str:
     return ""
 
 
-def _chip_count(
-    accel_type_legacy: str, topology: Optional[str], tpu_type: str = ""
-) -> tuple[int, bool]:
-    """Derive chip count for a TPU node.
-
-    Returns (chips, is_approximate). is_approximate is True when the count was
-    derived from pod-shape topology for V5+/V6E types (may overstate slice count)
-    or when no usable information was found at all.
-
-    Priority differs by type:
-
-    V2–V4 (topology is reliable slice geometry):
-      1. topology multiplication  → exact
-      2. legacy acceleratorType suffix → exact
-      3. fallback 1 → approximate
-
-    V5+/V6E (topology may encode pod shape, not slice count):
-      1. legacy acceleratorType suffix → exact (encodes slice count directly)
-      2. topology multiplication → approximate (pod shape, may overstate)
-      3. fallback 1 → approximate
-    """
-
-    def _from_topology(t: str) -> Optional[int]:
-        try:
-            parts = [int(x) for x in t.lower().split("x") if x]
-            count = 1
-            for p in parts:
-                count *= p
-            return count if count > 0 else None
-        except (ValueError, AttributeError):
-            return None
-
-    def _from_legacy(s: str) -> Optional[int]:
-        try:
-            return max(1, int(s.rsplit("-", 1)[-1]))
-        except (ValueError, IndexError):
-            return None
-
-    if tpu_type in _TOPOLOGY_UNRELIABLE_TYPES:
-        # Legacy suffix encodes the per-node slice count directly; prefer it.
-        if accel_type_legacy:
-            v = _from_legacy(accel_type_legacy)
-            if v is not None:
-                return v, False
-        # Fall back to topology — may reflect pod shape, so mark approximate.
-        if topology:
-            v = _from_topology(topology)
-            if v is not None:
-                return v, True
-    else:
-        # For V2–V4, topology gives the exact slice geometry.
-        if topology:
-            v = _from_topology(topology)
-            if v is not None:
-                return v, False
-        if accel_type_legacy:
-            v = _from_legacy(accel_type_legacy)
-            if v is not None:
-                return v, False
-
-    return 1, True
-
-
-def _hourly_cost(
-    tpu_type: str, chips: int, chip_count_approximate: bool = False
-) -> tuple[float, str]:
-    """Return (hourly_cost_usd, pricing_confidence) for a TPU node.
-
-    pricing_confidence is "estimated" when any of:
-    - The type has no entry in _CHIP_HOURLY_COST (unknown type, uses fallback rate)
-    - The type is in _PRICING_ESTIMATED_TYPES (rate not officially published)
-    - chip_count_approximate is True (chip count may be wrong; cost inherits uncertainty)
-    """
-    rate = _CHIP_HOURLY_COST.get(tpu_type, _DEFAULT_CHIP_HOURLY_COST)
-    estimated = (
-        tpu_type not in _CHIP_HOURLY_COST
-        or tpu_type in _PRICING_ESTIMATED_TYPES
-        or chip_count_approximate
-    )
-    return rate * chips, ("estimated" if estimated else "published")
-
-
-def _compute_risk(confidence: ConfidenceLevel, hourly_cost: float) -> RiskLevel:
-    """Map (confidence, hourly_cost) to a RiskLevel.
-
-    HIGH confidence + expensive (≥$10/hr) → CRITICAL
-    HIGH confidence + cheaper          → HIGH
-    LOW confidence (age-only fallback) → MEDIUM
-    """
-    if confidence == ConfidenceLevel.HIGH:
-        return RiskLevel.CRITICAL if hourly_cost >= 10.0 else RiskLevel.HIGH
-    return RiskLevel.MEDIUM
-
-
-def _list_tpu_nodes(session: AuthorizedSession, project_id: str) -> list:
+def _list_tpu_nodes(session: AuthorizedSession, project_id: str) -> list[dict]:
     """List all TPU nodes across all zones for a project.
 
     Uses the locations/- wildcard. Returns [] if the TPU API is not enabled.
@@ -220,7 +171,6 @@ def _list_tpu_nodes(session: AuthorizedSession, project_id: str) -> list:
             params["pageToken"] = page_token
         resp = session.get(url, params=params)
         if resp.status_code == 403:
-            # Distinguish SERVICE_DISABLED (API not enabled) from true 403 (IAM).
             try:
                 reason = resp.json().get("error", {}).get("details", [{}])[0].get("reason", "")
             except Exception:
@@ -232,7 +182,6 @@ def _list_tpu_nodes(session: AuthorizedSession, project_id: str) -> list:
                 "Grant roles/tpu.viewer to the scanning identity."
             )
         if resp.status_code == 404:
-            # TPU API not enabled or no nodes in any zone — treat as empty.
             return []
         resp.raise_for_status()
         data = resp.json()
@@ -243,100 +192,62 @@ def _list_tpu_nodes(session: AuthorizedSession, project_id: str) -> list:
     return nodes
 
 
-def _fetch_duty_cycles(credentials, project_id: str, idle_days: int) -> dict[str, float]:
-    """Fetch max duty_cycle per TPU node over the past idle_days days.
+def _run_zone_diagnostic(
+    client: monitoring_v3.MetricServiceClient,
+    project_id: str,
+    zone: str,
+    window_start: datetime,
+    window_end: datetime,
+) -> None:
+    """Zone-scoped diagnostic query; side-effect only — returns None.
 
-    Returns a dict mapping canonical node short-name → max_duty_cycle (0.0–1.0).
-    The canonical key is the last path segment of whichever label is populated
-    (resource_name or node_id), normalised via rsplit("/", 1)[-1].
+    Called exclusively to surface permission and API-availability errors for the zone
+    (spec 11.1). The query result is intentionally discarded and MUST NOT be attributed
+    to any specific TPU Node: the zone filter cannot distinguish workers belonging to
+    different nodes in the same zone, so no emission decision is derivable here.
 
-    A single retry is attempted on transient errors before falling back to the
-    age-based detection path. Permanent errors (auth, quota) are not retried.
+    Callers: invoke at most once per zone (see zone_ok / zone_errors cache in
+    find_idle_tpu_nodes). Do not call per-node and attempt to attribute results.
 
-    Returns {} on failure — monitoring is optional; callers fall back to age.
+    When Google publishes a documented worker-to-node identity surface, replace this
+    function body with join (8.3) -> coverage (8.4) -> activity (8.5) and change
+    the return type to a structured result (see TODO below) so find_idle_tpu_nodes
+    can derive an emission verdict from the return value.
 
-    Note on scale: list_time_series is paginated by the Python client iterator;
-    large projects with many TPU nodes may incur multiple API calls.
+    RPC exceptions propagate to the caller (no outer try/except here).
+
+    TODO (structured return): When the join is implemented, return a dataclass or dict
+    with discrete join_state, coverage_state, and activity_state fields so each
+    dimension is independently modelled and surfaced in finding details.
     """
-
-    def _is_transient(exc: Exception) -> bool:
-        """True for errors likely to succeed on retry (network/timeout/throttle)."""
-        return isinstance(
-            exc,
-            (
-                DeadlineExceeded,  # timeout
-                ResourceExhausted,  # 429 quota
-                TooManyRequests,  # 429 rate limit
-                ServiceUnavailable,  # 503
-                BadGateway,  # 502
-                GatewayTimeout,  # 504
-                InternalServerError,  # 500 (transient backend errors)
-            ),
+    # Zone-scoped diagnostic — surfaces permission / availability errors only.
+    # Results MUST NOT be attributed to any specific TPU Node: zone filter alone does
+    # not prove ownership; only a documented join surface would (spec 8.3).
+    _ = list(
+        client.list_time_series(
+            request={
+                "name": f"projects/{project_id}",
+                "filter": (
+                    f'metric.type="{_DUTY_CYCLE_METRIC}"'
+                    f' AND resource.type="{_DUTY_CYCLE_RESOURCE_TYPE}"'
+                    f' AND resource.labels.location="{zone}"'
+                ),
+                "interval": monitoring_v3.TimeInterval(
+                    start_time=timestamp_pb2.Timestamp(seconds=int(window_start.timestamp())),
+                    end_time=timestamp_pb2.Timestamp(seconds=int(window_end.timestamp())),
+                ),
+                "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
+                "aggregation": monitoring_v3.Aggregation(
+                    # Non-semantic placeholder shape matching the intended join-aware query.
+                    # alignment_period / ALIGN_MAX not used in any emission decision today.
+                    alignment_period=duration_pb2.Duration(seconds=_ALIGNMENT_PERIOD_SECONDS),
+                    per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_MAX,
+                    # No cross_series_reducer — preserves per-worker/accelerator granularity
+                    # for when the join is implementable (spec 8.2, 8.3).
+                ),
+            }
         )
-
-    last_exc: Optional[Exception] = None
-    for attempt in range(2):
-        try:
-            client = monitoring_v3.MetricServiceClient(credentials=credentials)
-            now = datetime.now(timezone.utc)
-            start = now - timedelta(days=idle_days)
-            interval = monitoring_v3.TimeInterval(
-                start_time=timestamp_pb2.Timestamp(seconds=int(start.timestamp())),
-                end_time=timestamp_pb2.Timestamp(seconds=int(now.timestamp())),
-            )
-            results = client.list_time_series(
-                request={
-                    "name": f"projects/{project_id}",
-                    # tpu_worker is the monitored resource type for this metric.
-                    # Do not use resource.type="tpu_node" — not valid for this metric.
-                    # If GCP changes this schema, the query returns {} and the rule
-                    # falls back to age-based detection rather than erroring out.
-                    "filter": (
-                        'metric.type="tpu.googleapis.com/node/accelerator/duty_cycle"'
-                        ' AND resource.type="tpu_worker"'
-                    ),
-                    "interval": interval,
-                    "view": monitoring_v3.ListTimeSeriesRequest.TimeSeriesView.FULL,
-                    "aggregation": monitoring_v3.Aggregation(
-                        alignment_period=duration_pb2.Duration(seconds=3600),
-                        per_series_aligner=monitoring_v3.Aggregation.Aligner.ALIGN_MAX,
-                        cross_series_reducer=monitoring_v3.Aggregation.Reducer.REDUCE_MAX,
-                        # Group by both labels: resource_name (full path, preferred)
-                        # and node_id (short name, documented for tpu_worker).
-                        group_by_fields=[
-                            "resource.labels.resource_name",
-                            "resource.labels.node_id",
-                        ],
-                    ),
-                }
-            )
-            duty_cycles: dict[str, float] = {}
-            for ts in results:
-                if not ts.points:
-                    continue
-                labels = ts.resource.labels
-                # Normalise to the last path segment as the canonical key so
-                # "projects/.../nodes/my-tpu" and "my-tpu" map to the same entry.
-                raw_label = labels.get("resource_name") or labels.get("node_id", "")
-                if not raw_label:
-                    continue
-                canonical = raw_label.rsplit("/", 1)[-1]
-                # max() is intentional: any single active sample keeps the node
-                # out of the idle bucket. mean/p95 would mask intermittent usage.
-                max_val = max((p.value.double_value for p in ts.points), default=0.0)
-                duty_cycles[canonical] = max(duty_cycles.get(canonical, 0.0), max_val)
-            return duty_cycles
-        except Exception as exc:
-            last_exc = exc
-            if attempt == 0 and _is_transient(exc):
-                continue  # retry once for transient errors only
-            break  # permanent error (auth, permission, quota) — don't retry
-    warnings.warn(
-        f"gcp.tpu.idle: monitoring query failed ({type(last_exc).__name__}: {last_exc}) "
-        "— falling back to age-based detection",
-        stacklevel=2,
     )
-    return {}
 
 
 def find_idle_tpu_nodes(
@@ -349,240 +260,266 @@ def find_idle_tpu_nodes(
     """
     Find Cloud TPU nodes that have been idle for an extended period.
 
-    TPU nodes in READY state incur compute charges regardless of utilization.
-    An idle TPU v4 node (4 chips) costs ~$12.88/hr; a v5p-8 costs ~$33.60/hr.
-    Forgetting to delete a TPU after a training run is a common cause of runaway cost.
+    Currently emits no findings: the worker-to-node telemetry join (spec 8.3) cannot
+    be proven with documented GCP surfaces; every node passes pre-checks but is blocked
+    at the telemetry gate. See module docstring — "Current status" section.
 
-    Detection logic:
-    - Lists all TPU nodes in READY state via the Cloud TPU v2 REST API
-    - Queries Cloud Monitoring for tpu.googleapis.com/node/accelerator/duty_cycle
-      over the past idle_days days (7 days by default)
-    - Nodes with max duty_cycle ≤ 2% AND age ≥ idle_days are flagged HIGH confidence
-    - Nodes with max duty_cycle ≤ 2% but age < idle_days are skipped (not yet idle)
-    - If monitoring data is unavailable, nodes older than idle_days are flagged
-      at LOW confidence (existence duration is not a reliable idle proxy)
+    When the join is implemented, emits a finding only when the node is in documented
+    READY state, is standalone (not queued-resource-managed or multislice), and complete
+    joined duty-cycle telemetry confirms no accelerator activity above 2% over the
+    buffered idle window. No age-only or monitoring-absent fallback is performed.
 
     IAM permissions required:
     - tpu.nodes.list (roles/tpu.viewer)
-    - monitoring.timeSeries.list (roles/monitoring.viewer) — optional; fallback to age
+    - monitoring.timeSeries.list (roles/monitoring.viewer)
     """
     idle_days = max(1, idle_days)
-    session = AuthorizedSession(credentials)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    window_end = now - timedelta(seconds=_MONITORING_BUFFER_SECONDS)
+    window_start = window_end - timedelta(seconds=idle_days * 86400)
 
+    session = AuthorizedSession(credentials)
     nodes = _list_tpu_nodes(session, project_id)
     if not nodes:
         return []
 
-    ready_nodes = [n for n in nodes if n.get("state") in _BILLABLE_STATES]
-    if not ready_nodes:
-        return []
-
-    # Batch monitoring query — one call covers all nodes in the project.
-    duty_cycles = _fetch_duty_cycles(credentials, project_id, idle_days)
+    try:
+        monitoring_client = monitoring_v3.MetricServiceClient(credentials=credentials)
+    except Exception as e:
+        warnings.warn(
+            f"gcp.tpu.idle: monitoring client creation failed "
+            f"({type(e).__name__}: {e}) — all nodes will be skipped (no age-only fallback)",
+            UserWarning,
+            stacklevel=2,
+        )
+        monitoring_client = None
 
     findings: List[Finding] = []
-    unmatched_node_ids: List[str] = []
+    # Per-zone diagnostic query cache: _run_zone_diagnostic is zone-scoped (spec 11.1);
+    # caching avoids redundant API calls when multiple nodes share a zone.
+    zone_ok: set[str] = set()
+    zone_errors: set[str] = set()
 
-    for node in ready_nodes:
-        name = node.get("name", "")
+    for node in nodes:
+        # --- Identity ---
+        name = node.get("name") or ""
+        if not name:
+            continue
         node_id = _parse_node_id(name)
-        zone = _parse_location(name) or "unknown"
-
-        if region_filter and not zone.startswith(region_filter):
+        if not node_id:
+            continue
+        zone = _parse_location(name)
+        if not zone:
+            continue
+        region = _zone_to_region(zone)
+        if not region:
             continue
 
-        # Prefer acceleratorConfig (new API); fall back to legacy acceleratorType.
+        # --- Region filter: exact match on derived region (spec 7) ---
+        if region_filter and region != region_filter:
+            continue
+
+        # --- State: must be exactly READY (spec 3.1, 4) ---
+        if node.get("state") != "READY":
+            continue
+
+        # --- createTime: absent/unparsable/future -> skip (spec 7) ---
+        create_time = _parse_rfc3339_utc(node.get("createTime") or "")
+        if create_time is None:
+            continue
+        if create_time > now:
+            continue
+
+        # --- Full window coverable (spec 7) ---
+        if create_time > window_start:
+            continue
+
+        # --- Standalone: queuedResource absent/empty (spec 3.5, 9) ---
+        queued_resource = node.get("queuedResource")
+        if queued_resource is None or queued_resource == "":
+            pass  # standalone
+        elif isinstance(queued_resource, str):
+            continue  # non-empty string -> managed by queued resource
+        else:
+            continue  # malformed non-string/non-null -> skip
+
+        # --- Standalone: multisliceNode not true (spec 3.5, 9) ---
+        multislice = node.get("multisliceNode")
+        if multislice is None or multislice is False:
+            pass  # standalone
+        elif multislice is True:
+            continue  # explicitly multislice
+        else:
+            continue  # malformed non-bool/non-null -> skip
+
+        # --- Monitoring (no age-only fallback, spec 8.6) ---
+        if monitoring_client is None:
+            continue
+
+        # Zone-level diagnostic query — one call per zone is sufficient;
+        # _run_zone_diagnostic filters by location only and results are not
+        # attributed to any specific node, so caching across nodes in the same
+        # zone is safe (spec 11.1).
+        if zone in zone_errors:
+            continue
+        if zone not in zone_ok:
+            try:
+                _run_zone_diagnostic(
+                    monitoring_client,
+                    project_id,
+                    zone,
+                    window_start,
+                    window_end,
+                )
+                zone_ok.add(zone)
+            except Exception as e:
+                warnings.warn(
+                    f"gcp.tpu.idle: monitoring query failed for zone '{zone}' "
+                    f"({type(e).__name__}: {e}) — nodes in this zone will be skipped",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                zone_errors.add(zone)
+                continue
+
+        # This rule currently emits no findings (join barrier, spec 8.3).
+        # _run_zone_diagnostic returns None (side-effect only); the telemetry verdict is
+        # not derived from it. "unresolved" is the single hardcoded source of truth here.
+        # When the join is implemented: replace this assignment with the structured
+        # verdict from a node-attributed call to _run_zone_diagnostic (see its docstring).
+        telemetry = "unresolved"
+        if telemetry != "confirmed_idle":
+            continue
+
+        # --- Build finding ---
+        # UNREACHABLE TODAY: the guard above always skips this block because
+        # _run_zone_diagnostic always returns "unresolved" (join barrier, spec 8.3).
+        # When the join is implemented, ALL signal strings and detail values below must
+        # be verified and updated — in particular:
+        #   - The "Worker join:" signal must use actual proven joined/expected counts,
+        #     not the static "complete (expected == joined workers)" string below.
+        #   - "telemetry_join_state" in details must be set to the actual proven state
+        #     (e.g. "complete") rather than the placeholder "unresolved" below.
+        # Do NOT bypass the join barrier to reach this block without first proving
+        # telemetry_join_state == "complete" per spec 8.3.
         accel_config = node.get("acceleratorConfig") or {}
-        tpu_type = (accel_config.get("type") or "").upper()
+        tpu_type = (accel_config.get("type") or "").strip()
         topology = (accel_config.get("topology") or "").strip()
         accel_type_legacy = (node.get("acceleratorType") or "").strip()
 
         if not tpu_type and accel_type_legacy:
             tpu_type = _tpu_type_from_legacy(accel_type_legacy)
 
-        chips, chip_count_approximate = _chip_count(accel_type_legacy, topology or None, tpu_type)
-        hourly, pricing_confidence = _hourly_cost(tpu_type, chips, chip_count_approximate)
-        monthly = hourly * _HOURS_PER_MONTH
-
-        create_str = node.get("createTime", "")
-        age_days: Optional[float] = None
-        if create_str:
-            try:
-                create_dt = datetime.fromisoformat(create_str.replace("Z", "+00:00"))
-                if create_dt.tzinfo is None:
-                    create_dt = create_dt.replace(tzinfo=timezone.utc)
-                age_days = (now - create_dt).total_seconds() / 86400
-            except (ValueError, AttributeError):
-                pass
-
-        # Idle detection — monitoring first, age fallback.
-        # Canonical lookup key (short name) matches _fetch_duty_cycles normalisation.
-        node_duty_cycle: Optional[float] = duty_cycles.get(node_id)
-        if node_duty_cycle is None and duty_cycles:
-            # duty_cycles is non-empty but this node has no entry — collect for
-            # a single aggregated warning rather than one warning per node.
-            unmatched_node_ids.append(node_id)
-
-        if node_duty_cycle is not None:
-            if node_duty_cycle > _DUTY_CYCLE_IDLE_THRESHOLD:
-                continue  # Active — skip
-            # Enforce the idle_days minimum: nodes younger than the window
-            # cannot have been idle for idle_days by definition. Skip them
-            # regardless of what duty_cycle reports — the rule contract is
-            # "idle for 7+ days", not "low utilisation at time of scan".
-            if age_days is None or age_days < idle_days:
-                continue
-            confidence = ConfidenceLevel.HIGH
-            idle_signal = (
-                f"max duty_cycle={node_duty_cycle:.1%} over {idle_days}d window "
-                f"(threshold: {_DUTY_CYCLE_IDLE_THRESHOLD:.0%})"
-            )
-        elif age_days is not None and age_days >= idle_days:
-            # Age-only fallback: createTime tells us when the node was created,
-            # NOT when it was last used. LOW confidence.
-            confidence = ConfidenceLevel.LOW
-            idle_signal = (
-                f"no monitoring data; node exists for {age_days:.0f}d with no "
-                f"observed activity (≥ {idle_days}d threshold) — existence "
-                "duration is not a reliable idle proxy"
-            )
-        else:
-            continue  # Too new or no age data — not enough signal
-
-        risk = _compute_risk(confidence, hourly)
-
-        runtime = (node.get("runtimeVersion") or "").strip()
         scheduling = node.get("schedulingConfig") or {}
-        preemptible = scheduling.get("preemptible", False)
-        spot = scheduling.get("spot", False)
+        preemptible = bool(scheduling.get("preemptible", False))
+        spot = bool(scheduling.get("spot", False))
+        reserved = bool(scheduling.get("reserved", False))
+        runtime = (node.get("runtimeVersion") or "").strip()
 
-        type_str = accel_type_legacy or tpu_type or "unknown"
-        hw_parts = [type_str]
+        age_days_val = (now - create_time).total_seconds() / 86400
+        accel_context = tpu_type or accel_type_legacy or "unknown"
+        hw_parts = [accel_context]
         if topology:
-            hw_parts.append(f"[{topology}]")
-        hw_parts.append(f"{chips} chip{'s' if chips != 1 else ''}")
-        hardware_label = ", ".join(hw_parts)
+            hw_parts.append(f"topology={topology}")
+        hw_label = " ".join(hw_parts)
 
-        age_str = f"{age_days:.1f}d" if age_days is not None else "unknown"
-        node_region = _zone_to_region(zone) if zone != "unknown" else "unknown"
-        # Pricing is a baseline estimate: us-central1 on-demand rate, not
-        # adjusted for actual region, committed use, or customer agreements.
-        pricing_note = (
-            f"baseline estimate, us-central1 on-demand (region: {node_region}, zone: {zone})"
-        )
-
-        scheduling_note: Optional[str] = None
+        scheduling_parts = []
         if spot:
-            scheduling_note = (
-                "Scheduling: spot — cost NOT adjusted for spot discount (~60–70% lower); "
-                "node may have been preempted rather than left idle"
-            )
-        elif preemptible:
-            scheduling_note = (
-                "Scheduling: preemptible — cost NOT adjusted for preemptible discount "
-                "(~30% lower); node may have been interrupted rather than left idle"
-            )
+            scheduling_parts.append("spot")
+        if preemptible:
+            scheduling_parts.append("preemptible")
+        if reserved:
+            scheduling_parts.append("reserved")
+        scheduling_context = ", ".join(scheduling_parts) or "on-demand"
 
+        # TODO (join barrier, spec 8.3): The last four signals are aspirational
+        # templates. Replace each [TODO: ...] entry with dynamically constructed
+        # strings derived from actual proven join/coverage/activity values when
+        # the join is implemented.
         signals = [
-            f"Node state: READY (billable) — age: {age_str}",
-            f"Idle signal: {idle_signal}",
-            f"Hardware: {hardware_label}",
-            f"Burn rate: ~${hourly:.2f}/hr ({chips} chip{'s' if chips != 1 else ''} "
-            f"× ${hourly / chips:.4g}/chip-hr; {pricing_note})",
+            f"State: READY (billable); zone: {zone}; region: {region}",
+            f"createTime: {create_time.isoformat()}; node age: {age_days_val:.1f}d",
+            f"Standalone: queuedResource={queued_resource!r}, multisliceNode={multislice!r}",
+            f"Accelerator: {hw_label}",
+            f"Scheduling: {scheduling_context}",
+            f"[TODO: Worker join — actual joined/expected worker counts; "
+            f"metric: {_DUTY_CYCLE_METRIC}]",
+            f"Metric: {_DUTY_CYCLE_METRIC} on {_DUTY_CYCLE_RESOURCE_TYPE}",
+            f"Idle window: {window_start.isoformat()} - {window_end.isoformat()} ({idle_days}d)",
+            f"Threshold: {_DUTY_CYCLE_THRESHOLD_PCT}% max duty cycle",
+            f"[TODO: telemetry confirmed no duty-cycle datapoint above "
+            f"{_DUTY_CYCLE_THRESHOLD_PCT}% over the full buffered window]",
         ]
         if runtime:
             signals.append(f"Runtime: {runtime}")
-        if scheduling_note:
-            signals.append(scheduling_note)
 
         not_checked = [
-            "Batch or scheduled jobs — duty_cycle captures real-time utilization only; "
-            "a node running nightly jobs may appear idle between runs; consider "
-            "increasing idle_days for batch workloads",
-            "Cost shown is a us-central1 on-demand baseline estimate; actual cost "
-            f"varies by region ({node_region}), committed use, spot/preemptible "
-            "discounts, and customer pricing agreements",
-            "duty_cycle metric not always emitted for newer TPU types (V5+, V6E) "
-            "or nodes that have never had a workload submitted — no data ≠ idle",
+            "Batch or scheduled jobs — duty_cycle captures real-time accelerator activity; "
+            "a node used only for nightly jobs may appear idle between runs",
+            "Cost impact — pricing varies by TPU type, region, and usage option; "
+            "no flat estimate is appropriate",
             "Nodes shared across teams where utilization is tracked externally",
         ]
 
-        evidence = Evidence(
-            signals_used=signals,
-            signals_not_checked=not_checked,
-            time_window=f"{idle_days}d",
-        )
-
         node_display = (node.get("description") or "").strip() or node_id
+
         findings.append(
             Finding(
                 provider="gcp",
                 rule_id="gcp.tpu.idle",
                 resource_type="gcp.tpu.node",
-                resource_id=name or node_id,
-                region=zone,
-                title=f"Idle Cloud TPU Node ({hardware_label})",
+                resource_id=name,
+                region=region,
+                title=f"Idle Cloud TPU Node ({accel_context})",
+                # TODO (join barrier): replace summary/reason with telemetry-confirmed
+                # text once the join is implemented (spec 8.3).
                 summary=(
-                    (
-                        f"Cloud TPU node '{node_display}' ({hardware_label}) has "
-                        f"near-zero utilization (max duty_cycle={node_duty_cycle:.1%}) "
-                        f"over the past {idle_days} days in READY state, "
-                        f"costing ~${hourly:.2f}/hr (~${monthly:,.0f}/mo)."
-                    )
-                    if node_duty_cycle is not None
-                    else (
-                        f"Cloud TPU node '{node_display}' ({hardware_label}) has existed "
-                        f"for ≥{idle_days} days in READY state with no utilization data "
-                        f"(heuristic: existence duration only — utilization unknown), "
-                        f"costing ~${hourly:.2f}/hr (~${monthly:,.0f}/mo)."
-                    )
+                    f"Cloud TPU node '{node_display}' ({accel_context}) has been in "
+                    f"READY state for {age_days_val:.0f}d. "
+                    f"[TODO: add joined duty-cycle telemetry confirmation (spec 8.3)]"
                 ),
                 reason=(
-                    (
-                        f"TPU node in READY state with near-zero utilization "
-                        f"(duty_cycle ≤ {_DUTY_CYCLE_IDLE_THRESHOLD:.0%}) "
-                        f"for {idle_days} days"
-                    )
-                    if node_duty_cycle is not None
-                    else (
-                        f"TPU node in READY state for ≥{idle_days} days "
-                        f"(heuristic: age only — no utilization data available)"
-                    )
+                    f"TPU node in READY state "
+                    f"[TODO: add duty-cycle verdict — max <= {_DUTY_CYCLE_THRESHOLD_PCT}% "
+                    f"over {idle_days}d window (spec 8.3)]"
                 ),
-                risk=risk,
-                confidence=confidence,
+                risk=RiskLevel.HIGH,
+                confidence=ConfidenceLevel.HIGH,
                 detected_at=now,
-                evidence=evidence,
-                estimated_monthly_cost_usd=round(monthly, 2),
+                evidence=Evidence(
+                    signals_used=signals,
+                    signals_not_checked=not_checked,
+                    time_window=f"{idle_days}d",
+                ),
+                estimated_monthly_cost_usd=None,
                 details={
                     "node_name": name,
                     "node_id": node_id,
                     "zone": zone,
-                    "region": node_region,
+                    "region": region,
                     "tpu_type": tpu_type or accel_type_legacy or None,
                     "topology": topology or None,
-                    "chip_count": chips,
-                    "chip_count_approximate": chip_count_approximate,
                     "runtime_version": runtime or None,
                     "preemptible": preemptible,
                     "spot": spot,
-                    "age_days": round(age_days, 1) if age_days is not None else None,
-                    "max_duty_cycle": node_duty_cycle,
+                    "reserved": reserved,
+                    "age_days": round(age_days_val, 1),
                     "idle_days_threshold": idle_days,
-                    "hourly_cost_usd": round(hourly, 4),
-                    "pricing_confidence": pricing_confidence,
-                    "pricing_scope": "us_central1_reference_not_region_adjusted",
+                    "duty_cycle_threshold_pct": _DUTY_CYCLE_THRESHOLD_PCT,
+                    "monitoring_buffer_seconds": _MONITORING_BUFFER_SECONDS,
+                    # All three telemetry state fields are "unresolved" today (join barrier,
+                    # spec 8.3). When the join is implemented, set each dynamically:
+                    #   telemetry_join_state     — proven join state, e.g. "complete"
+                    #   telemetry_coverage_state — coverage verdict from 8.4, e.g. "complete"
+                    #   telemetry_state          — overall verdict, e.g. "confirmed_idle"
+                    "telemetry_join_state": "unresolved",
+                    "telemetry_coverage_state": "unresolved",
+                    "telemetry_state": "unresolved",
                 },
             )
         )
 
-    if unmatched_node_ids:
-        warnings.warn(
-            f"gcp.tpu.idle: {len(unmatched_node_ids)} node(s) in project '{project_id}' "
-            f"had no duty_cycle data in monitoring — key may not match monitoring label; "
-            f"fell back to age-based detection. Node IDs: {', '.join(unmatched_node_ids)}",
-            stacklevel=2,
-        )
-
     return findings
+
+
+find_idle_tpu_nodes.RULE_ID = "gcp.tpu.idle"

@@ -2,43 +2,56 @@
 Tests for gcp.vertex.featurestore.idle rule.
 
 Coverage:
-- Legacy featurestore: monitoring confirms zero requests → HIGH confidence
-- Legacy featurestore: age-based fallback → MEDIUM confidence
-- Legacy featurestore: active (requests > 0) → no finding
-- Legacy featurestore: no online serving (fixedNodeCount=0) → no finding
+- Legacy featurestore: monitoring confirmed_zero → HIGH confidence / HIGH risk
+- Legacy featurestore: positive_activity → no finding
+- Legacy featurestore: unresolved coverage → no finding (no age fallback)
+- Legacy featurestore: no online serving capacity → no finding
 - Legacy featurestore: non-STABLE state → no finding
-- New featureOnlineStore (Bigtable): monitoring idle → HIGH confidence
-- New featureOnlineStore (Optimized): idle → finding with estimated cost
+- Legacy featurestore: UPDATING state → no finding
+- Legacy featurestore: invalid mode (both fixedNodeCount + scaling present) → no finding
+- Legacy featurestore: autoscaled (scaling.minNodeCount) → finding
+- Legacy featurestore: too young for full window → no finding
+- Legacy featurestore: future reference_time → no finding
+- FeatureOnlineStore (Bigtable): confirmed_zero → HIGH confidence / HIGH risk
+- FeatureOnlineStore (Bigtable): positive_activity → no finding
+- FeatureOnlineStore (Bigtable): optimized → skipped (out of scope)
+- FeatureOnlineStore (Bigtable): maxNodeCount < minNodeCount → skipped
+- FeatureOnlineStore (Bigtable): missing autoScaling → skipped
+- FeatureOnlineStore: minNodeCount == 0 → skipped
+- Region filter: exact equality (not prefix)
+- estimated_monthly_cost_usd always None
 - Permission error (403) → raises PermissionError
 - API not enabled (404) → returns []
-- Region filter: stores in other regions skipped
-- Cost: fixedNodeCount × $0.27/hr × 730 h/month
-- Monitoring failure → age fallback (no exception raised)
-- Node too young + no monitoring → no finding
+- Monitoring client creation failure → no findings (no age fallback)
 - Both resource types produce findings independently
-- estimated_monthly_cost_usd is always set
+- reference_time = max(createTime, updateTime)
+- _query_store_activity coverage unit tests
 """
 
+import warnings
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+from google.api import metric_pb2
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.risk import RiskLevel
 from cleancloud.providers.gcp.rules.ai.featurestore_idle import (
-    _BIGTABLE_NODE_HOURLY_COST,
     _DEFAULT_IDLE_DAYS,
-    _HOURS_PER_MONTH,
-    _OPTIMIZED_STORE_MONTHLY_COST,
-    _age_days,
+    _LEGACY_METRIC,
+    _METRIC_KIND_DELTA,
+    _NEW_METRIC,
     _parse_location,
     _parse_resource_id,
+    _parse_rfc3339,
+    _query_store_activity,
+    _resolve_reference_time,
     find_idle_featurestores,
 )
 
 # ---------------------------------------------------------------------------
-# Constants
+# Test constants
 # ---------------------------------------------------------------------------
 
 NOW = datetime(2025, 7, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -61,21 +74,24 @@ def _make_legacy_store(
     state: str = "STABLE",
     node_count: int = 1,
     age_days: float = 60.0,
-    display_name: str = "",
     autoscaled: bool = False,
+    update_age_days: float = None,
 ) -> dict:
     create_dt = NOW - timedelta(days=age_days)
-    if autoscaled:
-        serving_config = {"scaling": {"minNodeCount": node_count, "maxNodeCount": node_count * 2}}
-    else:
-        serving_config = {"fixedNodeCount": node_count}
-    return {
+    store: dict = {
         "name": f"projects/{_PROJECT}/locations/{region}/featurestores/{store_id}",
-        "displayName": display_name,
         "state": state,
-        "onlineServingConfig": serving_config,
         "createTime": _iso(create_dt),
     }
+    if update_age_days is not None:
+        store["updateTime"] = _iso(NOW - timedelta(days=update_age_days))
+    if autoscaled:
+        store["onlineServingConfig"] = {
+            "scaling": {"minNodeCount": node_count, "maxNodeCount": node_count * 2}
+        }
+    else:
+        store["onlineServingConfig"] = {"fixedNodeCount": node_count}
+    return store
 
 
 def _make_new_store(
@@ -83,54 +99,56 @@ def _make_new_store(
     region: str = "us-central1",
     state: str = "STABLE",
     min_nodes: int = 1,
+    max_nodes: int = None,
     is_optimized: bool = False,
     age_days: float = 60.0,
-    display_name: str = "",
+    update_age_days: float = None,
+    missing_autoscaling: bool = False,
 ) -> dict:
     create_dt = NOW - timedelta(days=age_days)
     store: dict = {
-        "name": (f"projects/{_PROJECT}/locations/{region}" f"/featureOnlineStores/{store_id}"),
-        "displayName": display_name,
+        "name": (f"projects/{_PROJECT}/locations/{region}/featureOnlineStores/{store_id}"),
         "state": state,
         "createTime": _iso(create_dt),
     }
+    if update_age_days is not None:
+        store["updateTime"] = _iso(NOW - timedelta(days=update_age_days))
     if is_optimized:
         store["optimized"] = {}
-    else:
+    elif not missing_autoscaling:
+        effective_max = max_nodes if max_nodes is not None else min_nodes * 2
         store["bigtable"] = {
-            "autoScaling": {"minNodeCount": min_nodes, "maxNodeCount": min_nodes * 2}
+            "autoScaling": {"minNodeCount": min_nodes, "maxNodeCount": effective_max}
         }
+    else:
+        store["bigtable"] = {}  # autoScaling absent
     return store
-
-
-def _make_monitoring_ts(store_id: str, label_key: str, total_count: int):
-    """Build a mock monitoring time-series."""
-    point = MagicMock()
-    point.value.int64_value = total_count
-    ts = MagicMock()
-    ts.resource.labels = {label_key: store_id}
-    ts.points = [point]
-    return ts
 
 
 def _run(
     legacy_stores: list = (),
     new_stores: list = (),
-    legacy_counts: dict[str, int] | None = None,
-    new_counts: dict[str, int] | None = None,
+    legacy_activities: dict = None,  # store_id → "confirmed_zero"|"positive_activity"|"unresolved"
+    new_activities: dict = None,
     region_filter=None,
     idle_days: int = _IDLE_DAYS,
     legacy_list_status: int = 200,
     new_list_status: int = 200,
-    monitoring_raises: Exception | None = None,
+    monitoring_client_fails: bool = False,
 ):
-    """Run find_idle_featurestores with mocked HTTP and monitoring."""
+    """
+    Run find_idle_featurestores with mocked HTTP, mocked _query_store_activity,
+    and a fixed 'now'.
+    """
+    legacy_activities = legacy_activities or {}
+    new_activities = new_activities or {}
     credentials = MagicMock()
 
     def _make_list_resp(status: int, data_key: str, items: list) -> MagicMock:
         resp = MagicMock()
         resp.status_code = status
         resp.json.return_value = {data_key: list(items)}
+        resp.raise_for_status = MagicMock()
         return resp
 
     legacy_resp = _make_list_resp(legacy_list_status, "featurestores", legacy_stores)
@@ -144,34 +162,51 @@ def _run(
     mock_session = MagicMock()
     mock_session.get.side_effect = _get_side_effect
 
-    def _monitoring_side_effect(request=None, **kwargs):
-        if monitoring_raises:
-            raise monitoring_raises
-        metric = (request or {}).get("filter", "")
-        if "featureonlinestore" in metric:
-            store_counts = new_counts or {}
-            label_key = "feature_online_store_id"
-        else:
-            store_counts = legacy_counts or {}
-            label_key = "featurestore_id"
-        return [_make_monitoring_ts(sid, label_key, count) for sid, count in store_counts.items()]
+    def _mock_query(
+        client,
+        project_id,
+        store_id,
+        region,
+        metric_type,
+        resource_type,
+        id_label,
+        window_start,
+        window_end,
+        idle_days_arg,
+    ):
+        if "featureonlinestore" in metric_type:
+            return new_activities.get(store_id, "unresolved")
+        return legacy_activities.get(store_id, "unresolved")
 
-    mock_monitoring = MagicMock()
-    mock_monitoring.list_time_series.side_effect = _monitoring_side_effect
+    monitoring_patch = (
+        patch(
+            "cleancloud.providers.gcp.rules.ai.featurestore_idle."
+            "monitoring_v3.MetricServiceClient",
+            side_effect=Exception("monitoring unavailable"),
+        )
+        if monitoring_client_fails
+        else patch(
+            "cleancloud.providers.gcp.rules.ai.featurestore_idle."
+            "monitoring_v3.MetricServiceClient",
+            return_value=MagicMock(),
+        )
+    )
 
     with (
         patch(
             "cleancloud.providers.gcp.rules.ai.featurestore_idle.AuthorizedSession",
             return_value=mock_session,
         ),
+        monitoring_patch,
         patch(
-            "cleancloud.providers.gcp.rules.ai.featurestore_idle.monitoring_v3.MetricServiceClient",
-            return_value=mock_monitoring,
+            "cleancloud.providers.gcp.rules.ai.featurestore_idle._query_store_activity",
+            side_effect=_mock_query,
         ),
         patch("cleancloud.providers.gcp.rules.ai.featurestore_idle.datetime") as mock_dt,
     ):
         mock_dt.now.return_value = NOW
         mock_dt.fromisoformat = datetime.fromisoformat
+        mock_dt.fromtimestamp = datetime.fromtimestamp
         findings = find_idle_featurestores(
             project_id=_PROJECT,
             credentials=credentials,
@@ -191,33 +226,220 @@ class TestParseHelpers:
         name = f"projects/{_PROJECT}/locations/us-central1/featurestores/s1"
         assert _parse_location(name) == "us-central1"
 
+    def test_parse_location_missing(self):
+        assert _parse_location("bad-name") is None
+        assert _parse_location("") is None
+
     def test_parse_resource_id(self):
         name = f"projects/{_PROJECT}/locations/us-central1/featurestores/my-store"
         assert _parse_resource_id(name) == "my-store"
 
-    def test_age_days_valid(self):
-        create_dt = NOW - timedelta(days=45)
-        age = _age_days(_iso(create_dt), NOW)
-        assert age == pytest.approx(45.0, abs=0.01)
+    def test_parse_rfc3339_valid(self):
+        ts = "2025-05-01T12:00:00Z"
+        dt = _parse_rfc3339(ts)
+        assert dt is not None
+        assert dt.tzinfo is not None
+        assert dt.year == 2025 and dt.month == 5 and dt.day == 1
 
-    def test_age_days_invalid(self):
-        assert _age_days("not-a-date", NOW) is None
+    def test_parse_rfc3339_offset_normalized_to_utc(self):
+        """spec 7: non-UTC offsets must be normalized to UTC before comparison."""
+        # +05:30 offset — value = 2025-05-01T06:30:00Z in UTC
+        ts = "2025-05-01T12:00:00+05:30"
+        dt = _parse_rfc3339(ts)
+        assert dt is not None
+        assert dt.tzinfo == timezone.utc
+        assert dt.hour == 6 and dt.minute == 30
 
-    def test_age_days_empty(self):
-        assert _age_days("", NOW) is None
+    def test_parse_rfc3339_invalid(self):
+        assert _parse_rfc3339("not-a-date") is None
+
+    def test_parse_rfc3339_empty(self):
+        assert _parse_rfc3339("") is None
+
+    def test_resolve_reference_time_both_present(self):
+        create = _iso(NOW - timedelta(days=60))
+        update = _iso(NOW - timedelta(days=10))
+        ref = _resolve_reference_time(create, update, NOW)
+        # max(60 days ago, 10 days ago) = 10 days ago
+        assert ref == NOW - timedelta(days=10)
+
+    def test_resolve_reference_time_only_create(self):
+        create = _iso(NOW - timedelta(days=45))
+        ref = _resolve_reference_time(create, "", NOW)
+        assert ref == NOW - timedelta(days=45)
+
+    def test_resolve_reference_time_future_discarded(self):
+        create = _iso(NOW - timedelta(days=60))
+        update = _iso(NOW + timedelta(days=1))  # future
+        ref = _resolve_reference_time(create, update, NOW)
+        # future updateTime is discarded, falls back to createTime
+        assert ref == NOW - timedelta(days=60)
+
+    def test_resolve_reference_time_both_future(self):
+        create = _iso(NOW + timedelta(days=1))
+        update = _iso(NOW + timedelta(days=2))
+        assert _resolve_reference_time(create, update, NOW) is None
+
+    def test_resolve_reference_time_both_missing(self):
+        assert _resolve_reference_time("", "", NOW) is None
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — legacy featurestores
+# Unit tests — _query_store_activity
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_point(val: int, seconds_offset: int, window_end: datetime):
+    """Build a mock monitoring point with a specific value and timestamp."""
+    p = MagicMock()
+    p.value.WhichOneof.return_value = "int64_value"
+    p.value.int64_value = val
+    ts_dt = window_end - timedelta(seconds=seconds_offset)
+    p.interval.end_time.seconds = int(ts_dt.timestamp())
+    p.interval.end_time.nanos = 0
+    return p
+
+
+class TestQueryStoreActivity:
+    _WINDOW_START = NOW - timedelta(days=3)
+    _WINDOW_END = NOW
+
+    def _run_query(self, series_list):
+        client = MagicMock()
+        client.list_time_series.return_value = series_list
+        return _query_store_activity(
+            client,
+            _PROJECT,
+            "store1",
+            "us-central1",
+            _LEGACY_METRIC,
+            "aiplatform.googleapis.com/Featurestore",
+            "featurestore_id",
+            self._WINDOW_START,
+            self._WINDOW_END,
+            3,
+        )
+
+    def _make_series(self, vals):
+        """Make a series with one point per aligned bucket, DELTA kind."""
+        points = [_make_mock_point(v, i * 86400, self._WINDOW_END) for i, v in enumerate(vals)]
+        series = MagicMock()
+        series.points = points
+        series.metric_kind = _METRIC_KIND_DELTA
+        return series
+
+    def test_confirmed_zero_returns_correct(self):
+        series = self._make_series([0, 0, 0])
+        assert self._run_query([series]) == "confirmed_zero"
+
+    def test_positive_activity_detected(self):
+        series = self._make_series([0, 5, 0])
+        assert self._run_query([series]) == "positive_activity"
+
+    def test_zero_series_returns_unresolved(self):
+        assert self._run_query([]) == "unresolved"
+
+    def test_two_series_returns_unresolved(self):
+        s1 = self._make_series([0, 0, 0])
+        s2 = self._make_series([0, 0, 0])
+        assert self._run_query([s1, s2]) == "unresolved"
+
+    def test_wrong_point_count_returns_unresolved(self):
+        series = self._make_series([0, 0])  # 2 points, expected 3
+        assert self._run_query([series]) == "unresolved"
+
+    def test_unrecognized_value_type_returns_unresolved(self):
+        p = MagicMock()
+        p.value.WhichOneof.return_value = "string_value"
+        p.interval.end_time.seconds = int(self._WINDOW_END.timestamp())
+        p.interval.end_time.nanos = 0
+        series = MagicMock()
+        series.points = [p, p, p]
+        series.metric_kind = _METRIC_KIND_DELTA
+        assert self._run_query([series]) == "unresolved"
+
+    def test_future_timestamp_returns_unresolved(self):
+        # One point falls outside the expected bucket boundaries
+        p_ok = _make_mock_point(0, 86400, self._WINDOW_END)
+        p_future = _make_mock_point(0, 0, self._WINDOW_END)
+        p_future.interval.end_time.seconds = int(
+            (self._WINDOW_END + timedelta(hours=1)).timestamp()
+        )
+        series = MagicMock()
+        series.points = [p_ok, p_ok, p_future]
+        series.metric_kind = _METRIC_KIND_DELTA
+        assert self._run_query([series]) == "unresolved"
+
+    def test_gap_exceeding_alignment_period_returns_unresolved(self):
+        # Points not aligned to expected bucket boundaries (off by 1 second)
+        p1 = _make_mock_point(0, 0, self._WINDOW_END)
+        p2 = _make_mock_point(0, 86401 + 86400, self._WINDOW_END)  # off by 1s from bucket
+        p3 = _make_mock_point(0, 86401 + 86400 * 2, self._WINDOW_END)
+        series = MagicMock()
+        series.points = [p1, p2, p3]
+        series.metric_kind = _METRIC_KIND_DELTA
+        assert self._run_query([series]) == "unresolved"
+
+    def test_double_value_type_accepted(self):
+        """double_value metric kind is accepted alongside int64_value."""
+
+        # Use distinct aligned bucket timestamps (one point per bucket)
+        def _double_point(offset_seconds):
+            p = MagicMock()
+            p.value.WhichOneof.return_value = "double_value"
+            p.value.double_value = 0.0
+            ts_dt = self._WINDOW_END - timedelta(seconds=offset_seconds)
+            p.interval.end_time.seconds = int(ts_dt.timestamp())
+            p.interval.end_time.nanos = 0
+            return p
+
+        series = MagicMock()
+        series.points = [_double_point(0), _double_point(86400), _double_point(2 * 86400)]
+        series.metric_kind = _METRIC_KIND_DELTA
+        assert self._run_query([series]) == "confirmed_zero"
+
+    def test_metric_kind_non_delta_returns_unresolved(self):
+        """spec 8.3 point 5: GAUGE or CUMULATIVE metric kind must return unresolved."""
+        series = self._make_series([0, 0, 0])
+        series.metric_kind = int(metric_pb2.MetricDescriptor.MetricKind.GAUGE)
+        assert self._run_query([series]) == "unresolved"
+
+    def test_shifted_buckets_return_unresolved(self):
+        """spec 8.4 point 3: points not aligned to expected bucket ends are rejected."""
+        # Shift all points by +1 second — evenly spaced but wrong boundaries
+        series = self._make_series([0, 0, 0])
+        for p in series.points:
+            p.interval.end_time.seconds += 1
+        assert self._run_query([series]) == "unresolved"
+
+    def test_query_exception_propagates(self):
+        """spec 11.4: RPC failures propagate rather than silently returning 'unresolved'."""
+        client = MagicMock()
+        client.list_time_series.side_effect = RuntimeError("network failure")
+        with pytest.raises(RuntimeError, match="network failure"):
+            _query_store_activity(
+                client,
+                _PROJECT,
+                "store1",
+                "us-central1",
+                _LEGACY_METRIC,
+                "aiplatform.googleapis.com/Featurestore",
+                "featurestore_id",
+                self._WINDOW_START,
+                self._WINDOW_END,
+                3,
+            )
+
+
+# ---------------------------------------------------------------------------
+# Legacy featurestore tests
 # ---------------------------------------------------------------------------
 
 
 class TestLegacyFeaturestore:
     def test_idle_high_confidence(self):
-        """Monitoring confirms 0 requests → HIGH confidence."""
         store = _make_legacy_store(store_id="s1", node_count=2, age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
-
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
         assert len(findings) == 1
         f = findings[0]
         assert f.confidence == ConfidenceLevel.HIGH
@@ -226,209 +448,425 @@ class TestLegacyFeaturestore:
         assert f.resource_type == "gcp.vertex.featurestore"
 
     def test_active_store_skipped(self):
-        """Monitoring shows non-zero requests → no finding."""
         store = _make_legacy_store(store_id="s1", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 500})
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "positive_activity"})
+        assert findings == []
+
+    def test_unresolved_coverage_skips_not_falls_back(self):
+        """Unresolved monitoring must skip — no age-only fallback (spec 8.5)."""
+        store = _make_legacy_store(store_id="s1", age_days=60)
+        findings = _run(legacy_stores=[store])  # no activity entry → unresolved
         assert findings == []
 
     def test_no_online_serving_skipped(self):
-        """fixedNodeCount=0 → no online serving cost, skip."""
         store = _make_legacy_store(store_id="s1", node_count=0, age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
         assert findings == []
 
     def test_non_stable_state_skipped(self):
-        """UPDATING store → not stably billable, skip."""
         store = _make_legacy_store(store_id="s1", state="UPDATING", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
         assert findings == []
 
-    def test_age_based_fallback(self):
-        """No monitoring data + old store → LOW confidence (heuristic: age only)."""
+    def test_invalid_mode_both_present_skipped(self):
+        """Both fixedNodeCount and scaling.minNodeCount materially present → invalid."""
         store = _make_legacy_store(store_id="s1", age_days=60)
-        findings = _run(legacy_stores=[store])  # no legacy_counts → no monitoring data
-
-        assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.LOW
-        assert findings[0].risk == RiskLevel.MEDIUM
-
-    def test_store_too_young_no_monitoring(self):
-        """No monitoring data + store younger than threshold → no finding."""
-        store = _make_legacy_store(store_id="s1", age_days=10)
-        findings = _run(legacy_stores=[store])
+        store["onlineServingConfig"] = {
+            "fixedNodeCount": 2,
+            "scaling": {"minNodeCount": 1},
+        }
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
         assert findings == []
 
-    def test_cost_single_node(self):
-        """1-node store: $0.27/hr × 730 h/month."""
-        store = _make_legacy_store(store_id="s1", node_count=1, age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
+    def test_autoscaled_store_included(self):
+        store = _make_legacy_store(store_id="s1", node_count=2, age_days=60, autoscaled=True)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert len(findings) == 1
+        assert findings[0].details["legacy_serving_mode"] == "autoscaled"
+        assert findings[0].details["provisioned_node_floor"] == 2
 
-        expected_monthly = _BIGTABLE_NODE_HOURLY_COST * 1 * _HOURS_PER_MONTH
-        assert findings[0].estimated_monthly_cost_usd == pytest.approx(expected_monthly, rel=1e-3)
-        assert findings[0].details["bigtable_node_count"] == 1
+    def test_autoscaled_zero_min_nodes_excluded(self):
+        store = _make_legacy_store(store_id="s1", node_count=0, age_days=60, autoscaled=True)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert findings == []
 
-    def test_cost_three_nodes(self):
-        """3-node HA store: $0.27 × 3 × 730 ≈ $591/mo."""
-        store = _make_legacy_store(store_id="s1", node_count=3, age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
+    def test_too_young_for_full_window_skipped(self):
+        """Store created 20 days ago cannot cover a 30-day window."""
+        store = _make_legacy_store(store_id="s1", age_days=20)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert findings == []
 
-        expected_monthly = _BIGTABLE_NODE_HOURLY_COST * 3 * _HOURS_PER_MONTH
-        assert findings[0].estimated_monthly_cost_usd == pytest.approx(expected_monthly, rel=1e-3)
+    def test_old_enough_for_window_included(self):
+        store = _make_legacy_store(store_id="s1", age_days=45)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert len(findings) == 1
+
+    def test_reference_time_uses_update_time_when_newer(self):
+        """updateTime newer than createTime → reference_time = updateTime."""
+        # Store created 90 days ago, updated 20 days ago — too recent for 30-day window
+        store = _make_legacy_store(store_id="s1", age_days=90, update_age_days=20)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert findings == []
+
+    def test_reference_time_create_used_when_no_update(self):
+        """No updateTime → reference_time = createTime; 60-day-old store passes."""
+        store = _make_legacy_store(store_id="s1", age_days=60)
+        assert "updateTime" not in store
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert len(findings) == 1
+
+    def test_monitoring_client_failure_skips_not_fallback(self):
+        """Monitoring client creation failure → skip with operational warning (spec 11.4)."""
+        store = _make_legacy_store(store_id="s1", age_days=60)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            findings = _run(
+                legacy_stores=[store],
+                legacy_activities={"s1": "confirmed_zero"},
+                monitoring_client_fails=True,
+            )
+        assert findings == []
+        assert any("monitoring client creation failed" in str(w.message) for w in caught)
+
+    def test_malformed_legacy_config_skipped(self):
+        """Malformed onlineServingConfig must skip item, not abort the rule (spec 11.3)."""
+        bad_store = _make_legacy_store(store_id="bad", age_days=60)
+        bad_store["onlineServingConfig"] = {"fixedNodeCount": "not-an-int"}
+        good_store = _make_legacy_store(store_id="good", age_days=60)
+        findings = _run(
+            legacy_stores=[bad_store, good_store],
+            legacy_activities={"bad": "confirmed_zero", "good": "confirmed_zero"},
+        )
+        assert len(findings) == 1
+        assert findings[0].details["store_id"] == "good"
+
+    def test_monitoring_query_exception_skips_with_warning(self):
+        """Per-store RPC failure → skip store + emit UserWarning (spec 11.4)."""
+        store = _make_legacy_store(store_id="s1", age_days=60)
+        credentials = MagicMock()
+
+        legacy_resp = MagicMock()
+        legacy_resp.status_code = 200
+        legacy_resp.json.return_value = {"featurestores": [store]}
+        legacy_resp.raise_for_status = MagicMock()
+        new_resp = MagicMock()
+        new_resp.status_code = 200
+        new_resp.json.return_value = {"featureOnlineStores": []}
+        new_resp.raise_for_status = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.side_effect = lambda url, **kw: (
+            new_resp if "featureOnlineStores" in url else legacy_resp
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with (
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle.AuthorizedSession",
+                    return_value=mock_session,
+                ),
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle"
+                    ".monitoring_v3.MetricServiceClient",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle._query_store_activity",
+                    side_effect=RuntimeError("simulated RPC failure"),
+                ),
+                patch("cleancloud.providers.gcp.rules.ai.featurestore_idle.datetime") as mock_dt,
+            ):
+                mock_dt.now.return_value = NOW
+                mock_dt.fromisoformat = datetime.fromisoformat
+                mock_dt.fromtimestamp = datetime.fromtimestamp
+                findings = find_idle_featurestores(project_id=_PROJECT, credentials=credentials)
+
+        assert findings == []
+        assert any(
+            "monitoring query failed" in str(w.message) and "s1" in str(w.message) for w in caught
+        )
 
     def test_permission_error_on_403(self):
-        """403 on legacy list → PermissionError."""
         with pytest.raises(PermissionError, match="aiplatform.featurestores.list"):
             _run(legacy_list_status=403)
 
     def test_api_not_enabled_returns_empty(self):
-        """404 on legacy list → no findings (not an error)."""
         findings = _run(legacy_list_status=404)
         assert findings == []
 
-    def test_region_filter_matches(self):
+    def test_region_filter_exact_match(self):
         store = _make_legacy_store(store_id="s1", region="us-central1", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0}, region_filter="us-central1")
+        findings = _run(
+            legacy_stores=[store],
+            legacy_activities={"s1": "confirmed_zero"},
+            region_filter="us-central1",
+        )
         assert len(findings) == 1
 
-    def test_region_filter_excludes(self):
+    def test_region_filter_excludes_non_matching(self):
         store = _make_legacy_store(store_id="s1", region="europe-west4", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0}, region_filter="us-central1")
+        findings = _run(
+            legacy_stores=[store],
+            legacy_activities={"s1": "confirmed_zero"},
+            region_filter="us-central1",
+        )
         assert findings == []
+
+    def test_region_filter_is_exact_not_prefix(self):
+        """region_filter='us' must NOT match 'us-central1' (spec 7: exact equality)."""
+        store = _make_legacy_store(store_id="s1", region="us-central1", age_days=60)
+        findings = _run(
+            legacy_stores=[store],
+            legacy_activities={"s1": "confirmed_zero"},
+            region_filter="us",
+        )
+        assert findings == []
+
+    def test_estimated_monthly_cost_always_none(self):
+        store = _make_legacy_store(store_id="s1", node_count=3, age_days=60)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        assert findings[0].estimated_monthly_cost_usd is None
 
     def test_details_fields(self):
         store = _make_legacy_store(store_id="s1", region="us-central1", node_count=2, age_days=45)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
         d = findings[0].details
         assert d["store_id"] == "s1"
-        assert d["store_type"] == "legacy_featurestore"
+        assert d["store_family"] == "legacy_featurestore"
+        assert d["state"] == "STABLE"
         assert d["region"] == "us-central1"
-        assert d["bigtable_node_count"] == 2
-        assert d["request_count"] == 0
+        assert d["provisioned_node_floor"] == 2
+        assert d["metric_type"] == _LEGACY_METRIC
+        assert d["metric_coverage_state"] == "full_window"
+        assert d["telemetry_state"] == "confirmed_zero"
+        assert d["request_count_total"] == 0
         assert d["idle_days_threshold"] == _IDLE_DAYS
-        assert d["pricing_confidence"] == "published"
 
-    def test_monitoring_error_age_fallback(self):
-        """Monitoring raises exception → falls back to age-based detection (LOW confidence)."""
-        store = _make_legacy_store(store_id="s1", age_days=60)
+    def test_details_fixed_node_count_present(self):
+        store = _make_legacy_store(store_id="s1", node_count=1, age_days=60, autoscaled=False)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        d = findings[0].details
+        assert d["legacy_serving_mode"] == "fixed"
+        assert "fixed_node_count" in d
+        assert "scaling_min_node_count" not in d
+
+    def test_details_scaling_min_node_count_present_for_autoscaled(self):
+        store = _make_legacy_store(store_id="s1", node_count=2, age_days=60, autoscaled=True)
+        findings = _run(legacy_stores=[store], legacy_activities={"s1": "confirmed_zero"})
+        d = findings[0].details
+        assert d["legacy_serving_mode"] == "autoscaled"
+        assert "scaling_min_node_count" in d
+        assert "fixed_node_count" not in d
+
+    def test_custom_idle_days_respected(self):
+        """idle_days=10: store 15 days old is old enough; store 8 days old is not."""
+        old_enough = _make_legacy_store(store_id="s1", age_days=15)
+        too_young = _make_legacy_store(store_id="s2", age_days=8)
         findings = _run(
-            legacy_stores=[store],
-            monitoring_raises=Exception("monitoring down"),
+            legacy_stores=[old_enough, too_young],
+            legacy_activities={"s1": "confirmed_zero", "s2": "confirmed_zero"},
+            idle_days=10,
         )
         assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.LOW
-
-    def test_estimated_monthly_cost_set(self):
-        store = _make_legacy_store(store_id="s1", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
-        assert findings[0].estimated_monthly_cost_usd is not None
-        assert findings[0].estimated_monthly_cost_usd > 0
-
-    def test_display_name_in_summary(self):
-        store = _make_legacy_store(store_id="s1", display_name="prod-features", age_days=60)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
-        assert "prod-features" in findings[0].summary
-
-    def test_custom_idle_days(self):
-        """Custom idle_days is respected for age-based fallback (LOW confidence)."""
-        store = _make_legacy_store(store_id="s1", age_days=15)
-        findings = _run(legacy_stores=[store], idle_days=10)
-        assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.LOW
-
-    def test_autoscaled_store_included(self):
-        """Autoscaled legacy store (scaling.minNodeCount) is in scope."""
-        store = _make_legacy_store(store_id="s1", node_count=2, age_days=60, autoscaled=True)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
-        assert len(findings) == 1
-        f = findings[0]
-        assert f.confidence == ConfidenceLevel.HIGH
-        assert f.details["bigtable_node_count"] == 2
-        assert f.details["bigtable_scaling"] == "autoscaled"
-        expected_monthly = _BIGTABLE_NODE_HOURLY_COST * 2 * _HOURS_PER_MONTH
-        assert f.estimated_monthly_cost_usd == pytest.approx(expected_monthly, rel=1e-3)
-
-    def test_autoscaled_store_zero_min_nodes_excluded(self):
-        """Autoscaled store with minNodeCount=0 has no online serving cost — skip."""
-        store = _make_legacy_store(store_id="s1", node_count=0, age_days=60, autoscaled=True)
-        findings = _run(legacy_stores=[store], legacy_counts={"s1": 0})
-        assert findings == []
+        assert findings[0].details["store_id"] == "s1"
 
 
 # ---------------------------------------------------------------------------
-# Integration tests — new featureOnlineStores
+# FeatureOnlineStore tests
 # ---------------------------------------------------------------------------
 
 
 class TestFeatureOnlineStore:
     def test_bigtable_store_idle_high_confidence(self):
-        """New Bigtable-backed store: monitoring idle → HIGH confidence."""
         store = _make_new_store(store_id="fos1", min_nodes=2, age_days=45)
-        findings = _run(new_stores=[store], new_counts={"fos1": 0})
-
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
         assert len(findings) == 1
         f = findings[0]
         assert f.confidence == ConfidenceLevel.HIGH
+        assert f.risk == RiskLevel.HIGH
         assert f.resource_type == "gcp.vertex.feature_online_store"
-        assert f.details["store_type"] == "feature_online_store"
-        assert f.details["backing"] == "bigtable"
-
-    def test_optimized_store_idle(self):
-        """Optimized (BigQuery-backed) store: idle → estimated cost."""
-        store = _make_new_store(store_id="fos1", is_optimized=True, age_days=45)
-        findings = _run(new_stores=[store], new_counts={"fos1": 0})
-
-        assert len(findings) == 1
-        f = findings[0]
-        assert f.details["backing"] == "optimized"
-        assert f.details["pricing_confidence"] == "estimated"
-        assert f.estimated_monthly_cost_usd == pytest.approx(_OPTIMIZED_STORE_MONTHLY_COST)
 
     def test_active_new_store_skipped(self):
-        """New store with non-zero requests → no finding."""
         store = _make_new_store(store_id="fos1", age_days=45)
-        findings = _run(new_stores=[store], new_counts={"fos1": 1000})
+        findings = _run(new_stores=[store], new_activities={"fos1": "positive_activity"})
         assert findings == []
 
-    def test_new_store_permission_error(self):
-        """403 on featureOnlineStores list → PermissionError."""
+    def test_unresolved_coverage_skips(self):
+        store = _make_new_store(store_id="fos1", age_days=45)
+        findings = _run(new_stores=[store])  # no activity entry → unresolved
+        assert findings == []
+
+    def test_optimized_store_skipped(self):
+        """Optimized (BigQuery-backed) stores are out of scope (spec 9.3)."""
+        store = _make_new_store(store_id="fos1", is_optimized=True, age_days=45)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_non_stable_state_skipped(self):
+        store = _make_new_store(store_id="fos1", state="UPDATING", age_days=60)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_too_young_for_window_skipped(self):
+        store = _make_new_store(store_id="fos1", age_days=20)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_missing_autoscaling_skipped(self):
+        """bigtable.autoScaling absent → unusable → skip (spec 7)."""
+        store = _make_new_store(store_id="fos1", age_days=60, missing_autoscaling=True)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_min_nodes_zero_skipped(self):
+        store = _make_new_store(store_id="fos1", min_nodes=0, age_days=60)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_max_nodes_less_than_min_skipped(self):
+        """maxNodeCount < minNodeCount → unusable autoscaling block (spec 7)."""
+        store = _make_new_store(store_id="fos1", min_nodes=3, max_nodes=1, age_days=60)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_max_nodes_equal_to_min_accepted(self):
+        """maxNodeCount == minNodeCount is valid (single-node floor)."""
+        store = _make_new_store(store_id="fos1", min_nodes=1, max_nodes=1, age_days=60)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert len(findings) == 1
+
+    def test_reference_time_uses_update_time_when_newer(self):
+        """updateTime newer than createTime → reference_time = updateTime → too young."""
+        store = _make_new_store(store_id="fos1", age_days=90, update_age_days=20)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings == []
+
+    def test_permission_error_on_403(self):
         with pytest.raises(PermissionError, match="aiplatform.featureOnlineStores.list"):
             _run(new_list_status=403)
 
-    def test_new_store_not_enabled(self):
-        """404 on featureOnlineStores list → no findings."""
+    def test_api_not_enabled_returns_empty(self):
         findings = _run(new_list_status=404)
         assert findings == []
 
-    def test_bigtable_store_cost(self):
-        """Bigtable store: minNodeCount × $0.27/hr × 730 h/month."""
-        store = _make_new_store(store_id="fos1", min_nodes=3, age_days=45)
-        findings = _run(new_stores=[store], new_counts={"fos1": 0})
-
-        expected_monthly = _BIGTABLE_NODE_HOURLY_COST * 3 * _HOURS_PER_MONTH
-        assert findings[0].estimated_monthly_cost_usd == pytest.approx(expected_monthly, rel=1e-3)
-
-    def test_new_store_age_fallback(self):
-        """No monitoring data + old new store → LOW confidence (heuristic: age only)."""
-        store = _make_new_store(store_id="fos1", age_days=45)
-        findings = _run(new_stores=[store])  # no new_counts → no monitoring data
+    def test_region_filter_exact_match(self):
+        store = _make_new_store(store_id="fos1", region="us-central1", age_days=60)
+        findings = _run(
+            new_stores=[store],
+            new_activities={"fos1": "confirmed_zero"},
+            region_filter="us-central1",
+        )
         assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.LOW
 
-    def test_new_store_too_young(self):
-        """New store younger than threshold + no monitoring → no finding."""
-        store = _make_new_store(store_id="fos1", age_days=5)
-        findings = _run(new_stores=[store])
+    def test_region_filter_excludes(self):
+        store = _make_new_store(store_id="fos1", region="europe-west4", age_days=60)
+        findings = _run(
+            new_stores=[store],
+            new_activities={"fos1": "confirmed_zero"},
+            region_filter="us-central1",
+        )
         assert findings == []
 
-    def test_non_stable_new_store_skipped(self):
-        store = _make_new_store(store_id="fos1", state="UPDATING", age_days=60)
-        findings = _run(new_stores=[store], new_counts={"fos1": 0})
+    def test_region_filter_is_exact_not_prefix(self):
+        store = _make_new_store(store_id="fos1", region="us-central1", age_days=60)
+        findings = _run(
+            new_stores=[store],
+            new_activities={"fos1": "confirmed_zero"},
+            region_filter="us",
+        )
         assert findings == []
 
-    def test_new_store_region_filter(self):
-        store = _make_new_store(store_id="fos1", region="europe-west4", age_days=45)
-        findings = _run(new_stores=[store], new_counts={"fos1": 0}, region_filter="us-central1")
+    def test_estimated_monthly_cost_always_none(self):
+        store = _make_new_store(store_id="fos1", min_nodes=3, age_days=60)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        assert findings[0].estimated_monthly_cost_usd is None
+
+    def test_details_fields(self):
+        store = _make_new_store(store_id="fos1", region="us-central1", min_nodes=2, age_days=45)
+        findings = _run(new_stores=[store], new_activities={"fos1": "confirmed_zero"})
+        d = findings[0].details
+        assert d["store_id"] == "fos1"
+        assert d["store_family"] == "feature_online_store"
+        assert d["state"] == "STABLE"
+        assert d["region"] == "us-central1"
+        assert d["storage_type"] == "bigtable"
+        assert d["bigtable_min_node_count"] == 2
+        assert d["bigtable_max_node_count"] == 4  # helper sets max = min * 2
+        assert d["metric_type"] == _NEW_METRIC
+        assert d["metric_coverage_state"] == "full_window"
+        assert d["telemetry_state"] == "confirmed_zero"
+        assert d["request_count_total"] == 0
+
+    def test_monitoring_client_failure_skips(self):
+        """Monitoring client creation failure → skip with operational warning (spec 11.4)."""
+        store = _make_new_store(store_id="fos1", age_days=60)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            findings = _run(
+                new_stores=[store],
+                new_activities={"fos1": "confirmed_zero"},
+                monitoring_client_fails=True,
+            )
         assert findings == []
+        assert any("monitoring client creation failed" in str(w.message) for w in caught)
+
+    def test_malformed_bigtable_config_skipped(self):
+        """Malformed bigtable.autoScaling must skip item, not abort the rule (spec 11.3)."""
+        bad_store = _make_new_store(store_id="bad", age_days=60)
+        bad_store["bigtable"] = {"autoScaling": {"minNodeCount": "not-an-int"}}
+        good_store = _make_new_store(store_id="good", min_nodes=1, age_days=60)
+        findings = _run(
+            new_stores=[bad_store, good_store],
+            new_activities={"bad": "confirmed_zero", "good": "confirmed_zero"},
+        )
+        assert len(findings) == 1
+        assert findings[0].details["store_id"] == "good"
+
+    def test_monitoring_query_exception_skips_with_warning(self):
+        """Per-store RPC failure → skip store + emit UserWarning (spec 11.4)."""
+        store = _make_new_store(store_id="fos1", age_days=60)
+        credentials = MagicMock()
+
+        legacy_resp = MagicMock()
+        legacy_resp.status_code = 200
+        legacy_resp.json.return_value = {"featurestores": []}
+        legacy_resp.raise_for_status = MagicMock()
+        new_resp = MagicMock()
+        new_resp.status_code = 200
+        new_resp.json.return_value = {"featureOnlineStores": [store]}
+        new_resp.raise_for_status = MagicMock()
+        mock_session = MagicMock()
+        mock_session.get.side_effect = lambda url, **kw: (
+            new_resp if "featureOnlineStores" in url else legacy_resp
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            with (
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle.AuthorizedSession",
+                    return_value=mock_session,
+                ),
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle"
+                    ".monitoring_v3.MetricServiceClient",
+                    return_value=MagicMock(),
+                ),
+                patch(
+                    "cleancloud.providers.gcp.rules.ai.featurestore_idle._query_store_activity",
+                    side_effect=RuntimeError("simulated RPC failure"),
+                ),
+                patch("cleancloud.providers.gcp.rules.ai.featurestore_idle.datetime") as mock_dt,
+            ):
+                mock_dt.now.return_value = NOW
+                mock_dt.fromisoformat = datetime.fromisoformat
+                mock_dt.fromtimestamp = datetime.fromtimestamp
+                findings = find_idle_featurestores(project_id=_PROJECT, credentials=credentials)
+
+        assert findings == []
+        assert any(
+            "monitoring query failed" in str(w.message) and "fos1" in str(w.message) for w in caught
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -438,32 +876,32 @@ class TestFeatureOnlineStore:
 
 class TestCombined:
     def test_both_types_independent(self):
-        """Legacy and new stores both produce findings independently."""
-        legacy = _make_legacy_store(store_id="legacy1", age_days=60)
-        new = _make_new_store(store_id="new1", age_days=45)
+        legacy = _make_legacy_store(store_id="l1", age_days=60)
+        new = _make_new_store(store_id="n1", age_days=45)
         findings = _run(
             legacy_stores=[legacy],
             new_stores=[new],
-            legacy_counts={"legacy1": 0},
-            new_counts={"new1": 0},
+            legacy_activities={"l1": "confirmed_zero"},
+            new_activities={"n1": "confirmed_zero"},
         )
         assert len(findings) == 2
         types = {f.resource_type for f in findings}
         assert types == {"gcp.vertex.featurestore", "gcp.vertex.feature_online_store"}
 
     def test_no_stores_returns_empty(self):
-        findings = _run()
-        assert findings == []
+        assert _run() == []
 
     def test_one_active_one_idle(self):
-        """Active legacy + idle new → only one finding."""
         legacy = _make_legacy_store(store_id="l1", age_days=60)
         new = _make_new_store(store_id="n1", age_days=45)
         findings = _run(
             legacy_stores=[legacy],
             new_stores=[new],
-            legacy_counts={"l1": 1000},  # active
-            new_counts={"n1": 0},  # idle
+            legacy_activities={"l1": "positive_activity"},
+            new_activities={"n1": "confirmed_zero"},
         )
         assert len(findings) == 1
         assert findings[0].resource_type == "gcp.vertex.feature_online_store"
+
+    def test_rule_id_attribute(self):
+        assert find_idle_featurestores.RULE_ID == "gcp.vertex.featurestore.idle"
