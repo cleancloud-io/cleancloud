@@ -194,17 +194,24 @@
 **Spec:** —
 
 #### `gcp.vertex.training_job.long_running`
-**Detects:** Vertex AI CustomJobs and TrainingPipelines in `RUNNING` state beyond `long_running_hours_threshold`; GPU/TPU jobs near threshold also trigger early-warning findings
+**Detects:** Vertex AI CustomJobs and TrainingPipelines whose state is exactly the expected running state (`JOB_STATE_RUNNING` / `PIPELINE_STATE_RUNNING`) and whose elapsed wall-clock time since `startTime` meets or exceeds `long_running_hours_threshold`
 
-**Confidence / Risk:** HIGH (duration ≥ 3× threshold — clearly runaway); MEDIUM (duration ≥ threshold) / CRITICAL (HIGH confidence + GPU/accelerator); HIGH (HIGH confidence + non-GPU); MEDIUM (all MEDIUM confidence)
+**Confidence / Risk:** HIGH (duration ≥ 3× threshold — clearly runaway); MEDIUM (duration ≥ threshold) / CRITICAL (HIGH confidence + GPU/TPU/accelerator); HIGH (HIGH confidence + non-accelerator); MEDIUM (all MEDIUM confidence)
+
+**Cost:** `estimated_monthly_cost_usd = None` — training jobs are transient; no static per-hour rate is appropriate across machine types and regions
 
 **Permissions:** `aiplatform.customJobs.list`, `aiplatform.trainingPipelines.list` (roles/aiplatform.viewer)
 
-**Params:** `long_running_hours_threshold` (default: 24); `expensive_hourly_threshold` (default: $20/hr, for early-warning CPU jobs)
+**Params:** `long_running_hours_threshold` (default: 24)
 
-**Exclusions:** jobs < 90% of threshold; cheap CPU-only jobs in the 90–100% early-warning zone
+**Exclusions:**
+- resource name not matching exact pattern `projects/{p}/locations/{l}/customJobs/{id}` or `trainingPipelines/{id}` (6 segments, non-empty components)
+- state field absent or not exactly the expected running state for the job type
+- `startTime` absent, non-RFC3339 (rejects space separator, date-only, missing timezone), or unparsable
+- elapsed < `long_running_hours_threshold`
+- region filter set and derived location does not exactly match
 
-**Spec:** —
+**Spec:** [docs/specs/gcp/ai/vertex_training_job_long_running.md](../specs/gcp/ai/vertex_training_job_long_running.md)
 
 #### `gcp.tpu.idle`
 **Detects:** Standalone Cloud TPU nodes in exact `READY` state where complete worker-joined duty-cycle telemetry (`tpu.googleapis.com/accelerator/duty_cycle` on `tpu.googleapis.com/GceTpuWorker`) confirms max observed duty cycle <= 2% across all joined workers and accelerators over the full buffered `idle_days` window; monitoring is required — no age-only, partial-join, or cadence-assumed fallback

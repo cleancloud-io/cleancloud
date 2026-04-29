@@ -144,8 +144,8 @@ def test_vertex_training_job_long_running_returns_list_of_findings():
         assert "job_type" in f.details
         assert f.details["job_type"] in ("customJob", "trainingPipeline")
         assert "duration_hours" in f.details
-        assert "accrued_cost_usd" in f.details
-        assert "burn_rate_per_hour" in f.details
+        assert "state" in f.details
+        assert "start_time" in f.details
         assert "is_accelerator" in f.details
 
 
