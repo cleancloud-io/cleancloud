@@ -4,44 +4,33 @@
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Languages / Langues :**
-🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
-
-**Docs:** [Configuration AWS](docs/aws.md) · [Permissions & Commandes AWS](docs/aws.md#at-a-glance) · [Multi-comptes AWS](docs/aws.md#multi-account-scanning) · [Configuration Azure](docs/azure.md) · [Configuration GCP](docs/gcp.md) · [Guide CI/CD](docs/ci.md) · [Règles de détection](docs/rules.md) · [Exemples de sortie](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
+🇬🇧 [English](README.md) | 🇫🇷 Français &nbsp;·&nbsp; **Configuration :** [AWS →](docs/aws.md) · [Azure →](docs/azure.md) · [GCP →](docs/gcp.md) · [Tous les docs →](docs/rules.md)
 
 ---
 
-CleanCloud vous indique exactement ce qu'il faut supprimer dans votre cloud — avec le coût par ressource. Détecte les ressources IA/ML inactives qui brûlent 500–23 000 $/mois en silence. L'application policy-as-code signifie que les exceptions, les seuils et les règles vivent dans git aux côtés de votre infrastructure.
-
-> CleanCloud détecte l'infrastructure IA toujours active sans aucune charge de travail.
-> Pas des tableaux de bord d'utilisation. Pas des rapports de coûts.
-> Détection de gaspillage déterministe — multi-cloud.
-
-**Aucun agent. Pas de SaaS. Lecture seule.**
-
-## Démarrage rapide
+**Trouvez 500–20 000 $/mois de gaspillage cloud inactif en 60 secondes — aucun credential requis :**
 
 ```bash
-# Essayez sans credentials :
+# Essayez instantanément (sans installation) :
+docker run --rm getcleancloud/cleancloud:latest demo
+
+# Ou installez localement :
 pipx install cleancloud
 cleancloud demo
-cleancloud demo --category ai
-
-# Prêt à scanner votre cloud ? Ajoutez votre fournisseur :
-pipx install 'cleancloud[aws]'           # ou [azure], [gcp], [all]
-cleancloud scan --provider aws --all-regions
-cleancloud scan --provider azure
-cleancloud scan --provider gcp --all-projects
 ```
+
+*`scan` et `doctor` avec Docker nécessitent de monter les credentials → [Utilisation Docker →](docs/ci.md#using-the-docker-image)*
+
+CleanCloud scanne AWS, Azure et GCP et nomme les ressources inactives spécifiques à examiner — avec le coût par ressource. **Lecture seule. Aucun agent. Pas de SaaS.**
 
 ---
 
-## Exemple de résultat détaillé
+## Exemple de résultat
 
 ```
-cleancloud scan --provider aws --category all
+cleancloud demo --category ai
 
-10 findings détectés (6 hygiène + 4 IA/ML) :
+3 candidats de revue trouvés :
 
 1. [AWS] Instance EC2 GPU inactive (utilisation GPU <5% sur 7 jours)
    Risque     : Critique
@@ -49,124 +38,37 @@ cleancloud scan --provider aws --category all
    Ressource  : aws.ec2.instance → i-0a1b2c3d4e5f67890
    Région     : us-east-1
    Règle      : aws.ec2.gpu.idle
-   Raison     : Instance GPU EC2 avec faible utilisation GPU (1,2%) depuis 7 jours
+   Raison     : Utilisation GPU 1,2% depuis 7 jours (p4d.24xlarge — ml-training-cluster-node-1)
    Détails :
-     - instance_type: p4d.24xlarge
-     - name: ml-training-cluster-node-1
-     - gpu_metric_available: true
-     - utilisation_pct: 1.2
      - estimated_monthly_cost: ~$23 374/mois
 
-2. [GCP] Instance Workbench GPU inactive (>14 jours, 31 jours sans activité)
-   Risque     : Critique
-   Confiance  : High
-   Ressource  : gcp.vertex.workbench.instance → projects/ml-platform/locations/us-central1/instances/research-nb-gpu
-   Région     : us-central1
-   Règle      : gcp.vertex.workbench.idle
-   Raison     : Instance Workbench sans activité sur le plan de contrôle depuis 31 jours, état ACTIVE
-   Détails :
-     - machine_type: a2-highgpu-4g
-     - accelerator_type: NVIDIA_TESLA_A100
-     - accelerator_count: 4
-     - estimated_monthly_cost: ~$11 732/mois
-
-3. [Azure] Instance de calcul Azure ML inactive (31 jours sans activité)
+2. [Azure] Instance de calcul Azure ML inactive (31 jours sans activité)
    Risque     : Élevé
    Confiance  : High
    Ressource  : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
    Région     : eastus
    Règle      : azure.ml.compute_instance.idle
-   Raison     : Instance de calcul sans activité depuis 31 jours, état Running
+   Raison     : Aucune activité sur le plan de contrôle depuis 31 jours, état Running (Standard_NC24s_v3, GPU)
    Détails :
-     - vm_size: Standard_NC24s_v3
-     - is_gpu: true
      - estimated_monthly_cost: ~$2 190/mois
 
-4. [AWS] Instance RDS inactive (aucune connexion depuis 21 jours)
+3. [AWS] Instance RDS inactive (zéro connexion depuis 21 jours)
    Risque     : Élevé
    Confiance  : High
    Ressource  : aws.rds.instance → db-prod-analytics
    Région     : us-east-1
    Règle      : aws.rds.instance.idle
-   Raison     : Instance RDS sans connexion depuis 21 jours
+   Raison     : Zéro connexion depuis 21 jours (db.r5.large, postgres 15.4)
    Détails :
-     - instance_class: db.r5.large
-     - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/mois
 
-5. [AWS] Endpoint SageMaker inactif — candidat de revue
-   Risque     : Élevé
-   Confiance  : High
-   Ressource  : aws.sagemaker.endpoint → fraud-detection-v2
-   Région     : us-east-1
-   Règle      : aws.sagemaker.endpoint.idle
-   Raison     : Endpoint SageMaker InService sans trafic InvokeEndpoint observé depuis 21 jours alors que du compute facturable reste alloué
-   Détails :
-      - billable_variant_count: 1
-
-6. [AWS] NAT Gateway inactive
-   Risque     : Moyen
-   Confiance  : Medium
-   Ressource  : aws.ec2.nat_gateway → nat-0abcdef1234567890
-   Région     : us-west-2
-   Règle      : aws.ec2.nat_gateway.idle
-   Raison     : Aucun trafic détecté depuis 21 jours
-   Détails :
-     - name: staging-nat
-     - total_bytes_out: 0
-     - estimated_monthly_cost: ~$32/mois
-
-7. [AWS] Load Balancer inactif (aucune cible saine)
-   Risque     : Moyen
-   Confiance  : High
-   Ressource  : aws.elbv2.load_balancer → alb-staging-api
-   Région     : us-east-1
-   Règle      : aws.elbv2.load_balancer.idle
-   Raison     : Load balancer sans cible saine depuis 30 jours
-   Détails :
-     - type: application
-     - estimated_monthly_cost: ~$18/mois
-
-8. [AWS] Volume EBS non attaché
-   Risque     : Faible
-   Confiance  : High
-   Ressource  : aws.ebs.volume → vol-0a1b2c3d4e5f67890
-   Région     : us-east-1
-   Règle      : aws.ebs.volume.unattached
-   Raison     : Volume non attaché depuis 47 jours
-   Détails :
-     - size_gb: 500
-     - state: available
-
-9. [AWS] Elastic IP non attachée
-   Risque     : Faible
-   Confiance  : High
-   Ressource  : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
-   Région     : eu-west-1
-   Règle      : aws.ec2.elastic_ip.unattached
-   Raison     : Elastic IP non associée à aucune instance ou ENI (ancienneté : 92 jours)
-
-10. [AWS] Ancien snapshot EBS (438 jours)
-    Risque     : Faible
-    Confiance  : High
-    Ressource  : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
-    Région     : us-west-2
-    Règle      : aws.ebs.snapshot.old
-    Raison     : Snapshot âgé de 438 jours sans activité récente
-    Détails :
-      - size_gb: 200
-      - estimated_monthly_cost: ~$10/mois
-
 --- Résumé du scan ---
-Total findings : 10
-Par risque :     critique: 2  élevé: 3  moyen: 2  faible: 3
-Par confiance :  high: 9  medium: 1
-Gaspillage minimum estimé : ~$38 744/mois
-(9 findings sur 10 chiffrés)
-Régions scannées : us-east-1, us-west-2, eu-west-1 (auto-détectées)
+Total candidats de revue : 3
+Par risque :     critique: 1  élevé: 2
+Gaspillage minimum estimé : ~$25 944/mois
 ```
 
-Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans aucun credential.
+*Exemple complet (10 findings) : [`docs/example-outputs.md`](docs/example-outputs.md)*
 
 ---
 
@@ -180,25 +82,13 @@ Pas encore de compte cloud ? `cleancloud demo` affiche un exemple de sortie sans
 
 ---
 
-**CleanCloud est le moteur d'hygiène cloud — détecte le gaspillage d'infrastructure inactive et de ressources IA/ML coûteuses sur AWS, Azure et GCP.**
+**CleanCloud est un scanner d'hygiène cloud — lit votre inventaire, signale les ressources inactives spécifiques comme candidats de revue, et estime le coût de leur maintien.**
 
-- Nomme exactement les ressources à nettoyer — avec le coût par ressource
-- Détecte le gaspillage IA/ML coûteux (500–20 000 $/mois — SageMaker, AML, Vertex AI)
-- Fonctionne sur AWS, Azure et GCP
-- S'exécute entièrement dans votre environnement — aucun agent, pas de SaaS
+- Détecte le gaspillage IA/ML coûteux : SageMaker, AML, Vertex AI — ressources GPU signalées comme candidats à risque plus élevé (500–23 000 $/mois)
+- Fonctionne sur AWS, Azure et GCP en un seul outil
+- S'exécute entièrement dans votre environnement — aucun agent, pas de SaaS, aucun credential stocké
+- 46 règles de détection sélectives et haut signal, conçues pour éviter les faux positifs en environnements IaC
 - Prêt pour CI/CD — codes de sortie d'application + sorties JSON/CSV/markdown
-
-## Fonctionnalités clés
-
-- **Détection du gaspillage IA/ML sur les 3 clouds :** endpoints, notebooks, Studio apps et training jobs SageMaker ; clusters AML Compute et instances ML ; endpoints en ligne Azure ML et services Azure AI Search ; endpoints, instances Workbench et training jobs Vertex AI. Les ressources GPU sont mises en avant comme candidats de revue à risque plus élevé. Les outils natifs n'indiquent pas toujours quoi examiner — CleanCloud le fait. Opt-in via `--category ai`
-- **Gouvernance policy-as-code :** `cleancloud.yaml` pour la configuration par règle, les exceptions avec dates d'expiration, les seuils de coût et de confiance, les exclusions par tag — versionné aux côtés de votre infrastructure. Chaque exception est une approbation auditée dans git.
-- **Application de politique (opt-in) :** `--fail-on-confidence HIGH` ou `--fail-on-cost 500` — appliquer des seuils de gaspillage en CI/CD sur un planning, géré par les équipes platform ou FinOps
-- **46 règles de détection sélectives et haut signal :** volumes orphelins, bases de données inactives, instances arrêtées, registres inutilisés, et plus — conçues pour éviter les faux positifs en environnements IaC, chacune avec une estimation de coût déterministe
-- **Scan multi-comptes (AWS) :** scannez des AWS Organizations entières en une exécution — fichier de config, IDs inline, ou auto-découverte via `--org`
-- **Scan multi-abonnements (Azure) :** scannez tous les abonnements Azure en parallèle — auto-découverte via Management Group, détail des coûts par abonnement inclus
-- **Scan multi-projets (GCP) :** scannez tous les projets GCP accessibles en parallèle — auto-découverte via Application Default Credentials, détail des coûts par projet inclus
-- **Sûr pour les environnements réglementés :** aucun agent, zéro télémétrie, pas de SaaS — s'exécute entièrement dans votre infrastructure. Adapté aux services financiers, à la santé et au gouvernement où l'accès SaaS tiers est restreint
-- **Sortie prête pour l'écosystème :** JSON pour alertes Slack, tableaux de bord et tickets — CSV pour les tableurs — markdown à coller dans vos PRs GitHub, Jira ou Confluence
 
 ### Ce que CleanCloud ne fait PAS
 
@@ -211,38 +101,14 @@ Entièrement en lecture seule. Sûr pour la production et les environnements ré
 
 ---
 
-| | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
-|---|:---:|:---:|:---:|
-| Affiche les tendances de coûts | ✅ | ✅ | — |
-| Nomme exactement les ressources à nettoyer | ❌ | partiel | ✅ |
-| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
-| Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
-| **Policy-as-code (exceptions + seuils dans git)** | ❌ | ❌ | ✅ |
-| **Approbations d'exceptions auditées dans git** | ❌ | ❌ | ✅ |
-| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
-| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
-| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
-| Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
-| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
-
----
-
-## À qui s'adresse CleanCloud
-
-- **Équipes platform et FinOps** — scans d'hygiène hebdomadaires sur votre AWS Org ou tenant Azure, application de seuils de gaspillage, détection de la dérive avant qu'elle ne s'accumule
-- **Industries réglementées** — services financiers, santé et gouvernement qui ne peuvent pas envoyer les données de compte cloud à un fournisseur SaaS
-- **Équipes mid-market** — trop grandes pour ignorer le gaspillage cloud, trop légères pour des plateformes FinOps enterprise. Les outils natifs montrent les factures ; CleanCloud montre ce qu'il faut corriger
-- **Consultants cloud et MSPs** — audit d'un compte client en quelques minutes, export des findings en markdown ou JSON
-- **Audits ponctuels** — exécutez dans CloudShell, findings visibles en 60 secondes, sans installation requise
-- **Rapports pré-revue** — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
-
----
-
 ## Démarrage
 
 ```bash
-pipx install 'cleancloud[all]'                     # tous les SDK cloud (AWS + Azure + GCP)
-cleancloud demo                                    # aucun credential requis
+# Ajoutez votre fournisseur cloud et scannez :
+pipx install 'cleancloud[aws]'             # ou [azure], [gcp], [all]
+cleancloud scan --provider aws --all-regions
+cleancloud scan --provider azure
+cleancloud scan --provider gcp --all-projects
 ```
 
 **Choisissez votre chemin :**
@@ -259,8 +125,6 @@ cleancloud demo                                    # aucun credential requis
 | Résoudre une erreur | [Dépannage →](docs/troubleshooting.md) |
 
 Pas sûr que vos credentials aient les bonnes permissions ? Lancez d'abord `cleancloud doctor --provider aws`.
-
-Docker, CloudShell, ou problèmes d'installation ? → **[Guide de configuration AWS →](docs/aws.md)**
 
 ---
 
@@ -285,22 +149,33 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Nœud Cloud TPU (v4/v5p) | 188 – 750+ $ / jour |
 | Vertex AI Feature Store (Bigtable) | 197 – 591+ $ / mois |
 
-CleanCloud détecte les endpoints à zéro invocation / zéro prédiction, l'activité de contrôle inactive sur les notebooks et apps managés, ainsi que les training jobs managés anormalement longs sur les 3 clouds. Les outils natifs montrent la facture — ils ne vous disent pas quelle ressource concrète examiner.
+CleanCloud détecte les endpoints à zéro invocation / zéro prédiction, l'activité de contrôle inactive sur les notebooks et apps managés, ainsi que les training jobs managés anormalement longs sur les 3 clouds. Les outils natifs montrent la facture — ils ne nomment pas la ressource concrète à examiner.
 
 ```bash
 cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks + Studio apps SageMaker + training jobs SageMaker + EC2 GPU
-cleancloud scan --provider azure --category ai        # clusters AML + instances ML + endpoints en ligne + AI Search + instances ML + PTUs OpenAI
+cleancloud scan --provider azure --category ai        # clusters AML + instances ML + endpoints en ligne + AI Search + PTUs OpenAI
 cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench + training jobs + Cloud TPU + Feature Stores
 cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
 ```
 
-Aucune configuration requise — opt-in avec `--category ai`. Compatible avec les scans multi-comptes et multi-projets :
+Aucune configuration supplémentaire requise — opt-in avec `--category ai`. Compatible avec les scans multi-comptes et multi-projets :
 
 ```bash
 cleancloud scan --provider aws --org --all-regions --category all
 ```
 
 **[Règles IA/ML →](docs/rules.md)**
+
+---
+
+## À qui s'adresse CleanCloud
+
+- **Équipes platform et FinOps** — scans d'hygiène hebdomadaires sur votre AWS Org ou tenant Azure, application de seuils de gaspillage, détection de la dérive avant qu'elle ne s'accumule
+- **Industries réglementées** — services financiers, santé et gouvernement qui ne peuvent pas envoyer les données de compte cloud à un fournisseur SaaS
+- **Équipes mid-market** — trop grandes pour ignorer le gaspillage cloud, trop légères pour des plateformes FinOps enterprise. Les outils natifs montrent les factures ; CleanCloud montre ce qu'il faut examiner
+- **Consultants cloud et MSPs** — audit d'un compte client en quelques minutes, export des findings en markdown ou JSON
+- **Audits ponctuels** — exécutez dans CloudShell, findings visibles en 60 secondes, sans installation requise
+- **Rapports pré-revue** — exportez les findings en markdown avant une revue trimestrielle des coûts ou un board meeting
 
 ---
 
@@ -362,6 +237,22 @@ cleancloud scan --provider aws --region us-east-1 \
 | `3` | Credentials manquants ou permissions insuffisantes |
 
 **[Guide CI/CD complet →](docs/ci.md)** · [AWS →](docs/aws.md) · [Azure →](docs/azure.md) · [GCP →](docs/gcp.md)
+
+---
+
+| | Outils natifs AWS/Azure/GCP | Plateformes FinOps SaaS | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Affiche les tendances de coûts | ✅ | ✅ | — |
+| Nomme les ressources spécifiques à examiner | ❌ | partiel | ✅ |
+| Estimation de coût déterministe par ressource | ❌ | ❌ | ✅ |
+| Détecte le gaspillage IA/ML (SageMaker, AML, Vertex AI — dont les endpoints GPU) | ❌ | ❌ | ✅ |
+| **Policy-as-code (exceptions + seuils dans git)** | ❌ | ❌ | ✅ |
+| **Approbations d'exceptions auditées dans git** | ❌ | ❌ | ✅ |
+| Lecture seule, aucun agent | ✅ | ❌ | ✅ |
+| Fonctionne en environnements air-gapped / réglementés | ❌ | ❌ | ✅ |
+| Aucun compte SaaS ni accès vendor requis | ❌ | ❌ | ✅ |
+| Hygiène multi-comptes / multi-abonnements / multi-projets | ❌ | ✅ | ✅ |
+| Application planifiée et CI/CD (codes de sortie) | ❌ | ❌ | ✅ |
 
 ---
 
@@ -552,7 +443,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Stockage : Persistent Disks non attachés (HIGH), anciens snapshots 90+ jours
 - Réseau : IPs statiques réservées — régionales et globales — en état RESERVED (HIGH)
 - Plateforme : instances Cloud SQL inactives avec zéro connexion 14+ jours (HIGH)
-- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro ou quasi-zéro prédiction depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois) ; instances Workbench sans activité depuis 14+ jours — instances GPU flaggées HIGH/CRITICAL ($449–$8K+/mois) ; training jobs Vertex AI (CustomJobs + TrainingPipelines) dépassant 24h — alerte précoce GPU/TPU à 90% du seuil, risque CRITICAL pour les jobs GPU à 3× le seuil ($4–$80+/h par nœud GPU) ; nœuds Cloud TPU (v2–v6e) en état READY avec duty_cycle quasi-nul depuis 7+ jours — un v4 inactif coûte $12,88/h, un v5p-8 coûte $33,60/h ; Feature Stores Vertex AI avec zéro requête ReadFeatureValues depuis 30+ jours — les stores Bigtable facturent ~$197/nœud/mois quelle que soit l'activité
+- IA/ML *(opt-in : `--category ai`)* : endpoints Vertex AI Online Prediction inactifs avec zéro prédiction observée depuis 14+ jours (les nœuds dédiés continuent de facturer quel que soit le trafic) — endpoints GPU flaggés risque HIGH ($449–$23K+/mois) ; instances Workbench sans activité depuis 14+ jours — instances GPU flaggées HIGH/CRITICAL ($449–$8K+/mois) ; training jobs Vertex AI (CustomJobs + TrainingPipelines) dépassant 24h — risque CRITICAL pour les jobs GPU/accélérateur à 3× le seuil ; nœuds Cloud TPU (v2–v6e) en état READY avec duty_cycle quasi-nul depuis 7+ jours — un v4 inactif coûte $12,88/h, un v5p-8 coûte $33,60/h ; Feature Stores Vertex AI avec zéro requête ReadFeatureValues depuis 30+ jours — les stores Bigtable facturent ~$197/nœud/mois quelle que soit l'activité
 
 Les règles sans marqueur de confiance sont MEDIUM — elles utilisent des heuristiques temporelles ou des signaux multiples. Commencez par `--fail-on-confidence HIGH` pour les gaspillages évidents, puis resserrez au fil de la validation par votre équipe.
 

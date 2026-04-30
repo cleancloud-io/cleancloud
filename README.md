@@ -4,44 +4,33 @@
 ![Python Versions](https://img.shields.io/pypi/pyversions/cleancloud)
 ![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**Languages / Langues :**
-🇬🇧 [English](README.md) | 🇫🇷 [Français](README.fr.md)
-
-**Docs:** [AWS Setup](docs/aws.md) · [AWS Permissions & Commands](docs/aws.md#at-a-glance) · [AWS Multi-Account](docs/aws.md#multi-account-scanning) · [Azure Setup](docs/azure.md) · [GCP Setup](docs/gcp.md) · [CI/CD Guide](docs/ci.md) · [Detection Rules](docs/rules.md) · [Example Outputs](docs/example-outputs.md) · [Docker Hub](https://hub.docker.com/r/getcleancloud/cleancloud) · [GitHub Action](https://github.com/marketplace/actions/cleancloud-scan)
+🇬🇧 English | 🇫🇷 [Français](README.fr.md) &nbsp;·&nbsp; **Setup:** [AWS →](docs/aws.md) · [Azure →](docs/azure.md) · [GCP →](docs/gcp.md) · [All docs →](docs/rules.md)
 
 ---
 
-CleanCloud tells you exactly what to delete in your cloud — with cost per resource. Catches idle AI/ML resources burning $500–$23K/month unnoticed. Policy-as-code enforcement means exceptions, thresholds, and rules live in git alongside your infrastructure.
-
-> CleanCloud detects always-on AI infrastructure with zero workload.
-> Not utilisation dashboards. Not cost reports.
-> Deterministic waste detection — cross-cloud.
-
-**No agents. No SaaS. Read-only.**
-
-## Quick Start
+**Find $500–$20K/month of idle cloud waste in 60 seconds — no credentials needed:**
 
 ```bash
-# Try it — no credentials needed:
+# Try instantly (no install):
+docker run --rm getcleancloud/cleancloud:latest demo
+
+# Or install locally:
 pipx install cleancloud
 cleancloud demo
-cleancloud demo --category ai
-
-# Ready to scan your cloud? Add your provider:
-pipx install 'cleancloud[aws]'          # or [azure], [gcp], [all]
-cleancloud scan --provider aws --all-regions
-cleancloud scan --provider azure
-cleancloud scan --provider gcp --all-projects
 ```
+
+*`scan` and `doctor` with Docker require credential mounts → [Docker usage →](docs/ci.md#using-the-docker-image)*
+
+CleanCloud scans AWS, Azure, and GCP and names specific idle resources as review candidates — with cost per resource. **Read-only. No agents. No SaaS.**
 
 ---
 
-## What It Looks Like
+## Sample Output
 
 ```
-cleancloud scan --provider aws --category all
+cleancloud demo --category ai
 
-Found 10 findings (6 hygiene + 4 AI/ML):
+3 review candidates found:
 
 1. [AWS] Idle GPU EC2 Instance (GPU utilisation <5% over 7 days)
    Risk       : Critical
@@ -49,124 +38,37 @@ Found 10 findings (6 hygiene + 4 AI/ML):
    Resource   : aws.ec2.instance → i-0a1b2c3d4e5f67890
    Region     : us-east-1
    Rule       : aws.ec2.gpu.idle
-   Reason     : GPU EC2 instance has low GPU utilisation (1.2%) for 7 days
+   Reason     : GPU utilisation 1.2% for 7 days (p4d.24xlarge — ml-training-cluster-node-1)
    Details:
-     - instance_type: p4d.24xlarge
-     - name: ml-training-cluster-node-1
-     - gpu_metric_available: true
-     - utilisation_pct: 1.2
      - estimated_monthly_cost: ~$23,374/month
 
-2. [GCP] Idle GPU-Backed Workbench Instance (>14 Days Idle, 31 Days Since Activity)
-   Risk       : Critical
-   Confidence : High
-   Resource   : gcp.vertex.workbench.instance → projects/ml-platform/locations/us-central1/instances/research-nb-gpu
-   Region     : us-central1
-   Rule       : gcp.vertex.workbench.idle
-   Reason     : Workbench instance has had no control-plane activity for 31 days while ACTIVE
-   Details:
-     - machine_type: a2-highgpu-4g
-     - accelerator_type: NVIDIA_TESLA_A100
-     - accelerator_count: 4
-     - estimated_monthly_cost: ~$11,732/month
-
-3. [Azure] Idle Azure ML Compute Instance (31 Days Since Last Activity)
+2. [Azure] Idle ML Compute Instance (31 days since last activity)
    Risk       : High
    Confidence : High
    Resource   : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
    Region     : eastus
    Rule       : azure.ml.compute_instance.idle
-   Reason     : Compute instance has had no control-plane activity for 31 days while Running
+   Reason     : No control-plane activity for 31 days while Running (Standard_NC24s_v3, GPU)
    Details:
-     - vm_size: Standard_NC24s_v3
-     - is_gpu: true
      - estimated_monthly_cost: ~$2,190/month
 
-4. [AWS] Idle RDS Instance (No Connections for 21 Days)
+3. [AWS] Idle RDS Instance (Zero connections for 21 days)
    Risk       : High
    Confidence : High
    Resource   : aws.rds.instance → db-prod-analytics
    Region     : us-east-1
    Rule       : aws.rds.instance.idle
-   Reason     : RDS instance has had zero connections for 21 days
+   Reason     : Zero connections for 21 days (db.r5.large, postgres 15.4)
    Details:
-     - instance_class: db.r5.large
-     - engine: postgres 15.4
      - estimated_monthly_cost: ~$380/month
 
-5. [AWS] Idle SageMaker Endpoint Review Candidate
-   Risk       : High
-   Confidence : High
-   Resource   : aws.sagemaker.endpoint → fraud-detection-v2
-   Region     : us-east-1
-   Rule       : aws.sagemaker.endpoint.idle
-   Reason     : InService SageMaker endpoint shows no observed InvokeEndpoint traffic in the last 21 days while billable compute remains allocated
-   Details:
-      - billable_variant_count: 1
-
-6. [AWS] Idle NAT Gateway
-   Risk       : Medium
-   Confidence : Medium
-   Resource   : aws.ec2.nat_gateway → nat-0abcdef1234567890
-   Region     : us-west-2
-   Rule       : aws.ec2.nat_gateway.idle
-   Reason     : No traffic detected for 21 days
-   Details:
-     - name: staging-nat
-     - total_bytes_out: 0
-     - estimated_monthly_cost: ~$32/month
-
-7. [AWS] Idle Load Balancer (No Healthy Targets)
-   Risk       : Medium
-   Confidence : High
-   Resource   : aws.elbv2.load_balancer → alb-staging-api
-   Region     : us-east-1
-   Rule       : aws.elbv2.load_balancer.idle
-   Reason     : Load balancer has no healthy targets for 30 days
-   Details:
-     - type: application
-     - estimated_monthly_cost: ~$18/month
-
-8. [AWS] Unattached EBS Volume
-   Risk       : Low
-   Confidence : High
-   Resource   : aws.ebs.volume → vol-0a1b2c3d4e5f67890
-   Region     : us-east-1
-   Rule       : aws.ebs.volume.unattached
-   Reason     : Volume has been unattached for 47 days
-   Details:
-     - size_gb: 500
-     - state: available
-
-9. [AWS] Unattached Elastic IP
-   Risk       : Low
-   Confidence : High
-   Resource   : aws.ec2.elastic_ip → eipalloc-0a1b2c3d4e5f6
-   Region     : eu-west-1
-   Rule       : aws.ec2.elastic_ip.unattached
-   Reason     : Elastic IP not associated with any instance or ENI (age: 92 days)
-
-10. [AWS] Old EBS Snapshot (438 Days)
-    Risk       : Low
-    Confidence : High
-    Resource   : aws.ebs.snapshot → snap-0a1b2c3d4e5f67890
-    Region     : us-west-2
-    Rule       : aws.ebs.snapshot.old
-    Reason     : Snapshot is 438 days old with no recent activity
-    Details:
-      - size_gb: 200
-      - estimated_monthly_cost: ~$10/month
-
 --- Scan Summary ---
-Total findings: 10
-By risk:        critical: 2  high: 3  medium: 2  low: 3
-By confidence:  high: 9  medium: 1
-Minimum estimated waste: ~$38,744/month
-(9 of 10 findings costed)
-Regions scanned: us-east-1, us-west-2, eu-west-1 (auto-detected)
+Total review candidates: 3
+By risk:        critical: 1  high: 2
+Minimum estimated waste: ~$25,944/month
 ```
 
-No cloud account yet? `cleancloud demo` shows sample output without any credentials.
+*Full 10-finding example: [`docs/example-outputs.md`](docs/example-outputs.md)*
 
 ---
 
@@ -180,25 +82,13 @@ No cloud account yet? `cleancloud demo` shows sample output without any credenti
 
 ---
 
-**CleanCloud is the Cloud Hygiene Engine — detects idle infrastructure and high-cost AI/ML waste across AWS, Azure, and GCP.**
+**CleanCloud is a cloud hygiene scanner — reads your inventory, flags specific idle resources as review candidates, and estimates the cost of keeping them running.**
 
-- Names exactly which resources to clean up — with cost per resource
-- Detects expensive idle AI/ML waste ($500–$20K/month — SageMaker, AML, Vertex AI)
-- Works across AWS, Azure, and GCP
-- Runs entirely in your environment — no agents, no SaaS
+- Catches expensive idle AI/ML waste: SageMaker, AML, Vertex AI — GPU-backed resources flagged as higher-risk review candidates ($500–$23K/month)
+- Works across AWS, Azure, and GCP in one tool
+- Runs entirely in your environment — no agents, no SaaS, no credentials stored
+- 46 curated, high-signal detection rules designed to avoid false positives in IaC environments
 - CI/CD-ready — enforcement exit codes + JSON/CSV/markdown output
-
-## Key Features
-
-- **AI/ML waste detection across all 3 clouds:** idle SageMaker endpoints, notebook instances, Studio apps, and long-running training jobs; AML compute clusters and instances; Azure ML online endpoints and AI Search services; Vertex AI endpoints, Workbench instances, and training jobs. GPU-backed resources are highlighted as higher-risk review candidates. Native cost tools don't surface these — CleanCloud does. Opt-in via `--category ai`
-- **Policy-as-code governance:** `cleancloud.yaml` for per-rule config, exceptions with expiry dates, cost and confidence thresholds, tag-based exclusions — version-controlled alongside your infrastructure. Every exception is a git-reviewable approval.
-- **Governance enforcement (opt-in):** `--fail-on-confidence HIGH` or `--fail-on-cost 500` — enforce waste thresholds in CI/CD on a schedule, owned by platform or FinOps teams
-- **46 curated, high-signal detection rules:** orphaned volumes, idle databases, stopped instances, unused registries, and more — designed to avoid false positives in IaC environments, each with a deterministic cost estimate
-- **Multi-account scanning (AWS):** scan entire AWS Organizations in one run — config file, inline IDs, or auto-discovery via `--org`
-- **Multi-subscription scanning (Azure):** scan all Azure subscriptions in parallel — auto-discovery via Management Group, per-subscription cost breakdown included
-- **Multi-project scanning (GCP):** scan all accessible GCP projects in parallel — auto-discovery via Application Default Credentials, per-project cost breakdown included
-- **Safe for regulated environments:** no agents, no telemetry, no SaaS — runs entirely inside your infrastructure. Suitable for financial services, healthcare, and government where third-party SaaS access is restricted
-- **Ecosystem-ready output:** JSON for Slack alerts, cost dashboards, and ticketing — CSV for spreadsheets — markdown to paste directly into GitHub PRs, Jira, or Confluence
 
 ### What CleanCloud does NOT do
 
@@ -211,38 +101,14 @@ Fully read-only. Safe for production and regulated environments.
 
 ---
 
-| | AWS/Azure/GCP native cost tools | FinOps SaaS platforms | **CleanCloud** |
-|---|:---:|:---:|:---:|
-| Shows cost trends | ✅ | ✅ | — |
-| Names exactly which resources to clean up | ❌ | partial | ✅ |
-| Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
-| Detects idle AI/ML waste (SageMaker, AML, Vertex AI — including GPU-backed endpoints) | ❌ | ❌ | ✅ |
-| **Policy-as-code (exceptions + thresholds in git)** | ❌ | ❌ | ✅ |
-| **Git-reviewable exception approvals** | ❌ | ❌ | ✅ |
-| Read-only, no agents | ✅ | ❌ | ✅ |
-| Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
-| No SaaS account or vendor access required | ❌ | ❌ | ✅ |
-| Multi-account / multi-subscription / multi-project | ❌ | ✅ | ✅ |
-| CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
-
----
-
-## Who it's for
-
-- **Platform and FinOps teams** — run weekly hygiene scans across your AWS Org or Azure tenant, enforce waste thresholds, catch drift before it compounds
-- **Regulated industries** — financial services, healthcare, and government teams that cannot send cloud account data to a SaaS vendor
-- **Mid-market engineering teams** — too large to ignore cloud waste, too lean for enterprise FinOps platforms. Native cost tools show bills; CleanCloud shows what to fix
-- **Cloud consultants and MSPs** — run a read-only audit against a client account in minutes, export findings to markdown or JSON
-- **One-time audits** — run in CloudShell, see findings in 60 seconds, no setup required
-- **Pre-review reports** — export findings to markdown before a quarterly cost review or board meeting
-
----
-
 ## Get Started
 
 ```bash
-pipx install 'cleancloud[all]'            # all cloud SDKs (AWS + Azure + GCP)
-cleancloud demo                           # no credentials needed
+# Add your cloud provider and scan:
+pipx install 'cleancloud[aws]'            # or [azure], [gcp], [all]
+cleancloud scan --provider aws --all-regions
+cleancloud scan --provider azure
+cleancloud scan --provider gcp --all-projects
 ```
 
 **Choose your path:**
@@ -259,8 +125,6 @@ cleancloud demo                           # no credentials needed
 | Getting an error | [Troubleshooting →](docs/troubleshooting.md) |
 
 Not sure if your credentials have the right permissions? Run `cleancloud doctor --provider aws` first.
-
-Need Docker, CloudShell, or install troubleshooting? → **[AWS setup guide →](docs/aws.md)**
 
 ---
 
@@ -285,7 +149,7 @@ Idle AI/ML infrastructure is the fastest-growing source of invisible cloud spend
 | Cloud TPU node (v4/v5p) | $188 – $750+/ day |
 | Vertex AI Feature Store (Bigtable-backed) | $197 – $591+ / month |
 
-CleanCloud detects zero-invocation / zero-prediction endpoints, stale managed notebook and app activity, and long-running managed training jobs across all three clouds. Native cost tools show the bill — they do not tell you which concrete resource to review.
+CleanCloud detects zero-invocation / zero-prediction endpoints, stale managed notebook and app activity, and long-running managed training jobs across all three clouds. Native cost tools show the bill — they do not name the specific resource to review.
 
 ```bash
 cleancloud scan --provider aws --category ai          # Bedrock PTUs + SageMaker endpoints + notebooks + Studio apps + training jobs + idle GPU EC2
@@ -294,13 +158,24 @@ cleancloud scan --provider gcp --category ai          # Vertex AI endpoints + Wo
 cleancloud scan --provider aws --category all         # hygiene + AI/ML together
 ```
 
-No setup required — opt-in with `--category ai`. Works with multi-account and multi-project scans:
+No setup required beyond the base install — opt-in with `--category ai`. Works with multi-account and multi-project scans:
 
 ```bash
 cleancloud scan --provider aws --org --all-regions --category all
 ```
 
 **[AI/ML rules →](docs/rules.md)** · [Full detection details →](docs/rules.md#aiml-rules)
+
+---
+
+## Who it's for
+
+- **Platform and FinOps teams** — run weekly hygiene scans across your AWS Org or Azure tenant, enforce waste thresholds, catch drift before it compounds
+- **Regulated industries** — financial services, healthcare, and government teams that cannot send cloud account data to a SaaS vendor
+- **Mid-market engineering teams** — too large to ignore cloud waste, too lean for enterprise FinOps platforms. Native cost tools show bills; CleanCloud shows what to review
+- **Cloud consultants and MSPs** — run a read-only audit against a client account in minutes, export findings to markdown or JSON
+- **One-time audits** — run in CloudShell, see findings in 60 seconds, no setup required
+- **Pre-review reports** — export findings to markdown before a quarterly cost review or board meeting
 
 ---
 
@@ -362,6 +237,22 @@ cleancloud scan --provider aws --region us-east-1 \
 | `3` | Missing credentials or insufficient permissions |
 
 **[Full CI/CD guide →](docs/ci.md)** · [AWS →](docs/aws.md) · [Azure →](docs/azure.md) · [GCP →](docs/gcp.md)
+
+---
+
+| | AWS/Azure/GCP native cost tools | FinOps SaaS platforms | **CleanCloud** |
+|---|:---:|:---:|:---:|
+| Shows cost trends | ✅ | ✅ | — |
+| Names specific resources flagged for review | ❌ | partial | ✅ |
+| Deterministic cost estimate per resource | ❌ | ❌ | ✅ |
+| Detects idle AI/ML waste (SageMaker, AML, Vertex AI — including GPU-backed endpoints) | ❌ | ❌ | ✅ |
+| **Policy-as-code (exceptions + thresholds in git)** | ❌ | ❌ | ✅ |
+| **Git-reviewable exception approvals** | ❌ | ❌ | ✅ |
+| Read-only, no agents | ✅ | ❌ | ✅ |
+| Runs in air-gapped / regulated environments | ❌ | ❌ | ✅ |
+| No SaaS account or vendor access required | ❌ | ❌ | ✅ |
+| Multi-account / multi-subscription / multi-project | ❌ | ✅ | ✅ |
+| CI/CD and scheduled enforcement (exit codes) | ❌ | ❌ | ✅ |
 
 ---
 
@@ -552,7 +443,7 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 - Storage: unattached Persistent Disks (HIGH), old snapshots 90+ days
 - Network: unused reserved static IPs — regional and global (HIGH)
 - Platform: idle Cloud SQL instances with zero connections 14+ days (HIGH)
-- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero or near-zero predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month); idle Workbench instances (v1 + v2) with no control-plane activity 14+ days — GPU instances flagged HIGH/CRITICAL ($449–$8K+/month); long-running Vertex AI training jobs (CustomJobs + TrainingPipelines) beyond 24h threshold — GPU/TPU early warning at 90% of threshold, CRITICAL risk for GPU jobs at 3× threshold ($4–$80+/hr per GPU node); idle Cloud TPU nodes (v2–v6e) in READY state with near-zero duty_cycle for 7+ days — idle v4 costs $12.88/hr, v5p-8 costs $33.60/hr; idle Vertex AI Feature Store online stores with zero ReadFeatureValues requests for 30+ days — Bigtable-backed stores bill ~$197/node/month regardless of activity
+- AI/ML *(opt-in: `--category ai`)*: idle Vertex AI Online Prediction endpoints with zero observed predictions 14+ days (dedicated nodes continue billing regardless of traffic) — GPU-backed endpoints flagged HIGH risk ($449–$23K+/month); idle Workbench instances (v1 + v2) with no control-plane activity 14+ days — GPU instances flagged HIGH/CRITICAL ($449–$8K+/month); long-running Vertex AI training jobs (CustomJobs + TrainingPipelines) beyond 24h threshold — CRITICAL risk for GPU/accelerator jobs at 3× threshold; idle Cloud TPU nodes (v2–v6e) in READY state with near-zero duty_cycle for 7+ days — idle v4 costs $12.88/hr, v5p-8 costs $33.60/hr; idle Vertex AI Feature Store online stores with zero ReadFeatureValues requests for 30+ days — Bigtable-backed stores bill ~$197/node/month regardless of activity
 
 Rules without a confidence marker are MEDIUM — they use time-based heuristics or multiple signals. Start with `--fail-on-confidence HIGH` to catch obvious waste, then tighten as your team validates.
 
