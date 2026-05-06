@@ -792,7 +792,7 @@ class TestWebJobs:
             # Yield nothing, then raise — simulates a pager that fails before
             # returning any results (first page network error, etc.)
             raise Exception("pager failed mid-iteration")
-            yield  # noqa: unreachable — makes this a generator
+            yield  # makes this a generator
 
         web.web_apps.list_web_jobs.side_effect = _failing_iter
         findings = find_idle_app_services(

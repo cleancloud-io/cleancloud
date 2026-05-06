@@ -42,7 +42,20 @@ cleancloud demo --category ai
    Details:
      - estimated_monthly_cost: ~$23,374/month
 
-2. [Azure] Idle ML Compute Instance (31 days since last activity)
+2. [GCP] Idle Vertex AI Endpoint (2 replica(s) always on, zero requests)
+   Risk       : High
+   Confidence : High
+   Resource   : gcp.vertex.endpoint → projects/ml-platform/locations/us-central1/endpoints/8842531067721654272
+   Region     : us-central1
+   Rule       : gcp.vertex.endpoint.idle
+   Reason     : Endpoint has provisioned serving floor of 2 replica(s); request-count telemetry (coverage: complete) shows max observed rate == 0 over 14d window
+   Details:
+     - provisioned_serving_floor: 2
+     - in_scope_model_count: 1
+     - has_accelerator: true
+     - telemetry_coverage_state: complete
+
+3. [Azure] Idle Azure ML Compute Instance (31 Days Since Last Activity)
    Risk       : High
    Confidence : High
    Resource   : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
@@ -52,7 +65,7 @@ cleancloud demo --category ai
    Details:
      - estimated_monthly_cost: ~$2,190/month
 
-3. [AWS] Idle RDS Instance (Zero connections for 21 days)
+4. [AWS] Idle RDS Instance (Zero connections for 21 days)
    Risk       : High
    Confidence : High
    Resource   : aws.rds.instance → db-prod-analytics
@@ -63,8 +76,8 @@ cleancloud demo --category ai
      - estimated_monthly_cost: ~$380/month
 
 --- Scan Summary ---
-Total review candidates: 3
-By risk:        critical: 1  high: 2
+Total review candidates: 4
+By risk:        critical: 1  high: 3
 Minimum estimated waste: ~$25,944/month
 ```
 

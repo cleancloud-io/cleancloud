@@ -5,23 +5,31 @@ Coverage:
 - Core detection: CPU job over threshold (MEDIUM/MEDIUM), GPU job over threshold (MEDIUM)
 - Runaway (3× threshold): HIGH confidence, CRITICAL for GPU, HIGH for CPU
 - Risk model: GPU+HIGH→CRITICAL, CPU+HIGH→HIGH, MEDIUM confidence→MEDIUM regardless of GPU
-- Early warning: GPU job at 90–100% of threshold only (not 75%)
-- Noise reduction: GPU job at 75–89% of threshold does NOT fire
-- TrainingPipeline resource type: attempts trainingTaskInputs parsing; conservative fallback
+- Below-threshold jobs: no finding emitted (spec 9.4 — no sub-threshold early warnings)
+- TrainingPipeline resource type: parses trainingTaskInputs; hardware_unknown when absent
 - TrainingPipeline with workerPoolSpecs in trainingTaskInputs: uses parsed hardware
-- TrainingPipeline with no hardware spec: is_gpu=False (hardware_unknown=True), conservative duration-tiered fallback cost
-- No findings: job below 90% of threshold (CPU or GPU)
-- Region filter: jobs outside filter are skipped
-- Location fallback: malformed name → region="unknown"
+- TrainingPipeline with no hardware spec: hardware_unknown=True, is_accelerator=False
+- No findings: job below threshold (CPU or GPU)
+- Region filter: exact string equality (spec 7) — no case folding
+- Invalid threshold (< 1): fail-fast with ValueError (spec 9.1)
+- startTime absence skips job; createTime NOT used as fallback (spec 9.4)
+- Future startTime skips job (spec 7)
+- Malformed name skips job (spec 7, 11)
 - Permission errors: PermissionError raised on 403
-- estimated_monthly_cost_usd is always None (transient job)
-- Per-pool cost: heterogeneous cluster cost sums all pools (not primary × total)
+- estimated_monthly_cost_usd is always None (transient job, spec 10.1)
+- No cost fields in details (accrued_cost_usd, burn_rate_per_hour, pricing_source, etc.)
+- Details: state field (exact running enum), start_time field (RFC3339 string)
 - Accelerator detection from _has_accelerator_hardware: accelerator type OR machine prefix
 - _parse_worker_pools: returns list of per-pool tuples; empty → []
-- _estimate_hourly_rate_per_replica: bundled vs additive GPU cost
-- _total_hourly_rate: sums across pools
 - _hardware_label: single worker, multi-worker, with accelerator
 - RULE_ID attribute
+- Exact resource-name pattern enforcement (spec 7): extra segments, wrong type segment, skipped
+- State validation: exact enum from resource, not synthesised; wrong/missing state → skip
+- CustomJob hardware_unknown=True when workerPoolSpecs is empty or all entries malformed
+- _parse_worker_pools: entries without machineType are skipped (spec 8.1, 8.2)
+- _parse_worker_pools: malformed (non-dict, bad replicaCount/acceleratorCount) entries skipped
+- RFC3339 strictness: space separator, date-only, no-tz values all rejected
+- Partial pagination: later-page failure keeps accumulated pages and warns (spec 11.3)
 """
 
 from datetime import datetime, timedelta, timezone
@@ -34,20 +42,13 @@ from cleancloud.core.risk import RiskLevel
 from cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running import (
     _BUNDLED_ACCELERATOR_COUNT,
     _DEFAULT_LONG_RUNNING_HOURS,
-    _DEFAULT_MACHINE_MONTHLY_COST,
-    _DEFAULT_TPU_MONTHLY_COST,
-    _HOURS_PER_MONTH,
-    _MACHINE_MONTHLY_COST,
+    _EXPECTED_STATE,
     _RUNAWAY_MULTIPLIER,
-    _TPU_MACHINE_PREFIXES,
-    _estimate_hourly_rate_per_replica,
     _hardware_label,
     _has_accelerator_hardware,
-    _parse_location,
     _parse_worker_pools,
-    _pricing_confidence,
-    _total_hourly_rate,
     _tpu_topology_host_count,
+    _validate_resource_name,
     find_long_running_vertex_training_jobs,
 )
 
@@ -137,7 +138,6 @@ def _run(
     training_pipelines=None,
     region_filter=None,
     threshold=_THRESHOLD,
-    extra_kwargs=None,
 ):
     creds = MagicMock()
     session = _make_session(custom_jobs=custom_jobs, training_pipelines=training_pipelines)
@@ -154,8 +154,7 @@ def _run(
                 project_id=_PROJECT,
                 credentials=creds,
                 region_filter=region_filter,
-                long_running_hours=threshold,
-                **(extra_kwargs or {}),
+                long_running_hours_threshold=threshold,
             )
 
 
@@ -178,7 +177,6 @@ def test_cpu_job_over_threshold_medium_confidence():
     assert f.details["is_accelerator"] is False
     assert f.details["job_type"] == "customJob"
     assert f.details["duration_hours"] > _THRESHOLD
-    assert f.details["accrued_cost_usd"] > 0
     assert f.estimated_monthly_cost_usd is None
 
 
@@ -197,7 +195,7 @@ def test_gpu_job_over_threshold_medium_risk():
     assert len(findings) == 1
     f = findings[0]
     assert f.confidence == ConfidenceLevel.MEDIUM
-    assert f.risk == RiskLevel.MEDIUM  # not HIGH — see risk model
+    assert f.risk == RiskLevel.MEDIUM  # not HIGH — see risk model (spec 9.3)
     assert f.details["is_accelerator"] is True
     assert f.details["accelerator_type"] == "NVIDIA_TESLA_V100"
     assert f.details["accelerator_count"] == 2
@@ -235,33 +233,21 @@ def test_cpu_job_runaway_3x_high():
 
 
 # ---------------------------------------------------------------------------
-# Early warning (GPU only, 90% threshold)
+# Threshold behavior (spec 9.4: no sub-threshold early warnings)
 # ---------------------------------------------------------------------------
 
 
-def test_gpu_early_warning_at_90pct_threshold():
-    """GPU job at 92% of threshold triggers early warning."""
-    job = _custom_job(
-        "early",
-        "us-central1",
-        start_hours_ago=_THRESHOLD * 0.92,
-        accel_type="NVIDIA_TESLA_T4",
-        accel_count=1,
-    )
+def test_job_below_threshold_no_finding():
+    """No job type fires below the threshold (spec 9.4)."""
+    job = _custom_job("too-young", "us-central1", start_hours_ago=_THRESHOLD * 0.99)
     findings = _run(custom_jobs=[job])
-
-    assert len(findings) == 1
-    f = findings[0]
-    assert f.confidence == ConfidenceLevel.MEDIUM
-    assert f.risk == RiskLevel.MEDIUM
-    assert f.details["is_accelerator"] is True
-    assert f.details["overrun_hours"] == 0.0
+    assert findings == []
 
 
-def test_gpu_job_at_80pct_no_finding():
-    """GPU job at 80% of threshold does NOT fire (below _EARLY_WARNING_FRACTION=0.9)."""
+def test_gpu_job_below_threshold_no_finding():
+    """GPU job below threshold does NOT fire — no sub-threshold early warnings (spec 9.4)."""
     job = _custom_job(
-        "too-young",
+        "gpu-too-young",
         "us-central1",
         start_hours_ago=_THRESHOLD * 0.80,
         accel_type="NVIDIA_TESLA_T4",
@@ -271,50 +257,163 @@ def test_gpu_job_at_80pct_no_finding():
     assert findings == []
 
 
-def test_cpu_early_warning_not_emitted():
-    """CPU job at 92% of threshold produces no finding — early warning is GPU/TPU only."""
-    job = _custom_job("cpu-early", "us-central1", start_hours_ago=_THRESHOLD * 0.92)
+def test_job_at_exactly_threshold_fires():
+    """Job at exactly the threshold is in scope."""
+    job = _custom_job("exactly", "us-central1", start_hours_ago=_THRESHOLD)
     findings = _run(custom_jobs=[job])
-    assert findings == []
-
-
-def test_job_below_50pct_no_finding():
-    """No job type fires below _EARLY_WARNING_FRACTION."""
-    job = _custom_job(
-        "way-too-young",
-        "us-central1",
-        start_hours_ago=_THRESHOLD * 0.50,
-        accel_type="NVIDIA_TESLA_T4",
-        accel_count=1,
-    )
-    findings = _run(custom_jobs=[job])
-    assert findings == []
+    assert len(findings) == 1
+    assert findings[0].confidence == ConfidenceLevel.MEDIUM
 
 
 # ---------------------------------------------------------------------------
-# estimated_monthly_cost_usd
+# estimated_monthly_cost_usd and cost fields
 # ---------------------------------------------------------------------------
 
 
 def test_estimated_monthly_cost_always_none():
-    """Training jobs are transient; monthly cost field must be None."""
+    """Training jobs are transient; monthly cost field must be None (spec 10.1)."""
     job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 10)
     findings = _run(custom_jobs=[job])
     assert findings[0].estimated_monthly_cost_usd is None
 
 
-def test_accrued_cost_populated():
-    """Accrued cost (duration × hourly rate) must be > 0 and in details."""
-    job = _custom_job(
-        "j2",
-        "us-central1",
-        start_hours_ago=_THRESHOLD + 1,
-        machine_type="n1-standard-8",
-        accel_type="NVIDIA_TESLA_T4",
-        accel_count=1,
-    )
+def test_no_accrued_cost_in_details():
+    """Removed pricing fields must not appear in finding details (spec 10.2)."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
     findings = _run(custom_jobs=[job])
-    assert findings[0].details["accrued_cost_usd"] > 0
+    assert len(findings) == 1
+    details = findings[0].details
+    assert "accrued_cost_usd" not in details
+    assert "burn_rate_per_hour" not in details
+    assert "pricing_source" not in details
+    assert "pricing_confidence" not in details
+    assert "cost_type" not in details
+    assert "overrun_hours" not in details
+
+
+# ---------------------------------------------------------------------------
+# Spec-compliance: threshold validation, startTime, region filter
+# ---------------------------------------------------------------------------
+
+
+def test_threshold_less_than_1_raises_value_error():
+    """Invalid threshold (< 1) must fail fast with ValueError (spec 9.1)."""
+    creds = MagicMock()
+    with pytest.raises(ValueError, match="long_running_hours_threshold"):
+        find_long_running_vertex_training_jobs(
+            project_id=_PROJECT,
+            credentials=creds,
+            long_running_hours_threshold=0,
+        )
+
+
+def test_threshold_of_zero_raises_value_error():
+    creds = MagicMock()
+    with pytest.raises(ValueError):
+        find_long_running_vertex_training_jobs(
+            project_id=_PROJECT,
+            credentials=creds,
+            long_running_hours_threshold=-1,
+        )
+
+
+def test_create_time_not_used_as_fallback():
+    """Jobs with createTime but no startTime are skipped — createTime is NOT a fallback (spec 9.4)."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/no-start",
+        "displayName": "no-start-job",
+        "createTime": _iso(start),  # present but must NOT be used
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_future_start_time_skips_job():
+    """Jobs with future startTime are skipped (spec 7)."""
+    import warnings as _warnings
+
+    future = NOW + timedelta(hours=5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/future",
+        "displayName": "future-job",
+        "startTime": _iso(future),
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_malformed_name_skips_job():
+    """Jobs with malformed resource names (location not resolvable) are skipped (spec 7, 11)."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": "malformed-resource-name",
+        "displayName": "bad-job",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_region_filter_exact_match_required():
+    """Region filter is exact string equality; prefix match must not pass (spec 7)."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    findings = _run(custom_jobs=[job], region_filter="us-central")
+    assert findings == []
+
+
+# ---------------------------------------------------------------------------
+# Details fields
+# ---------------------------------------------------------------------------
+
+
+def test_details_state_field_present():
+    """Finding details include 'state' with the exact running enum value."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    findings = _run(custom_jobs=[job])
+    assert len(findings) == 1
+    assert findings[0].details["state"] == "JOB_STATE_RUNNING"
+
+
+def test_details_state_field_training_pipeline():
+    """TrainingPipeline finding uses PIPELINE_STATE_RUNNING."""
+    pipeline = _training_pipeline("pl", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    findings = _run(training_pipelines=[pipeline])
+    assert len(findings) == 1
+    assert findings[0].details["state"] == "PIPELINE_STATE_RUNNING"
+
+
+def test_details_start_time_field_present():
+    """Finding details include 'start_time' as an RFC3339 string."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    findings = _run(custom_jobs=[job])
+    assert len(findings) == 1
+    assert "start_time" in findings[0].details
+    assert isinstance(findings[0].details["start_time"], str)
+    assert findings[0].details["start_time"].endswith("Z")
+
+
+def test_details_long_running_hours_threshold_present():
+    """Finding details include 'long_running_hours_threshold'."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    findings = _run(custom_jobs=[job])
+    assert findings[0].details["long_running_hours_threshold"] == _THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -322,41 +421,17 @@ def test_accrued_cost_populated():
 # ---------------------------------------------------------------------------
 
 
-def test_training_pipeline_no_hardware_conservative_fallback():
-    """Pipeline with no hardware spec uses duration-scaled fallback cost.
-
-    >24h → $20/hr, 6–24h → $5/hr, <6h → $1/hr.
-    """
-    # >24h tier: start_hours_ago=_THRESHOLD+5 = 29h → $20/hr
+def test_training_pipeline_no_hardware_spec():
+    """Pipeline with no hardware spec: hardware_unknown=True, is_accelerator=False."""
     pipeline = _training_pipeline("pl-1", "us-central1", start_hours_ago=_THRESHOLD + 5)
     findings = _run(training_pipelines=[pipeline])
 
     assert len(findings) == 1
     f = findings[0]
     assert f.details["job_type"] == "trainingPipeline"
-    assert f.details["is_accelerator"] is False  # hardware unknown ≠ GPU; only cost is conservative
+    assert f.details["is_accelerator"] is False
     assert f.details["hardware_unknown"] is True
-    assert f.details["pricing_source"] == "conservative_pipeline_default"
-    assert f.details["burn_rate_per_hour"] == pytest.approx(20.0)  # >24h tier
     assert f.estimated_monthly_cost_usd is None
-
-
-def test_training_pipeline_no_hardware_mid_tier():
-    """Pipeline at exactly threshold (24h) uses $5/hr mid-tier (duration <= 24h, > 6h)."""
-    # duration == _THRESHOLD (24h): not > 24 → $5/hr tier; >= threshold → MEDIUM confidence
-    pipeline = _training_pipeline("pl-mid", "us-central1", start_hours_ago=_THRESHOLD)
-    findings = _run(training_pipelines=[pipeline])
-    assert len(findings) == 1
-    assert findings[0].details["burn_rate_per_hour"] == pytest.approx(5.0)  # 6–24h tier
-
-
-def test_training_pipeline_no_hardware_low_tier():
-    """Pipeline <6h uses $1/hr low-tier when threshold is small enough to fire at <6h."""
-    # Use threshold=5h so a 5h job fires (duration >= threshold); duration <= 6h → $1/hr tier
-    pipeline = _training_pipeline("pl-low2", "us-central1", start_hours_ago=5)
-    findings = _run(training_pipelines=[pipeline], threshold=5)
-    assert len(findings) == 1
-    assert findings[0].details["burn_rate_per_hour"] == pytest.approx(1.0)
 
 
 def test_training_pipeline_with_worker_pool_specs_in_task_inputs():
@@ -384,7 +459,6 @@ def test_training_pipeline_with_worker_pool_specs_in_task_inputs():
     assert f.details["is_accelerator"] is True  # a2-* prefix
     assert f.details["machine_type"] == "a2-highgpu-1g"
     assert f.details["total_workers"] == 2
-    assert f.details["pricing_source"] == "static_estimate_us_central1"
 
 
 def test_training_pipeline_task_inputs_as_json_string():
@@ -483,16 +557,12 @@ def test_n1_cpu_not_classified_as_gpu():
 
 
 # ---------------------------------------------------------------------------
-# Per-pool cost aggregation (fix: sum all pools, not primary × total)
+# Heterogeneous cluster: total_workers
 # ---------------------------------------------------------------------------
 
 
-def test_heterogeneous_cluster_cost_sums_all_pools():
-    """
-    Chief: a2-highgpu-1g (1 replica) ≈ $4.02/hr
-    Workers: n1-standard-4 (8 replicas) ≈ $0.19/hr each → $1.52/hr total
-    Total should be ≈ $5.54/hr, not a2-price × 9 ($36.18/hr).
-    """
+def test_heterogeneous_cluster_total_workers():
+    """Chief (1 replica) + 8 workers = total_workers 9."""
     start = NOW - timedelta(hours=_THRESHOLD + 5)
     job = {
         "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/hetero",
@@ -522,13 +592,7 @@ def test_heterogeneous_cluster_cost_sums_all_pools():
     }
     findings = _run(custom_jobs=[job])
     assert len(findings) == 1
-    f = findings[0]
-
-    a2_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-1g"] / _HOURS_PER_MONTH
-    n1_hourly = _MACHINE_MONTHLY_COST["n1-standard-4"] / _HOURS_PER_MONTH
-    expected_total = a2_hourly * 1 + n1_hourly * 8
-    assert f.details["burn_rate_per_hour"] == pytest.approx(expected_total)
-    assert f.details["total_workers"] == 9
+    assert findings[0].details["total_workers"] == 9
 
 
 # ---------------------------------------------------------------------------
@@ -542,26 +606,6 @@ def test_region_filter_excludes_other_regions():
     findings = _run(custom_jobs=[job_keep, job_skip], region_filter="us-central1")
     assert len(findings) == 1
     assert findings[0].region == "us-central1"
-
-
-# ---------------------------------------------------------------------------
-# Location fallback
-# ---------------------------------------------------------------------------
-
-
-def test_location_unknown_for_malformed_name():
-    """Jobs with unparseable resource names get region='unknown', not ''."""
-    start = NOW - timedelta(hours=_THRESHOLD + 5)
-    job = {
-        "name": "malformed-resource-name",
-        "displayName": "bad-job",
-        "startTime": _iso(start),
-        "state": "JOB_STATE_RUNNING",
-        "jobSpec": {"workerPoolSpecs": []},
-    }
-    findings = _run(custom_jobs=[job])
-    if findings:  # may be filtered out if region_filter active — just check region value
-        assert findings[0].region == "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -645,11 +689,12 @@ def test_parse_worker_pools_single_pool():
     ]
     result = _parse_worker_pools(specs)
     assert len(result) == 1
-    machine, accel, count, replicas = result[0]
+    machine, accel, count, replicas, tpu_topology = result[0]
     assert machine == "n1-standard-8"
     assert accel == "NVIDIA_TESLA_V100"
     assert count == 2
     assert replicas == 4
+    assert tpu_topology is None  # non-TPU machine
 
 
 def test_parse_worker_pools_multi_pool():
@@ -749,17 +794,34 @@ def test_parse_worker_pools_tpu_no_topology_keeps_replica_count():
     assert result[0][3] == 1
 
 
-def test_total_hourly_rate_tpu_multi_host():
-    """A ct5lp-hightpu-4t pool with 2x4 topology is priced as 2 hosts."""
+def test_parse_worker_pools_tpu_topology_stored_in_tuple():
+    """tpu_topology (index 4) is stored in the pool tuple to avoid raw-spec index mismatch."""
     specs = [
         {
             "replicaCount": 1,
             "machineSpec": {"machineType": "ct5lp-hightpu-4t", "tpuTopology": "2x4"},
         }
     ]
-    pools = _parse_worker_pools(specs)
-    per_host = _MACHINE_MONTHLY_COST["ct5lp-hightpu-4t"] / _HOURS_PER_MONTH
-    assert _total_hourly_rate(pools) == pytest.approx(per_host * 2)
+    result = _parse_worker_pools(specs)
+    assert result[0][4] == "2x4"
+
+
+def test_parse_worker_pools_tpu_topology_correct_after_malformed_first_entry():
+    """When the first raw entry is malformed and skipped, pools[0][4] gives the correct
+    topology for the valid pool -- not the topology from the skipped first raw entry."""
+    specs = [
+        # Entry 0: malformed (no machineType) -- must be skipped
+        {"replicaCount": 1, "machineSpec": {"tpuTopology": "wrong-topology"}},
+        # Entry 1: valid TPU pool -- should become pools[0]
+        {
+            "replicaCount": 1,
+            "machineSpec": {"machineType": "ct5lp-hightpu-4t", "tpuTopology": "2x4"},
+        },
+    ]
+    result = _parse_worker_pools(specs)
+    assert len(result) == 1
+    assert result[0][0] == "ct5lp-hightpu-4t"
+    assert result[0][4] == "2x4"  # correct topology, not "wrong-topology"
 
 
 def test_g4_gpu_counts_match_docs():
@@ -768,6 +830,19 @@ def test_g4_gpu_counts_match_docs():
     assert _BUNDLED_ACCELERATOR_COUNT["g4-standard-96"] == 2
     assert _BUNDLED_ACCELERATOR_COUNT["g4-standard-192"] == 4
     assert _BUNDLED_ACCELERATOR_COUNT["g4-standard-384"] == 8
+
+
+def test_tpu7x_topology_scaling_via_suffix_parse():
+    """tpu7x-standard-4t not in _BUNDLED_ACCELERATOR_COUNT but -4t suffix → 4 chips/host.
+    Topology '4x4' = 16 chips → 4 hosts."""
+    specs = [
+        {
+            "replicaCount": 1,
+            "machineSpec": {"machineType": "tpu7x-standard-4t", "tpuTopology": "4x4"},
+        }
+    ]
+    pools = _parse_worker_pools(specs)
+    assert pools[0][3] == 4  # 16 chips / 4 per host = 4 hosts
 
 
 # ---------------------------------------------------------------------------
@@ -811,95 +886,20 @@ def test_has_accelerator_hardware_empty_string_not_classified():
     assert _has_accelerator_hardware(pools) is False
 
 
-# ---------------------------------------------------------------------------
-# _estimate_hourly_rate_per_replica
-# ---------------------------------------------------------------------------
+def test_has_accelerator_hardware_recognized_type_zero_count_not_accelerated():
+    """Recognized acceleratorType with acceleratorCount=0 is NOT accelerated (spec 8.1).
 
-
-def test_estimate_hourly_rate_per_replica_n1_with_gpu_is_additive():
-    """n1-* machines add GPU cost on top of machine cost."""
-    machine_hourly = _MACHINE_MONTHLY_COST["n1-standard-8"] / _HOURS_PER_MONTH
-    gpu_monthly_each = 311.0  # NVIDIA_TESLA_T4
-    gpu_hourly = gpu_monthly_each / _HOURS_PER_MONTH * 2  # 2 GPUs
-    expected = machine_hourly + gpu_hourly
-    result = _estimate_hourly_rate_per_replica("n1-standard-8", "NVIDIA_TESLA_T4", 2)
-    assert abs(result - expected) < 0.01
-
-
-def test_estimate_hourly_rate_per_replica_a2_bundled_no_addon():
-    """a2-* machines bundle GPU cost — no accelerator add-on."""
-    machine_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-1g"] / _HOURS_PER_MONTH
-    result = _estimate_hourly_rate_per_replica("a2-highgpu-1g", "NVIDIA_TESLA_A100", 1)
-    assert abs(result - machine_hourly) < 0.01
-
-
-def test_estimate_hourly_rate_per_replica_unknown_machine_uses_default():
-    result = _estimate_hourly_rate_per_replica("custom-unknown-machine", None, 0)
-    expected = _DEFAULT_MACHINE_MONTHLY_COST / _HOURS_PER_MONTH
-    assert abs(result - expected) < 0.01
-
-
-def test_estimate_hourly_rate_co_scheduling_single_accel():
-    """a2-highgpu-8g with accel_count=1 triggers co-scheduling: 8 replicas per VM, cost 1/8."""
-    full_machine_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-8g"] / _HOURS_PER_MONTH
-    # accel_count=1 == 1 → replicas_per_vm = 8//1 = 8
-    result = _estimate_hourly_rate_per_replica("a2-highgpu-8g", "NVIDIA_TESLA_A100", 1)
-    assert result == pytest.approx(full_machine_hourly / 8)
-
-
-def test_estimate_hourly_rate_co_scheduling_divides_evenly():
-    """a2-highgpu-8g with accel_count=2: 8%2==0 → co-scheduling applies, cost is 1/4."""
-    full_machine_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-8g"] / _HOURS_PER_MONTH
-    # accel_count=2, machine_gpu_count=8, 8%2==0 → replicas_per_vm=4
-    result = _estimate_hourly_rate_per_replica("a2-highgpu-8g", "NVIDIA_TESLA_A100", 2)
-    assert result == pytest.approx(full_machine_hourly / 4)
-
-
-def test_estimate_hourly_rate_no_co_scheduling_above_half():
-    """a2-highgpu-8g with accel_count=5 → no co-scheduling (accel_count != 1), full price."""
-    full_machine_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-8g"] / _HOURS_PER_MONTH
-    result = _estimate_hourly_rate_per_replica("a2-highgpu-8g", "NVIDIA_TESLA_A100", 5)
-    assert result == pytest.approx(full_machine_hourly)
-
-
-def test_estimate_hourly_rate_no_co_scheduling_zero_accel_count():
-    """accel_count=0 (unspecified) → full price, no co-scheduling assumed."""
-    full_machine_hourly = _MACHINE_MONTHLY_COST["a2-highgpu-8g"] / _HOURS_PER_MONTH
-    result = _estimate_hourly_rate_per_replica("a2-highgpu-8g", None, 0)
-    assert result == pytest.approx(full_machine_hourly)
-
-
-def test_bundled_accelerator_count_covers_all_machine_monthly_cost_bundled_types():
-    """Every bundled machine type in _MACHINE_MONTHLY_COST (except g2-standard-32)
-    has a known GPU/TPU count in _BUNDLED_ACCELERATOR_COUNT."""
-    gpu_prefixes = ("a2-", "a3-", "a4-", "a4x-", "g2-", "g4-")
-    bundled_types = [
-        m
-        for m in _MACHINE_MONTHLY_COST
-        if m.startswith(gpu_prefixes) or m.startswith(_TPU_MACHINE_PREFIXES)
-    ]
-    unknown = [
-        m for m in bundled_types if m not in _BUNDLED_ACCELERATOR_COUNT and m != "g2-standard-32"
-    ]
-    assert unknown == [], f"Missing from _BUNDLED_ACCELERATOR_COUNT: {unknown}"
+    acceleratorCount=0 means no accelerator is attached even if the type field is set.
+    The explicit path requires both a recognized type AND count > 0.
+    """
+    pools = [("n1-standard-8", "NVIDIA_TESLA_T4", 0, 1)]
+    assert _has_accelerator_hardware(pools) is False
 
 
 def test_tpu_machine_type_detected_as_accelerated():
     """ct5lp-* (TPU v5e litepod) is detected as accelerated via machine type prefix."""
     pools = [("ct5lp-hightpu-4t", None, 0, 1)]
     assert _has_accelerator_hardware(pools) is True
-
-
-def test_tpu_machine_type_uses_tpu_default_cost_when_unknown():
-    """Unrecognized ct5lp-* machine falls back to _DEFAULT_TPU_MONTHLY_COST, not generic $150."""
-    result = _estimate_hourly_rate_per_replica("ct5lp-hightpu-16t", None, 0)
-    assert result == pytest.approx(_DEFAULT_TPU_MONTHLY_COST / _HOURS_PER_MONTH)
-
-
-def test_tpu_machine_type_uses_table_cost_when_known():
-    """Known ct5lp-hightpu-4t uses the exact cost from _MACHINE_MONTHLY_COST."""
-    result = _estimate_hourly_rate_per_replica("ct5lp-hightpu-4t", None, 0)
-    assert result == pytest.approx(_MACHINE_MONTHLY_COST["ct5lp-hightpu-4t"] / _HOURS_PER_MONTH)
 
 
 def test_a3_megagpu_detected_as_bundled():
@@ -926,49 +926,6 @@ def test_tpu7x_machine_detected_as_accelerated():
     assert _has_accelerator_hardware(pools) is True
 
 
-def test_tpu7x_uses_tpu_default_cost():
-    """tpu7x-* has no cost table entry — should use _DEFAULT_TPU_MONTHLY_COST."""
-    result = _estimate_hourly_rate_per_replica("tpu7x-standard-4t", None, 0)
-    assert result == pytest.approx(_DEFAULT_TPU_MONTHLY_COST / _HOURS_PER_MONTH)
-
-
-def test_tpu7x_topology_scaling_via_suffix_parse():
-    """tpu7x-standard-4t not in _BUNDLED_ACCELERATOR_COUNT but -4t suffix → 4 chips/host.
-    Topology '4x4' = 16 chips → 4 hosts → priced as 4 × per-host rate."""
-    specs = [
-        {
-            "replicaCount": 1,
-            "machineSpec": {"machineType": "tpu7x-standard-4t", "tpuTopology": "4x4"},
-        }
-    ]
-    pools = _parse_worker_pools(specs)
-    assert pools[0][3] == 4  # 16 chips / 4 per host = 4 hosts
-    per_host = _DEFAULT_TPU_MONTHLY_COST / _HOURS_PER_MONTH
-    assert _total_hourly_rate(pools) == pytest.approx(per_host * 4)
-
-
-# ---------------------------------------------------------------------------
-# _total_hourly_rate
-# ---------------------------------------------------------------------------
-
-
-def test_total_hourly_rate_single_pool():
-    per_replica = _estimate_hourly_rate_per_replica("n1-standard-4", None, 0)
-    pools = [("n1-standard-4", None, 0, 3)]
-    assert abs(_total_hourly_rate(pools) - per_replica * 3) < 0.01
-
-
-def test_total_hourly_rate_heterogeneous():
-    """Cost sums correctly across pools with different machine types."""
-    chief = _estimate_hourly_rate_per_replica("a2-highgpu-1g", None, 0) * 1
-    workers = _estimate_hourly_rate_per_replica("n1-standard-4", None, 0) * 8
-    pools = [
-        ("a2-highgpu-1g", None, 0, 1),
-        ("n1-standard-4", None, 0, 8),
-    ]
-    assert abs(_total_hourly_rate(pools) - (chief + workers)) < 0.01
-
-
 # ---------------------------------------------------------------------------
 # _hardware_label
 # ---------------------------------------------------------------------------
@@ -990,18 +947,11 @@ def test_hardware_label_multi_worker():
     assert "×8 workers" in label
 
 
-# ---------------------------------------------------------------------------
-# _parse_location
-# ---------------------------------------------------------------------------
-
-
-def test_parse_location_standard():
-    name = "projects/my-proj/locations/us-central1/customJobs/12345"
-    assert _parse_location(name) == "us-central1"
-
-
-def test_parse_location_missing_returns_empty():
-    assert _parse_location("invalid-name") == ""
+def test_hardware_label_zero_accel_count_omits_type():
+    """acceleratorType is omitted from the label when acceleratorCount == 0."""
+    label = _hardware_label("n1-standard-8", "NVIDIA_TESLA_T4", 0, 1)
+    assert "NVIDIA_TESLA_T4" not in label
+    assert "n1-standard-8" in label
 
 
 # ---------------------------------------------------------------------------
@@ -1020,51 +970,10 @@ def test_rule_id_attribute():
 
 def test_wildcard_unsupported_keyed_per_project_and_resource():
     """_wildcard_unsupported uses (project_id, resource) tuples, not plain strings."""
-    # Verify the set stores tuples so customJobs and trainingPipelines are independent
     test_set = set()
     test_set.add(("proj-a", "customJobs"))
     assert ("proj-a", "customJobs") in test_set
     assert ("proj-a", "trainingPipelines") not in test_set  # independent per resource
-
-
-# ---------------------------------------------------------------------------
-# Fix 3: pricing_confidence
-# ---------------------------------------------------------------------------
-
-
-def test_pricing_confidence_published_for_known_machines():
-    pools = [("n1-standard-8", "NVIDIA_TESLA_T4", 1, 1)]
-    assert _pricing_confidence(pools) == "published"
-
-
-def test_pricing_confidence_partial_estimate_for_estimated_machine():
-    """a4-* machines use estimated pricing."""
-    pools = [("a4-highgpu-8g", None, 0, 1)]
-    assert _pricing_confidence(pools) == "partial_estimate"
-
-
-def test_pricing_confidence_partial_estimate_for_estimated_accel():
-    """H200 accelerator uses estimated pricing."""
-    pools = [("n1-standard-8", "NVIDIA_H200_141GB", 1, 1)]
-    assert _pricing_confidence(pools) == "partial_estimate"
-
-
-def test_pricing_confidence_empty_pools():
-    """Empty pool list → published (no estimated prices involved)."""
-    assert _pricing_confidence([]) == "published"
-
-
-def test_finding_includes_pricing_confidence_field():
-    """pricing_confidence appears in finding details for custom jobs."""
-    job = _custom_job(
-        "job-1",
-        "us-central1",
-        start_hours_ago=_THRESHOLD + 1,
-        machine_type="n1-standard-4",
-    )
-    findings = _run(custom_jobs=[job])
-    assert len(findings) == 1
-    assert "pricing_confidence" in findings[0].details
 
 
 # ---------------------------------------------------------------------------
@@ -1073,14 +982,14 @@ def test_finding_includes_pricing_confidence_field():
 
 
 def test_skipped_jobs_warning_on_missing_timestamp():
-    """Jobs with no startTime or createTime emit a warning."""
+    """Jobs with no startTime emit a warning and are skipped."""
     import warnings as _warnings
 
     job = {
         "name": "projects/my-project/locations/us-central1/customJobs/bad",
         "displayName": "bad-job",
         "state": "JOB_STATE_RUNNING",
-        # no startTime or createTime
+        # no startTime
     }
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -1105,47 +1014,422 @@ def test_skipped_jobs_warning_on_missing_timestamp():
 
 
 # ---------------------------------------------------------------------------
-# Fix 9: early_warning_fraction and runaway_multiplier kwargs
+# Resource-name pattern enforcement (spec 7)
 # ---------------------------------------------------------------------------
 
 
-def test_custom_early_warning_fraction_fires_earlier():
-    """early_warning_fraction=0.5 → job at 60% of threshold fires; default 0.9 would not."""
-    job = _custom_job(
-        "job-ew",
-        "us-central1",
-        start_hours_ago=_THRESHOLD * 0.6,
-        accel_type="NVIDIA_TESLA_T4",
-        accel_count=1,
+def test_validate_resource_name_valid_customjob():
+    assert (
+        _validate_resource_name(
+            "projects/my-proj/locations/us-central1/customJobs/123", "customJob"
+        )
+        is True
     )
-    findings = _run(custom_jobs=[job], extra_kwargs={"early_warning_fraction": 0.5})
-    assert len(findings) == 1
 
 
-def test_custom_early_warning_fraction_default_does_not_fire():
-    """Same job at 60% of threshold does NOT fire with default fraction (0.9)."""
-    job = _custom_job(
-        "job-ew-no",
-        "us-central1",
-        start_hours_ago=_THRESHOLD * 0.6,
-        accel_type="NVIDIA_TESLA_T4",
-        accel_count=1,
+def test_validate_resource_name_valid_pipeline():
+    assert (
+        _validate_resource_name(
+            "projects/my-proj/locations/us-central1/trainingPipelines/456", "trainingPipeline"
+        )
+        is True
     )
-    findings = _run(custom_jobs=[job])
+
+
+def test_validate_resource_name_too_many_parts():
+    """Extra path segment (7 parts instead of 6) → invalid."""
+    assert (
+        _validate_resource_name(
+            "projects/p/locations/us-central1/customJobs/123/extra", "customJob"
+        )
+        is False
+    )
+
+
+def test_validate_resource_name_too_few_parts():
+    assert _validate_resource_name("projects/p/locations/customJobs/123", "customJob") is False
+
+
+def test_validate_resource_name_wrong_type_segment():
+    """customJobs name treated as trainingPipeline → invalid."""
+    assert (
+        _validate_resource_name(
+            "projects/p/locations/us-central1/customJobs/123", "trainingPipeline"
+        )
+        is False
+    )
+
+
+def test_validate_resource_name_empty_location():
+    """Empty location segment → invalid."""
+    assert _validate_resource_name("projects/p/locations//customJobs/123", "customJob") is False
+
+
+def test_resource_name_extra_segments_skipped():
+    """A name with extra path segments is not emitted as a finding."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/123/extra",
+        "displayName": "extra-path",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
     assert findings == []
 
 
-def test_custom_runaway_multiplier_changes_confidence():
-    """runaway_multiplier=2 → job at 2.5× threshold is HIGH; default 3× it would be MEDIUM."""
-    job = _custom_job("job-rm", "us-central1", start_hours_ago=_THRESHOLD * 2.5)
-    findings = _run(custom_jobs=[job], extra_kwargs={"runaway_multiplier": 2})
-    assert len(findings) == 1
-    assert findings[0].confidence.name == "HIGH"
+def test_resource_name_location_bearing_but_wrong_type_skipped():
+    """Name has valid location segment but wrong resource-type keyword → skip."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/models/123",
+        "displayName": "wrong-type",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
 
 
-def test_default_runaway_multiplier_at_2_5x_is_medium():
-    """Same job at 2.5× threshold with default multiplier (3) → MEDIUM confidence."""
-    job = _custom_job("job-rm-med", "us-central1", start_hours_ago=_THRESHOLD * 2.5)
+# ---------------------------------------------------------------------------
+# State validation (spec 3.3, 9.1)
+# ---------------------------------------------------------------------------
+
+
+def test_expected_state_constants():
+    """_EXPECTED_STATE maps job types to exact documented running-state enums."""
+    assert _EXPECTED_STATE["customJob"] == "JOB_STATE_RUNNING"
+    assert _EXPECTED_STATE["trainingPipeline"] == "PIPELINE_STATE_RUNNING"
+
+
+def test_wrong_state_custom_job_skipped():
+    """CustomJob not in JOB_STATE_RUNNING is skipped even if it passes other checks."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j1",
+        "displayName": "pending-job",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_PENDING",  # not running
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_missing_state_custom_job_skipped():
+    """CustomJob with absent state field is skipped."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j2",
+        "displayName": "no-state",
+        "startTime": _iso(start),
+        # no 'state' key
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_state_is_read_from_resource_not_synthesised():
+    """The 'state' in finding details reflects the actual resource state, not a synthesised value."""
+    job = _custom_job("j", "us-central1", start_hours_ago=_THRESHOLD + 5)
+    # Confirm the fixture sets state to JOB_STATE_RUNNING
+    assert job["state"] == "JOB_STATE_RUNNING"
+    findings = _run(custom_jobs=[job])
+    assert findings[0].details["state"] == "JOB_STATE_RUNNING"
+
+
+# ---------------------------------------------------------------------------
+# CustomJob hardware_unknown when workerPoolSpecs absent/empty (spec 8.1)
+# ---------------------------------------------------------------------------
+
+
+def test_custom_job_empty_worker_specs_hardware_unknown():
+    """CustomJob with empty workerPoolSpecs must have hardware_unknown=True (spec 8.1)."""
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-no-specs",
+        "displayName": "no-specs",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_RUNNING",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
     findings = _run(custom_jobs=[job])
     assert len(findings) == 1
-    assert findings[0].confidence.name == "MEDIUM"
+    assert findings[0].details["hardware_unknown"] is True
+    assert findings[0].details["is_accelerator"] is False
+
+
+def test_custom_job_absent_job_spec_hardware_unknown():
+    """CustomJob with no jobSpec at all is still eligible; hardware_unknown=True."""
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-no-spec",
+        "displayName": "no-job-spec",
+        "startTime": _iso(start),
+        "state": "JOB_STATE_RUNNING",
+        # no 'jobSpec' key
+    }
+    findings = _run(custom_jobs=[job])
+    assert len(findings) == 1
+    assert findings[0].details["hardware_unknown"] is True
+
+
+# ---------------------------------------------------------------------------
+# _parse_worker_pools: malformed entries and missing machineType (spec 8.1, 8.2)
+# ---------------------------------------------------------------------------
+
+
+def test_parse_worker_pools_missing_machine_type_skipped():
+    """Pool entries without machineType are skipped (spec 8.1, 8.2)."""
+    specs = [
+        {
+            "replicaCount": 1,
+            "machineSpec": {
+                # no machineType
+                "acceleratorType": "NVIDIA_TESLA_T4",
+                "acceleratorCount": 1,
+            },
+        }
+    ]
+    assert _parse_worker_pools(specs) == []
+
+
+def test_parse_worker_pools_empty_machine_type_skipped():
+    """Pool entry with empty machineType string is treated as missing → skipped."""
+    specs = [{"replicaCount": 1, "machineSpec": {"machineType": ""}}]
+    assert _parse_worker_pools(specs) == []
+
+
+def test_parse_worker_pools_non_dict_entry_skipped():
+    """Non-dict entries in workerPoolSpecs are silently skipped."""
+    specs = ["not-a-dict", None, 42]
+    assert _parse_worker_pools(specs) == []
+
+
+def test_parse_worker_pools_bad_replica_count_skipped():
+    """Pool with non-numeric replicaCount is treated as malformed → skipped."""
+    specs = [
+        {
+            "replicaCount": "bad-value",
+            "machineSpec": {"machineType": "n1-standard-4"},
+        }
+    ]
+    assert _parse_worker_pools(specs) == []
+
+
+def test_parse_worker_pools_mixed_valid_invalid():
+    """Valid pool entries are kept; malformed entries are silently dropped."""
+    specs = [
+        {"replicaCount": "bad", "machineSpec": {"machineType": "n1-standard-4"}},
+        {
+            "replicaCount": 2,
+            "machineSpec": {"machineType": "a2-highgpu-1g"},
+        },
+        {"replicaCount": 1, "machineSpec": {}},  # no machineType
+    ]
+    result = _parse_worker_pools(specs)
+    assert len(result) == 1
+    assert result[0][0] == "a2-highgpu-1g"
+    assert result[0][3] == 2
+
+
+def test_training_pipeline_pools_without_machine_type_hardware_unknown():
+    """TrainingPipeline whose exposed workerPoolSpecs entries all lack machineType → hardware_unknown."""
+    task_inputs = {
+        "workerPoolSpecs": [
+            {
+                "replicaCount": 1,
+                "machineSpec": {
+                    # machineType absent
+                    "acceleratorType": "NVIDIA_TESLA_T4",
+                    "acceleratorCount": 1,
+                },
+            }
+        ]
+    }
+    pipeline = _training_pipeline(
+        "pl-no-mt", "us-central1", start_hours_ago=_THRESHOLD + 5, task_inputs=task_inputs
+    )
+    findings = _run(training_pipelines=[pipeline])
+    assert len(findings) == 1
+    assert findings[0].details["hardware_unknown"] is True
+    assert findings[0].details["is_accelerator"] is False
+
+
+# ---------------------------------------------------------------------------
+# RFC3339 startTime strictness (spec 7)
+# ---------------------------------------------------------------------------
+
+
+def test_start_time_space_separator_rejected():
+    """startTime with space separator (not T) is not valid RFC3339 and must be skipped."""
+    import warnings as _warnings
+
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    iso_space = start.isoformat().replace("T", " ")  # e.g. "2025-05-31 06:00:00+00:00"
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-space",
+        "state": "JOB_STATE_RUNNING",
+        "startTime": iso_space,
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_start_time_date_only_rejected():
+    """Date-only startTime (no time component) is not valid RFC3339 and must be skipped."""
+    import warnings as _warnings
+
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-date",
+        "state": "JOB_STATE_RUNNING",
+        "startTime": "2025-05-01",
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_start_time_no_timezone_rejected():
+    """startTime without timezone offset is not valid RFC3339 and must be skipped."""
+    import warnings as _warnings
+
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-notz",
+        "state": "JOB_STATE_RUNNING",
+        "startTime": "2025-05-01T06:00:00",  # no Z or offset
+        "jobSpec": {"workerPoolSpecs": []},
+    }
+    with _warnings.catch_warnings(record=True):
+        _warnings.simplefilter("always")
+        findings = _run(custom_jobs=[job])
+    assert findings == []
+
+
+def test_start_time_fractional_seconds_accepted():
+    """startTime with fractional seconds and Z is valid RFC3339 and must be accepted."""
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    frac_str = start.strftime("%Y-%m-%dT%H:%M:%S.123456Z")
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-frac",
+        "state": "JOB_STATE_RUNNING",
+        "startTime": frac_str,
+        "jobSpec": {
+            "workerPoolSpecs": [
+                {"replicaCount": 1, "machineSpec": {"machineType": "n1-standard-4"}}
+            ]
+        },
+    }
+    findings = _run(custom_jobs=[job])
+    assert len(findings) == 1
+
+
+def test_start_time_explicit_offset_accepted():
+    """startTime with explicit +00:00 offset is valid RFC3339 and must be accepted."""
+    start = NOW - timedelta(hours=_THRESHOLD + 5)
+    offset_str = start.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+    job = {
+        "name": f"projects/{_PROJECT}/locations/us-central1/customJobs/j-offset",
+        "state": "JOB_STATE_RUNNING",
+        "startTime": offset_str,
+        "jobSpec": {
+            "workerPoolSpecs": [
+                {"replicaCount": 1, "machineSpec": {"machineType": "n1-standard-4"}}
+            ]
+        },
+    }
+    findings = _run(custom_jobs=[job])
+    assert len(findings) == 1
+
+
+# ---------------------------------------------------------------------------
+# Partial pagination: later-page failure keeps earlier pages (spec 11.3)
+# ---------------------------------------------------------------------------
+
+
+def test_pagination_later_page_failure_keeps_partial_results():
+    """A non-403 failure on a later page returns earlier accumulated pages and warns."""
+    import warnings as _warnings
+
+    job = _custom_job("j-page1", "us-central1", start_hours_ago=_THRESHOLD + 5)
+
+    page1_resp = MagicMock()
+    page1_resp.status_code = 200
+    page1_resp.ok = True
+    page1_resp.json.return_value = {
+        "customJobs": [job],
+        "nextPageToken": "token-abc",  # signals a second page
+    }
+
+    page2_resp = MagicMock()
+    page2_resp.status_code = 503
+    page2_resp.ok = False
+
+    empty_pipeline_resp = MagicMock()
+    empty_pipeline_resp.status_code = 200
+    empty_pipeline_resp.ok = True
+    empty_pipeline_resp.json.return_value = {"trainingPipelines": []}
+
+    responses = {"customJobs": [page1_resp, page2_resp], "trainingPipelines": [empty_pipeline_resp]}
+    counters = {"customJobs": 0, "trainingPipelines": 0}
+
+    def _get(url, params=None):
+        if "customJobs" in url:
+            idx = counters["customJobs"]
+            counters["customJobs"] += 1
+            return responses["customJobs"][min(idx, len(responses["customJobs"]) - 1)]
+        else:
+            idx = counters["trainingPipelines"]
+            counters["trainingPipelines"] += 1
+            return responses["trainingPipelines"][min(idx, len(responses["trainingPipelines"]) - 1)]
+
+    creds = MagicMock()
+    mock_session = MagicMock()
+    mock_session.get.side_effect = _get
+
+    with patch(
+        "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.AuthorizedSession",
+        return_value=mock_session,
+    ):
+        with patch(
+            "cleancloud.providers.gcp.rules.ai.vertex_training_job_long_running.datetime"
+        ) as mock_dt:
+            mock_dt.now.return_value = NOW
+            mock_dt.fromisoformat.side_effect = datetime.fromisoformat
+            with _warnings.catch_warnings(record=True) as caught:
+                _warnings.simplefilter("always")
+                findings = find_long_running_vertex_training_jobs(
+                    project_id=_PROJECT,
+                    credentials=creds,
+                    long_running_hours_threshold=_THRESHOLD,
+                )
+
+    # Page 1 job must still appear even though page 2 failed
+    assert len(findings) == 1
+    assert findings[0].details["job_name"].endswith("j-page1")
+    # A warning about the partial read must have been emitted
+    assert any("partial" in str(w.message).lower() for w in caught)
