@@ -70,9 +70,13 @@ def find_idle_workbench_instances(
 
     Currently EMITTING_DISABLED: no qualifying canonical signal exists for
     per-instance kernel activity. updateTime and createTime MUST NOT be used
-    as idle signals.
+    as idle signals. Always returns an empty list.
 
-    Always returns an empty list until a qualifying signal is available.
+    Performs full candidate classification and surfaces results via warnings:
+      - PARTIAL scope: unreachable[] locations or discovery failures warn once.
+      - NOT_EVALUABLE: ACTIVE candidates with NO_SIGNAL warn with resource names.
+      - INVALID resources: malformed name or missing state; counted but not warned.
+      - OUT_OF_SCOPE: non-ACTIVE instances; excluded silently.
 
     IAM permissions required:
         notebooks.instances.list (roles/notebooks.viewer)
@@ -81,7 +85,90 @@ def find_idle_workbench_instances(
         raise ValueError(f"idle_days must be >= 1, got {idle_days!r}")
 
     session = AuthorizedSession(credentials)
-    _list_instances(session, project_id)
+    raw_instances, unreachable_locations, discovery_failed = _list_instances(
+        session, project_id
+    )
+
+    # --- Partial scan scope ---
+    # The spec explicitly covers unreachable[] from the API as a PARTIAL trigger.
+    # discovery_failed (400/5xx/network) is an implementation extension: those
+    # errors make enumeration incomplete in the same way, so PARTIAL is the
+    # conservative and correct choice even though the spec does not spell it out.
+    if unreachable_locations or discovery_failed:
+        parts = []
+        if unreachable_locations:
+            parts.append(f"unreachable locations: {unreachable_locations}")
+        if discovery_failed:
+            parts.append("discovery incomplete due to transport/server error")
+        warnings.warn(
+            f"gcp.vertex.workbench.idle: scan scope PARTIAL for project '{project_id}'"
+            f" — {'; '.join(parts)}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # --- Classify resource records ---
+    # INVALID: resource name absent/malformed or state absent/empty — counted.
+    # OUT_OF_SCOPE: valid name+state but not ACTIVE — excluded silently.
+    excluded_invalid_count = 0
+    candidate_resources: list[dict] = []
+
+    for raw in raw_instances:
+        name = (raw.get("name") or "").strip()
+        state = (raw.get("state") or "").strip()
+
+        if not name or not _INSTANCE_NAME_RE.match(name):
+            excluded_invalid_count += 1
+            continue
+
+        if not state:
+            excluded_invalid_count += 1
+            continue
+
+        # OUT_OF_SCOPE: valid but not ACTIVE — excluded silently, not counted.
+        if state != "ACTIVE":
+            continue
+
+        # location is segment index 3 of the validated name.
+        location = name.split("/")[3]
+
+        # Region filter: exact string equality, no aliasing or case folding.
+        if region_filter and location != region_filter:
+            continue
+
+        candidate_resources.append({"name": name, "location": location})
+
+    # --- INVALID count ---
+    # Surface the exact count of records excluded as INVALID so operators can
+    # detect data-quality issues without the rule silently discarding records.
+    if excluded_invalid_count:
+        warnings.warn(
+            f"gcp.vertex.workbench.idle: {excluded_invalid_count} resource record(s)"
+            f" in project '{project_id}' excluded as INVALID"
+            f" (malformed resource name or missing state field)",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    # --- NOT_EVALUABLE: ACTIVE candidates exist but no canonical signal ---
+    # Warn with a capped list of resource names (first 5 + overflow count) so
+    # the warning stays readable even in large projects.
+    if candidate_resources:
+        _CAP = 5
+        shown = [r["name"] for r in candidate_resources[:_CAP]]
+        overflow = len(candidate_resources) - _CAP
+        name_summary = ", ".join(shown)
+        if overflow > 0:
+            name_summary += f", ... (+{overflow} more)"
+        warnings.warn(
+            f"gcp.vertex.workbench.idle: {len(candidate_resources)} ACTIVE instance(s)"
+            f" in project '{project_id}' cannot be evaluated (NO_SIGNAL) —"
+            f" no qualifying canonical kernel-activity signal exists;"
+            f" rule is EMITTING_DISABLED. Instances: {name_summary}",
+            UserWarning,
+            stacklevel=2,
+        )
+
     return []
 
 
@@ -91,7 +178,7 @@ find_idle_workbench_instances.RULE_ID = "gcp.vertex.workbench.idle"
 def _list_instances(
     session: AuthorizedSession,
     project_id: str,
-) -> tuple:
+) -> tuple[list, list, bool]:
     """
     List all Vertex AI Workbench instances across all locations using the v2 API.
 
@@ -138,6 +225,9 @@ def _list_instances(
             )
 
         if resp.status_code == 404:
+            # Implementation choice: 404 = Notebooks API not enabled for this
+            # project, meaning provably no instances exist. Treated as a clean
+            # empty scope (FULL, EVALUABLE). Not explicitly defined in the spec.
             return [], [], False
 
         if resp.status_code == 400:
