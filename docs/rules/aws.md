@@ -250,17 +250,17 @@
 **Spec:** [specs/aws/ai/sagemaker_notebook_idle.md](../specs/aws/ai/sagemaker_notebook_idle.md)
 
 #### `aws.ec2.gpu.idle`
-**Detects:** EC2 GPU/accelerator instances (p/g/trn/inf/dl families) with <5% GPU utilization or <10% CPU over `idle_days`
+**Detects:** EC2 GPU/accelerator instances (p/g/trn/inf/dl families) with max GPU utilization < 5% or max daily CPU < 10% over `idle_days`
 
-**Confidence / Risk:** HIGH (NVIDIA CW agent present, max GPU < 5%); MEDIUM (no NVIDIA agent, avg CPU < 10%) / CRITICAL (`idle_ratio ≥ 2.0`); HIGH (all other GPU/accelerator instances)
+**Confidence / Risk:** HIGH (`nvidia_smi_utilization_gpu` discoverable in CloudWatch and max GPU < threshold); MEDIUM (metric not discoverable — CPU proxy only, max daily CPU < threshold) / CRITICAL (`idle_ratio >= 2.0`); HIGH (otherwise)
 
 **Permissions:** `ec2:DescribeInstances`, `cloudwatch:GetMetricStatistics`, `cloudwatch:ListMetrics`
 
 **Params:** `idle_days` (default: 7), `gpu_threshold` (default: 5.0%), `cpu_threshold` (default: 10.0%)
 
-**Exclusions:** non-GPU instance families; instances younger than threshold
+**Exclusions:** non-GPU instance families; missing, naive, or future `LaunchTime`; instances younger than threshold; no CloudWatch datapoints on chosen metric path
 
-**Spec:** —
+**Spec:** [specs/aws/ai/ec2_gpu_idle.md](../specs/aws/ai/ec2_gpu_idle.md)
 
 #### `aws.bedrock.provisioned_throughput.idle`
 **Detects:** Bedrock Provisioned Throughput (Model Units) with zero invocations for `idle_days`; bills per MU per hour regardless of traffic

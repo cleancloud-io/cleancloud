@@ -77,9 +77,7 @@ def _run(instances, unreachable=None, discovery_failed=False, **kwargs):
         "cleancloud.providers.gcp.rules.ai.workbench_idle._list_instances",
         return_value=(instances, unreachable or [], discovery_failed),
     ):
-        return find_idle_workbench_instances(
-            project_id=_PROJECT, credentials=MagicMock(), **kwargs
-        )
+        return find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), **kwargs)
 
 
 def _run_with_warnings(instances, unreachable=None, discovery_failed=False, **kwargs):
@@ -99,9 +97,7 @@ def _invoke_http(mock_session, **kwargs):
         "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
         return_value=mock_session,
     ):
-        return find_idle_workbench_instances(
-            project_id=_PROJECT, credentials=MagicMock(), **kwargs
-        )
+        return find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), **kwargs)
 
 
 def _invoke_http_with_warnings(mock_session, **kwargs):
@@ -128,8 +124,7 @@ class TestReturnValue:
 
     def test_always_empty_with_multiple_active(self):
         instances = [
-            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}")
-            for i in range(5)
+            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}") for i in range(5)
         ]
         assert _run(instances) == []
 
@@ -145,9 +140,7 @@ class TestReturnValue:
 class TestIdleDaysValidation:
     def test_zero_raises(self):
         with pytest.raises(ValueError, match="idle_days must be >= 1"):
-            find_idle_workbench_instances(
-                project_id=_PROJECT, credentials=MagicMock(), idle_days=0
-            )
+            find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), idle_days=0)
 
     def test_negative_raises(self):
         with pytest.raises(ValueError, match="idle_days must be >= 1"):
@@ -203,8 +196,7 @@ class TestNotEvaluableWarning:
 
     def test_warning_mentions_count(self):
         instances = [
-            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}")
-            for i in range(3)
+            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}") for i in range(3)
         ]
         _, warns = _run_with_warnings(instances)
         assert "3" in str(warns[0].message)
@@ -219,8 +211,7 @@ class TestNotEvaluableWarning:
 
     def test_warning_caps_name_list_at_five(self):
         instances = [
-            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}")
-            for i in range(8)
+            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}") for i in range(8)
         ]
         _, warns = _run_with_warnings(instances)
         msg = str(warns[0].message)
@@ -228,8 +219,7 @@ class TestNotEvaluableWarning:
 
     def test_warning_no_overflow_label_when_at_cap(self):
         instances = [
-            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}")
-            for i in range(5)
+            _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-{i}") for i in range(5)
         ]
         _, warns = _run_with_warnings(instances)
         assert "more" not in str(warns[0].message)
@@ -278,31 +268,57 @@ class TestPartialScopeUnreachable:
 
 
 # ---------------------------------------------------------------------------
-# PARTIAL scope warning — discovery_failed
+# Discovery-incomplete warning — discovery_failed (NOT PARTIAL per spec)
 # ---------------------------------------------------------------------------
 
 
-class TestPartialScopeDiscoveryFailed:
+class TestDiscoveryFailedWarning:
+    """
+    discovery_failed (400/5xx/network) emits a 'discovery incomplete' warning.
+    It is NOT labelled PARTIAL — PARTIAL is reserved for unreachable[] per spec
+    (sections 12.1 and 12.2.7).
+    """
+
     def test_discovery_failed_emits_warning(self):
         _, warns = _run_with_warnings([], discovery_failed=True)
         assert len(warns) == 1
 
-    def test_warning_mentions_partial(self):
+    def test_warning_does_not_mention_partial(self):
+        """discovery_failed must NOT say PARTIAL — that label is only for unreachable[]."""
         _, warns = _run_with_warnings([], discovery_failed=True)
-        assert "PARTIAL" in str(warns[0].message)
+        assert "PARTIAL" not in str(warns[0].message)
+
+    def test_warning_mentions_incomplete(self):
+        _, warns = _run_with_warnings([], discovery_failed=True)
+        assert "incomplete" in str(warns[0].message).lower()
 
     def test_warning_mentions_project(self):
         _, warns = _run_with_warnings([], discovery_failed=True)
         assert _PROJECT in str(warns[0].message)
 
-    def test_both_partial_and_not_evaluable_can_warn(self):
-        """ACTIVE instances + unreachable locations = two warnings."""
+    def test_unreachable_and_not_evaluable_each_emit_separate_warning(self):
+        """ACTIVE instances + unreachable locations = two warnings (PARTIAL + NOT_EVALUABLE)."""
         _, warns = _run_with_warnings([_active()], unreachable=["asia-east1"])
         assert len(warns) == 2
 
     def test_discovery_failed_and_active_instances_both_warn(self):
+        """discovery_failed + ACTIVE instances = two separate warnings."""
         _, warns = _run_with_warnings([_active()], discovery_failed=True)
         assert len(warns) == 2
+
+    def test_all_three_conditions_emit_three_warnings(self):
+        """unreachable + discovery_failed + ACTIVE = three separate warnings."""
+        _, warns = _run_with_warnings(
+            [_active()], unreachable=["asia-east1"], discovery_failed=True
+        )
+        assert len(warns) == 3
+
+    def test_unreachable_warning_still_says_partial(self):
+        """unreachable[] warning must still say PARTIAL even when discovery_failed is also True."""
+        _, warns = _run_with_warnings([], unreachable=["asia-east1"], discovery_failed=True)
+        partial_warns = [w for w in warns if "PARTIAL" in str(w.message)]
+        assert len(partial_warns) == 1
+        assert "asia-east1" in str(partial_warns[0].message)
 
 
 # ---------------------------------------------------------------------------
@@ -384,15 +400,15 @@ class TestOutOfScope:
         assert len(warns) == 0
 
     def test_provisioning_excluded_silently(self):
-        _, warns = _run_with_warnings(
-            [{"name": _INSTANCE_NAME, "state": "PROVISIONING"}]
-        )
+        _, warns = _run_with_warnings([{"name": _INSTANCE_NAME, "state": "PROVISIONING"}])
         assert len(warns) == 0
 
     def test_mixed_active_and_stopped_only_active_warned(self):
         active = _active(f"projects/{_PROJECT}/locations/{_LOCATION}/instances/active")
-        stopped = {"name": f"projects/{_PROJECT}/locations/{_LOCATION}/instances/stopped",
-                   "state": "STOPPED"}
+        stopped = {
+            "name": f"projects/{_PROJECT}/locations/{_LOCATION}/instances/stopped",
+            "state": "STOPPED",
+        }
         _, warns = _run_with_warnings([active, stopped])
         assert len(warns) == 1
         msg = str(warns[0].message)
@@ -443,23 +459,36 @@ class TestHttpErrors:
         with pytest.raises(PermissionError, match="roles/notebooks.viewer"):
             _invoke_http(_session(_err(403)))
 
-    def test_404_returns_empty_no_partial_warning(self):
+    def test_404_returns_empty_with_assumption_warning(self):
+        """404 emits a warning surfacing the 'no instances assumed' assumption."""
         result, warns = _invoke_http_with_warnings(_session(_err(404)))
         assert result == []
-        assert len(warns) == 0
+        assert len(warns) == 1
+        assert "404" in str(warns[0].message)
 
-    def test_400_returns_empty_with_partial_warning(self):
+    def test_404_warning_does_not_say_partial(self):
+        """404 is a clean-scope assumption, not a PARTIAL scan."""
+        _, warns = _invoke_http_with_warnings(_session(_err(404)))
+        assert "PARTIAL" not in str(warns[0].message)
+
+    def test_400_returns_empty_with_incomplete_warning(self):
         result, warns = _invoke_http_with_warnings(_session(_err(400)))
         assert result == []
-        # _list_instances warns about 400, caller warns about PARTIAL
         msgs = " ".join(str(w.message) for w in warns)
-        assert "400" in msgs or "PARTIAL" in msgs
+        assert "400" in msgs or "incomplete" in msgs.lower()
+
+    def test_400_warning_does_not_say_partial(self):
+        """discovery_failed (400) must NOT say PARTIAL — that label is only for unreachable[]."""
+        _, warns = _invoke_http_with_warnings(_session(_err(400)))
+        # _list_instances warns about 400; find_ warns about discovery incomplete
+        partial_warns = [w for w in warns if "PARTIAL" in str(w.message)]
+        assert len(partial_warns) == 0
 
     def test_500_returns_empty_with_warning(self):
         result, warns = _invoke_http_with_warnings(_session(_err(500)))
         assert result == []
         msgs = " ".join(str(w.message) for w in warns)
-        assert "500" in msgs or "PARTIAL" in msgs
+        assert "500" in msgs or "incomplete" in msgs.lower()
 
     def test_503_returns_empty_with_warning(self):
         result, warns = _invoke_http_with_warnings(_session(_err(503)))
@@ -512,8 +541,8 @@ class TestListInstancesBasic:
 
 class TestListInstancesPagination:
     def test_two_pages_accumulates_instances(self):
-        inst1 = {"name": f"projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
-        inst2 = {"name": f"projects/p/locations/us-central1/instances/i2", "state": "ACTIVE"}
+        inst1 = {"name": "projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
+        inst2 = {"name": "projects/p/locations/us-central1/instances/i2", "state": "ACTIVE"}
         session = _session(
             _ok({"instances": [inst1], "nextPageToken": "tok1"}),
             _ok({"instances": [inst2]}),
@@ -523,9 +552,20 @@ class TestListInstancesPagination:
 
     def test_three_pages_all_accumulated(self):
         pages = [
-            _ok({"instances": [{"name": f"projects/p/locations/l/instances/i{i}", "state": "ACTIVE"}],
-                 "nextPageToken": f"t{i}"} if i < 2 else
-                {"instances": [{"name": f"projects/p/locations/l/instances/i{i}", "state": "ACTIVE"}]})
+            _ok(
+                {
+                    "instances": [
+                        {"name": f"projects/p/locations/l/instances/i{i}", "state": "ACTIVE"}
+                    ],
+                    "nextPageToken": f"t{i}",
+                }
+                if i < 2
+                else {
+                    "instances": [
+                        {"name": f"projects/p/locations/l/instances/i{i}", "state": "ACTIVE"}
+                    ]
+                }
+            )
             for i in range(3)
         ]
         instances, _, _ = _list_instances(_session(*pages), _PROJECT)
@@ -544,7 +584,9 @@ class TestListInstancesPagination:
 
 class TestListInstancesUnreachable:
     def test_unreachable_location_collected(self):
-        _, unreachable, _ = _list_instances(_session(_ok({"unreachable": ["asia-east1"]})), _PROJECT)
+        _, unreachable, _ = _list_instances(
+            _session(_ok({"unreachable": ["asia-east1"]})), _PROJECT
+        )
         assert "asia-east1" in unreachable
 
     def test_unreachable_deduplicated_across_pages(self):
@@ -568,8 +610,17 @@ class TestListInstancesErrors:
             _list_instances(_session(_err(403)), _PROJECT)
 
     def test_404_returns_clean_empty(self):
-        instances, unreachable, failed = _list_instances(_session(_err(404)), _PROJECT)
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            instances, unreachable, failed = _list_instances(_session(_err(404)), _PROJECT)
         assert instances == [] and unreachable == [] and failed is False
+
+    def test_404_emits_assumption_warning(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _list_instances(_session(_err(404)), _PROJECT)
+        msgs = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+        assert any("404" in m for m in msgs)
 
     def test_400_sets_discovery_failed(self):
         _, _, failed = _list_instances(_session(_err(400)), _PROJECT)

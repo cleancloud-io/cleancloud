@@ -85,24 +85,25 @@ def find_idle_workbench_instances(
         raise ValueError(f"idle_days must be >= 1, got {idle_days!r}")
 
     session = AuthorizedSession(credentials)
-    raw_instances, unreachable_locations, discovery_failed = _list_instances(
-        session, project_id
-    )
+    raw_instances, unreachable_locations, discovery_failed = _list_instances(session, project_id)
 
     # --- Partial scan scope ---
-    # The spec explicitly covers unreachable[] from the API as a PARTIAL trigger.
-    # discovery_failed (400/5xx/network) is an implementation extension: those
-    # errors make enumeration incomplete in the same way, so PARTIAL is the
-    # conservative and correct choice even though the spec does not spell it out.
-    if unreachable_locations or discovery_failed:
-        parts = []
-        if unreachable_locations:
-            parts.append(f"unreachable locations: {unreachable_locations}")
-        if discovery_failed:
-            parts.append("discovery incomplete due to transport/server error")
+    # The spec defines PARTIAL exclusively from discovery-layer reachability:
+    # unreachable[] locations reported by the API (section 12.1, 12.2.7).
+    # 400/5xx/network errors (discovery_failed) make enumeration incomplete but
+    # are NOT defined as PARTIAL by the spec; they get a separate warning.
+    if unreachable_locations:
         warnings.warn(
             f"gcp.vertex.workbench.idle: scan scope PARTIAL for project '{project_id}'"
-            f" — {'; '.join(parts)}",
+            f" — unreachable locations: {unreachable_locations}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    if discovery_failed:
+        warnings.warn(
+            f"gcp.vertex.workbench.idle: discovery incomplete for project '{project_id}'"
+            f" — transport or server error encountered; scan results may be incomplete",
             UserWarning,
             stacklevel=2,
         )
@@ -154,9 +155,9 @@ def find_idle_workbench_instances(
     # Warn with a capped list of resource names (first 5 + overflow count) so
     # the warning stays readable even in large projects.
     if candidate_resources:
-        _CAP = 5
-        shown = [r["name"] for r in candidate_resources[:_CAP]]
-        overflow = len(candidate_resources) - _CAP
+        _cap = 5
+        shown = [r["name"] for r in candidate_resources[:_cap]]
+        overflow = len(candidate_resources) - _cap
         name_summary = ", ".join(shown)
         if overflow > 0:
             name_summary += f", ... (+{overflow} more)"
@@ -225,9 +226,17 @@ def _list_instances(
             )
 
         if resp.status_code == 404:
-            # Implementation choice: 404 = Notebooks API not enabled for this
-            # project, meaning provably no instances exist. Treated as a clean
-            # empty scope (FULL, EVALUABLE). Not explicitly defined in the spec.
+            # 404 = Notebooks API not enabled for this project.
+            # Assumption: if the API is not enabled, no instances can exist.
+            # Treated as a clean empty scope (FULL, EVALUABLE).
+            # A warning is emitted so callers are aware of the assumption.
+            warnings.warn(
+                f"gcp.vertex.workbench.idle: Notebooks API not enabled for project"
+                f" '{project_id}' (HTTP 404) — assuming no instances exist;"
+                f" scope treated as FULL",
+                UserWarning,
+                stacklevel=3,
+            )
             return [], [], False
 
         if resp.status_code == 400:
