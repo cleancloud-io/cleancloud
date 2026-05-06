@@ -55,9 +55,7 @@ RULE_METADATA = {
 # Exact documented resource-name pattern (spec 3.1, 7):
 #   projects/{projectId}/locations/{location}/instances/{instanceId}
 # All four non-empty path segments must be present.
-_INSTANCE_NAME_RE = re.compile(
-    r"^projects/[^/]+/locations/[^/]+/instances/[^/]+$"
-)
+_INSTANCE_NAME_RE = re.compile(r"^projects/[^/]+/locations/[^/]+/instances/[^/]+$")
 
 
 def find_idle_workbench_instances(
@@ -117,10 +115,7 @@ def _list_instances(
     results: list = []
     unreachable: list = []
     discovery_failed = False
-    url = (
-        f"https://notebooks.googleapis.com/v2"
-        f"/projects/{project_id}/locations/-/instances"
-    )
+    url = f"https://notebooks.googleapis.com/v2" f"/projects/{project_id}/locations/-/instances"
     params: dict = {"pageSize": 100}
 
     while True:

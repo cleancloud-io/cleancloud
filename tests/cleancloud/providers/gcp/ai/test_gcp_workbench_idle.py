@@ -80,9 +80,7 @@ def _invoke(**kwargs):
         "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
         return_value=_session(_ok()),
     ):
-        return find_idle_workbench_instances(
-            project_id=_PROJECT, credentials=MagicMock(), **kwargs
-        )
+        return find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), **kwargs)
 
 
 def _invoke_with_session(mock_session, **kwargs):
@@ -91,9 +89,7 @@ def _invoke_with_session(mock_session, **kwargs):
         "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
         return_value=mock_session,
     ):
-        return find_idle_workbench_instances(
-            project_id=_PROJECT, credentials=MagicMock(), **kwargs
-        )
+        return find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -110,13 +106,19 @@ class TestReturnValue:
 
     def test_empty_when_api_returns_active_instances(self):
         """EMITTING_DISABLED: ACTIVE instances in API response still yield no findings."""
-        inst = {"name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-1", "state": "ACTIVE"}
+        inst = {
+            "name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-1",
+            "state": "ACTIVE",
+        }
         result = _invoke_with_session(_session(_ok({"instances": [inst]})))
         assert result == []
 
     def test_empty_when_api_returns_multiple_instances(self):
         instances = [
-            {"name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-{i}", "state": "ACTIVE"}
+            {
+                "name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-{i}",
+                "state": "ACTIVE",
+            }
             for i in range(5)
         ]
         result = _invoke_with_session(_session(_ok({"instances": instances})))
@@ -131,9 +133,7 @@ class TestReturnValue:
 class TestIdleDaysValidation:
     def test_zero_raises_value_error(self):
         with pytest.raises(ValueError, match="idle_days must be >= 1"):
-            find_idle_workbench_instances(
-                project_id=_PROJECT, credentials=MagicMock(), idle_days=0
-            )
+            find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock(), idle_days=0)
 
     def test_negative_one_raises(self):
         with pytest.raises(ValueError, match="idle_days must be >= 1"):
@@ -352,6 +352,7 @@ class TestListInstancesPagination:
     def test_three_pages_all_accumulated(self):
         def _inst(i):
             return {"name": f"projects/p/locations/us-central1/instances/i{i}", "state": "ACTIVE"}
+
         session = _session(
             _ok({"instances": [_inst(1)], "nextPageToken": "t1"}),
             _ok({"instances": [_inst(2)], "nextPageToken": "t2"}),
