@@ -42,7 +42,20 @@ cleancloud demo --category ai
    Détails :
      - estimated_monthly_cost: ~$23 374/mois
 
-2. [Azure] Instance de calcul Azure ML inactive (31 jours sans activité)
+2. [GCP] Endpoint Vertex AI inactif (2 réplique(s) toujours active(s), zéro requête)
+   Risque     : Élevé
+   Confiance  : High
+   Ressource  : gcp.vertex.endpoint → projects/ml-platform/locations/us-central1/endpoints/8842531067721654272
+   Région     : us-central1
+   Règle      : gcp.vertex.endpoint.idle
+   Raison     : L'endpoint a un plancher de service provisionné de 2 réplique(s) ; la télémétrie de comptage des requêtes (couverture : complète) montre un taux maximum observé == 0 sur une fenêtre de 14j
+   Détails :
+     - provisioned_serving_floor: 2
+     - in_scope_model_count: 1
+     - has_accelerator: true
+     - telemetry_coverage_state: complete
+
+3. [Azure] Instance de calcul Azure ML inactive (31 jours sans activité)
    Risque     : Élevé
    Confiance  : High
    Ressource  : azure.ml.compute_instance → ws-prod/compute/ds-workstation-nc24
@@ -52,7 +65,7 @@ cleancloud demo --category ai
    Détails :
      - estimated_monthly_cost: ~$2 190/mois
 
-3. [AWS] Instance RDS inactive (zéro connexion depuis 21 jours)
+4. [AWS] Instance RDS inactive (zéro connexion depuis 21 jours)
    Risque     : Élevé
    Confiance  : High
    Ressource  : aws.rds.instance → db-prod-analytics
@@ -63,8 +76,8 @@ cleancloud demo --category ai
      - estimated_monthly_cost: ~$380/mois
 
 --- Résumé du scan ---
-Total candidats de revue : 3
-Par risque :     critique: 1  élevé: 2
+Total candidats de revue : 4
+Par risque :     critique: 1  élevé: 3
 Gaspillage minimum estimé : ~$25 944/mois
 ```
 

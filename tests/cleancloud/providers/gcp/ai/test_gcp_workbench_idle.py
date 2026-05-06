@@ -1,404 +1,535 @@
 """
 Tests for gcp.vertex.workbench.idle rule.
 
+The rule is EMITTING_DISABLED and always returns an empty List[Finding].
+No qualifying canonical kernel-activity signal exists; updateTime, createTime,
+age, and CPU utilization are all explicitly non-canonical.
+
 Coverage:
-- Core detection: idle CPU instance (MEDIUM risk), idle GPU instance (HIGH risk)
-- Skipping: STOPPED instances, young instances, instances with recent activity
-- Confidence levels: HIGH (updateTime + age >= threshold), MEDIUM (75% threshold or age-fallback)
-- GPU detection: NVIDIA_TESLA_T4, NVIDIA_TESLA_A100, a2-* machines
-- Risk levels: CRITICAL (GPU + idle_ratio >= 2.0), HIGH (GPU), MEDIUM (CPU)
-- Cost estimation: machine cost, GPU add-on for n1/n2, bundled for a2/g2
-- Age-fallback: when updateTime unavailable, confidence capped at MEDIUM
-- Region filter: instances outside the filter are skipped
-- Both API versions: v1 (User-Managed Notebooks), v2 (Vertex AI Workbench)
-- Permission errors: PermissionError raised on 403 from list call
-- RULE_METADATA and RULE_ID attributes present
+  Public API (find_idle_workbench_instances):
+    - return type and value
+    - idle_days validation (zero, negative, boundary, error message)
+    - region_filter parameter accepted
+    - 403/404/400/5xx/network error handling
+    - warning type, message content (project, HTTP code, rule ID)
+
+  Internal (_list_instances):
+    - empty response
+    - instance accumulation
+    - pagination over 2 and 3 pages
+    - pageToken forwarded on subsequent requests
+    - pageSize=100 in initial request
+    - unreachable[] collected and deduplicated across pages
+    - empty unreachable entries skipped
+    - 404 returns clean ([], [], False)
+    - 400 returns ([], [], True)
+    - 5xx sets discovery_failed; preserves already-fetched instances
+    - network error sets discovery_failed; preserves already-fetched instances
+    - 403 raises PermissionError
+    - URL contains project ID and locations/- wildcard
 """
 
-from datetime import datetime, timedelta, timezone
+import warnings
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cleancloud.core.confidence import ConfidenceLevel
-from cleancloud.core.risk import RiskLevel
 from cleancloud.providers.gcp.rules.ai.workbench_idle import (
-    _DEFAULT_MACHINE_MONTHLY_COST,
-    _GPU_MONTHLY_COST_EACH,
-    _MACHINE_MONTHLY_COST,
     RULE_METADATA,
-    _estimate_cost,
-    _normalize,
+    _list_instances,
     find_idle_workbench_instances,
 )
+
+_PROJECT = "my-project"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-NOW = datetime(2025, 6, 1, 12, 0, 0, tzinfo=timezone.utc)
-_PROJECT = "my-project"
-_LOCATION = "us-central1"
-_INSTANCE_ID = "my-workbench-1"
-_INSTANCE_NAME = f"projects/{_PROJECT}/locations/{_LOCATION}/instances/{_INSTANCE_ID}"
 
-_OLD_TIME = NOW - timedelta(days=30)
-_IDLE_TIME = NOW - timedelta(days=20)
-_RECENT_TIME = NOW - timedelta(days=3)
-_YOUNG_TIME = NOW - timedelta(days=2)
+def _ok(body: dict = None):
+    """Build a 200 response mock with the given JSON body."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = body or {}
+    resp.raise_for_status.return_value = None
+    return resp
 
 
-def _ts(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+def _err(status_code: int):
+    """Build an error response mock with the given status code."""
+    resp = MagicMock()
+    resp.status_code = status_code
+    return resp
 
 
-def _v2_instance(
-    name: str = _INSTANCE_NAME,
-    state: str = "ACTIVE",
-    create_time: datetime = _OLD_TIME,
-    update_time: datetime = _IDLE_TIME,
-    machine_type: str = "n1-standard-4",
-    accel_type: str = "",
-    accel_count: int = 0,
-    labels: dict = None,
-) -> dict:
-    """Build a minimal v2 Workbench instance response dict."""
-    gce: dict = {"machineType": machine_type}
-    if accel_type:
-        gce["acceleratorConfigs"] = [{"type": accel_type, "coreCount": str(accel_count or 1)}]
-    return {
-        "name": name,
-        "state": state,
-        "createTime": _ts(create_time),
-        "updateTime": _ts(update_time),
-        "gceSetup": gce,
-        "labels": labels or {},
-        "_api_version": "v2",
-    }
-
-
-def _v1_instance(
-    name: str = _INSTANCE_NAME,
-    state: str = "ACTIVE",
-    create_time: datetime = _OLD_TIME,
-    update_time: datetime = _IDLE_TIME,
-    machine_type: str = "zones/us-central1-a/machineTypes/n1-standard-4",
-    accel_type: str = "",
-    accel_count: int = 0,
-    labels: dict = None,
-) -> dict:
-    """Build a minimal v1 User-Managed Notebook instance response dict."""
-    inst: dict = {
-        "name": name,
-        "state": state,
-        "createTime": _ts(create_time),
-        "updateTime": _ts(update_time),
-        "machineType": machine_type,
-        "labels": labels or {},
-        "_api_version": "v1",
-    }
-    if accel_type:
-        inst["acceleratorConfig"] = {
-            "type": accel_type,
-            "coreCount": str(accel_count or 1),
-        }
-    return inst
-
-
-def _mock_session(instances: list):
-    """Return a mock AuthorizedSession that returns the given instance list from v2 API."""
+def _session(*responses):
+    """Build a mock session whose .get() returns responses in order."""
     mock = MagicMock()
-    response = MagicMock()
-    response.status_code = 200
-    response.json.return_value = {"instances": instances}
-    mock.get.return_value = response
+    mock.get.side_effect = list(responses)
     return mock
 
 
-# ---------------------------------------------------------------------------
-# _normalize tests
-# ---------------------------------------------------------------------------
-
-
-class TestNormalize:
-    def test_v2_basic(self):
-        raw = _v2_instance()
-        norm = _normalize(raw)
-        assert norm["name"] == _INSTANCE_NAME
-        assert norm["location"] == _LOCATION
-        assert norm["state"] == "ACTIVE"
-        assert norm["machine_type"] == "n1-standard-4"
-        assert norm["accel_type"] == ""
-        assert norm["accel_count"] == 0
-
-    def test_v2_with_gpu(self):
-        raw = _v2_instance(accel_type="NVIDIA_TESLA_T4", accel_count=2)
-        norm = _normalize(raw)
-        assert norm["accel_type"] == "NVIDIA_TESLA_T4"
-        assert norm["accel_count"] == 2
-
-    def test_unspecified_accel_normalized_to_empty(self):
-        raw = _v2_instance(accel_type="ACCELERATOR_TYPE_UNSPECIFIED")
-        norm = _normalize(raw)
-        assert norm["accel_type"] == ""
-
-    def test_location_extracted_from_name(self):
-        name = "projects/p/locations/europe-west1/instances/i"
-        raw = {**_v2_instance(name=name), "name": name}
-        norm = _normalize(raw)
-        assert norm["location"] == "europe-west1"
-
-
-# ---------------------------------------------------------------------------
-# _estimate_cost tests
-# ---------------------------------------------------------------------------
-
-
-class TestEstimateCost:
-    def test_known_cpu_machine(self):
-        cost = _estimate_cost("n1-standard-4", "", 0)
-        assert cost == _MACHINE_MONTHLY_COST["n1-standard-4"]
-
-    def test_unknown_machine_uses_default(self):
-        cost = _estimate_cost("custom-unknown-type", "", 0)
-        assert cost == _DEFAULT_MACHINE_MONTHLY_COST
-
-    def test_n1_with_t4_adds_gpu_cost(self):
-        base = _MACHINE_MONTHLY_COST["n1-standard-4"]
-        gpu = _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
-        assert _estimate_cost("n1-standard-4", "NVIDIA_TESLA_T4", 1) == base + gpu
-
-    def test_n1_with_two_t4_doubles_gpu_cost(self):
-        base = _MACHINE_MONTHLY_COST["n1-standard-4"]
-        gpu = _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
-        assert _estimate_cost("n1-standard-4", "NVIDIA_TESLA_T4", 2) == base + gpu * 2
-
-    def test_a2_machine_no_gpu_addon(self):
-        # a2-highgpu-1g already bundles A100 cost
-        cost = _estimate_cost("a2-highgpu-1g", "NVIDIA_TESLA_A100", 1)
-        assert cost == _MACHINE_MONTHLY_COST["a2-highgpu-1g"]
-
-    def test_g2_machine_no_gpu_addon(self):
-        cost = _estimate_cost("g2-standard-8", "NVIDIA_L4", 1)
-        assert cost == _MACHINE_MONTHLY_COST["g2-standard-8"]
-
-    def test_none_machine_type_uses_default(self):
-        cost = _estimate_cost(None, None, 0)
-        assert cost == _DEFAULT_MACHINE_MONTHLY_COST
-
-
-# ---------------------------------------------------------------------------
-# find_idle_workbench_instances tests
-# ---------------------------------------------------------------------------
-
-
-class TestFindIdleWorkbenchInstances:
-    def _run(self, instances: list, **kwargs):
-        with patch(
-            "cleancloud.providers.gcp.rules.ai.workbench_idle._list_instances",
-            return_value=instances,
-        ):
-            with patch("cleancloud.providers.gcp.rules.ai.workbench_idle.datetime") as mock_dt:
-                mock_dt.now.return_value = NOW
-                mock_dt.fromisoformat = datetime.fromisoformat
-                return find_idle_workbench_instances(
-                    project_id=_PROJECT, credentials=MagicMock(), **kwargs
-                )
-
-    def test_idle_cpu_instance_flagged(self):
-        findings = self._run([_v2_instance()])
-        assert len(findings) == 1
-        f = findings[0]
-        assert f.rule_id == "gcp.vertex.workbench.idle"
-        assert f.provider == "gcp"
-        assert f.resource_id == _INSTANCE_NAME
-        assert f.region == _LOCATION
-        assert f.confidence == ConfidenceLevel.HIGH
-        assert f.risk == RiskLevel.MEDIUM
-
-    def test_stopped_instance_skipped(self):
-        findings = self._run([_v2_instance(state="STOPPED")])
-        assert findings == []
-
-    def test_young_instance_skipped(self):
-        # age < max(idle_days // 2, 7) = 7 days
-        findings = self._run([_v2_instance(create_time=_YOUNG_TIME, update_time=_RECENT_TIME)])
-        assert findings == []
-
-    def test_recent_update_time_not_flagged(self):
-        # updateTime only 3 days ago — not idle
-        findings = self._run([_v2_instance(update_time=_RECENT_TIME)])
-        assert findings == []
-
-    def test_gpu_instance_high_risk(self):
-        findings = self._run([_v2_instance(accel_type="NVIDIA_TESLA_T4", accel_count=1)])
-        assert len(findings) == 1
-        assert findings[0].risk == RiskLevel.HIGH
-
-    def test_gpu_instance_critical_risk_when_idle_ratio_ge_2(self):
-        # idle_since_days = 30, idle_days = 14 → ratio = 30/14 ≈ 2.14 >= 2.0
-        very_idle = NOW - timedelta(days=30)
-        findings = self._run(
-            [_v2_instance(update_time=very_idle, accel_type="NVIDIA_TESLA_A100", accel_count=1)]
+def _invoke(**kwargs):
+    """
+    Call find_idle_workbench_instances with a default 200/empty mock session.
+    Extra kwargs are forwarded to the rule function.
+    """
+    with patch(
+        "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
+        return_value=_session(_ok()),
+    ):
+        return find_idle_workbench_instances(
+            project_id=_PROJECT, credentials=MagicMock(), **kwargs
         )
-        assert len(findings) == 1
-        assert findings[0].risk == RiskLevel.CRITICAL
 
-    def test_medium_confidence_at_75pct_threshold(self):
-        # idle_since_days = 11 days → 11/14 = 0.786 >= 0.75
-        threshold_medium = NOW - timedelta(days=11)
-        findings = self._run([_v2_instance(update_time=threshold_medium)])
-        assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.MEDIUM
 
-    def test_below_medium_threshold_not_flagged(self):
-        # idle_since_days = 9 → 9/14 = 0.64 < 0.75
-        recent = NOW - timedelta(days=9)
-        findings = self._run([_v2_instance(update_time=recent)])
-        assert findings == []
-
-    def test_age_fallback_capped_at_medium(self):
-        # v2 instance with no updateTime → age-fallback
-        inst = _v2_instance()
-        del inst["updateTime"]
-        inst.pop("updateTime", None)
-        inst["updateTime"] = ""
-        findings = self._run([inst])
-        # age is 30 days → should be flagged; confidence capped at MEDIUM
-        assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.MEDIUM
-
-    def test_region_filter_excludes_other_regions(self):
-        findings = self._run([_v2_instance()], region_filter="europe-west1")
-        assert findings == []
-
-    def test_region_filter_includes_matching_region(self):
-        findings = self._run([_v2_instance()], region_filter="us-central1")
-        assert len(findings) == 1
-
-    def test_region_filter_case_insensitive(self):
-        findings = self._run([_v2_instance()], region_filter="US-CENTRAL1")
-        assert len(findings) == 1
-
-    def test_cost_estimate_in_finding(self):
-        findings = self._run([_v2_instance(machine_type="n1-standard-4")])
-        assert len(findings) == 1
-        assert findings[0].estimated_monthly_cost_usd == _MACHINE_MONTHLY_COST["n1-standard-4"]
-
-    def test_gpu_cost_includes_addon(self):
-        findings = self._run(
-            [
-                _v2_instance(
-                    machine_type="n1-standard-4",
-                    accel_type="NVIDIA_TESLA_T4",
-                    accel_count=1,
-                )
-            ]
+def _invoke_with_session(mock_session, **kwargs):
+    """Call find_idle_workbench_instances with a custom session mock."""
+    with patch(
+        "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
+        return_value=mock_session,
+    ):
+        return find_idle_workbench_instances(
+            project_id=_PROJECT, credentials=MagicMock(), **kwargs
         )
-        expected = (
-            _MACHINE_MONTHLY_COST["n1-standard-4"] + _GPU_MONTHLY_COST_EACH["NVIDIA_TESLA_T4"]
-        )
-        assert findings[0].estimated_monthly_cost_usd == expected
-
-    def test_multiple_instances(self):
-        inst1 = _v2_instance(name=f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-1")
-        inst2 = _v2_instance(name=f"projects/{_PROJECT}/locations/{_LOCATION}/instances/wb-2")
-        findings = self._run([inst1, inst2])
-        assert len(findings) == 2
-
-    def test_empty_project_returns_no_findings(self):
-        findings = self._run([])
-        assert findings == []
-
-    def test_custom_idle_days(self):
-        # With idle_days=7, an instance 8 days since updateTime should be flagged
-        eight_days_ago = NOW - timedelta(days=8)
-        # But age must also be >= threshold_medium (75% of 7 = 5.25 days → 5 days)
-        findings = self._run(
-            [_v2_instance(update_time=eight_days_ago)],
-            idle_days=7,
-        )
-        assert len(findings) == 1
-        assert findings[0].confidence == ConfidenceLevel.HIGH
-
-    def test_rule_metadata_and_rule_id(self):
-        assert RULE_METADATA["id"] == "gcp.vertex.workbench.idle"
-        assert RULE_METADATA["category"] == "ai"
-        assert find_idle_workbench_instances.RULE_ID == "gcp.vertex.workbench.idle"
-
-    def test_age_fallback_signal_says_age_not_updatetime(self):
-        inst = _v2_instance()
-        inst["updateTime"] = ""
-        findings = self._run([inst])
-        assert len(findings) == 1
-        signals = findings[0].evidence.signals_used
-        activity_signal = next(s for s in signals if "control-plane activity" in s)
-        assert "age (fallback)" in activity_signal
-        assert "updateTime" not in activity_signal
-
-    def test_normal_signal_credits_updatetime(self):
-        findings = self._run([_v2_instance()])
-        signals = findings[0].evidence.signals_used
-        activity_signal = next(s for s in signals if "control-plane activity" in s)
-        assert "updateTime" in activity_signal
-
-    def test_tpu_instance_labelled_tpu_not_gpu(self):
-        findings = self._run([_v2_instance(accel_type="TPU_V2", accel_count=1)])
-        assert len(findings) == 1
-        f = findings[0]
-        assert "TPU" in f.title
-        assert "GPU" not in f.title
-        assert any("TPU-backed" in s for s in f.evidence.signals_used)
-
-    def test_tpu_cost_includes_tpu_addon(self):
-        findings = self._run([_v2_instance(accel_type="TPU_V2", accel_count=1)])
-        assert len(findings) == 1
-        expected = _MACHINE_MONTHLY_COST["n1-standard-4"] + _GPU_MONTHLY_COST_EACH["TPU_V2"]
-        assert findings[0].estimated_monthly_cost_usd == expected
-
-    def test_500_from_v2_does_not_abort_scan(self):
-        """A transient 500 from the v2 API should return empty results, not raise."""
-        mock_session = MagicMock()
-        resp_500 = MagicMock()
-        resp_500.status_code = 500
-        mock_session.get.return_value = resp_500
-
-        with patch(
-            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
-            return_value=mock_session,
-        ):
-            findings = find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock())
-        assert findings == []
 
 
 # ---------------------------------------------------------------------------
-# _list_instances permission error propagation
+# Return type and value
 # ---------------------------------------------------------------------------
 
 
-class TestListInstancesPermissionError:
+class TestReturnValue:
+    def test_returns_list(self):
+        assert isinstance(_invoke(), list)
+
+    def test_always_empty(self):
+        assert _invoke() == []
+
+    def test_empty_when_api_returns_active_instances(self):
+        """EMITTING_DISABLED: ACTIVE instances in API response still yield no findings."""
+        inst = {"name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-1", "state": "ACTIVE"}
+        result = _invoke_with_session(_session(_ok({"instances": [inst]})))
+        assert result == []
+
+    def test_empty_when_api_returns_multiple_instances(self):
+        instances = [
+            {"name": f"projects/{_PROJECT}/locations/us-central1/instances/wb-{i}", "state": "ACTIVE"}
+            for i in range(5)
+        ]
+        result = _invoke_with_session(_session(_ok({"instances": instances})))
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# idle_days validation
+# ---------------------------------------------------------------------------
+
+
+class TestIdleDaysValidation:
+    def test_zero_raises_value_error(self):
+        with pytest.raises(ValueError, match="idle_days must be >= 1"):
+            find_idle_workbench_instances(
+                project_id=_PROJECT, credentials=MagicMock(), idle_days=0
+            )
+
+    def test_negative_one_raises(self):
+        with pytest.raises(ValueError, match="idle_days must be >= 1"):
+            find_idle_workbench_instances(
+                project_id=_PROJECT, credentials=MagicMock(), idle_days=-1
+            )
+
+    def test_large_negative_raises(self):
+        with pytest.raises(ValueError, match="idle_days must be >= 1"):
+            find_idle_workbench_instances(
+                project_id=_PROJECT, credentials=MagicMock(), idle_days=-999
+            )
+
+    def test_error_message_includes_bad_value(self):
+        with pytest.raises(ValueError, match="-3"):
+            find_idle_workbench_instances(
+                project_id=_PROJECT, credentials=MagicMock(), idle_days=-3
+            )
+
+    def test_one_is_valid(self):
+        assert _invoke(idle_days=1) == []
+
+    def test_default_14_is_valid(self):
+        assert _invoke() == []
+
+    def test_large_value_is_valid(self):
+        assert _invoke(idle_days=365) == []
+
+
+# ---------------------------------------------------------------------------
+# region_filter parameter
+# ---------------------------------------------------------------------------
+
+
+class TestRegionFilter:
+    def test_region_filter_string_accepted(self):
+        assert _invoke(region_filter="us-central1") == []
+
+    def test_region_filter_none_accepted(self):
+        assert _invoke(region_filter=None) == []
+
+
+# ---------------------------------------------------------------------------
+# HTTP error handling via public API
+# ---------------------------------------------------------------------------
+
+
+class TestHttpErrors:
     def test_403_raises_permission_error(self):
-        mock_session = MagicMock()
-        response = MagicMock()
-        response.status_code = 403
-        mock_session.get.return_value = response
+        with pytest.raises(PermissionError):
+            _invoke_with_session(_session(_err(403)))
 
-        with patch(
-            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
-            return_value=mock_session,
-        ):
-            with pytest.raises(PermissionError, match="notebooks.instances.list"):
-                find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock())
+    def test_403_message_mentions_permission(self):
+        with pytest.raises(PermissionError, match="notebooks.instances.list"):
+            _invoke_with_session(_session(_err(403)))
 
-    def test_404_returns_empty(self):
-        mock_session = MagicMock()
-        response = MagicMock()
-        response.status_code = 404
-        mock_session.get.return_value = response
+    def test_403_message_mentions_role(self):
+        with pytest.raises(PermissionError, match="roles/notebooks.viewer"):
+            _invoke_with_session(_session(_err(403)))
 
-        with patch(
-            "cleancloud.providers.gcp.rules.ai.workbench_idle.AuthorizedSession",
-            return_value=mock_session,
-        ):
-            findings = find_idle_workbench_instances(project_id=_PROJECT, credentials=MagicMock())
-        assert findings == []
+    def test_404_returns_empty_list(self):
+        assert _invoke_with_session(_session(_err(404))) == []
+
+    def test_404_no_warning_emitted(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(404)))
+        assert not any(issubclass(w.category, UserWarning) for w in caught)
+
+    def test_400_returns_empty_list(self):
+        assert _invoke_with_session(_session(_err(400))) == []
+
+    def test_400_emits_user_warning(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(400)))
+        assert any(issubclass(w.category, UserWarning) for w in caught)
+
+    def test_400_warning_mentions_status_code(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(400)))
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert "400" in msgs
+
+    def test_400_warning_mentions_project(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(400)))
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert _PROJECT in msgs
+
+    def test_500_returns_empty_list(self):
+        assert _invoke_with_session(_session(_err(500))) == []
+
+    def test_500_emits_user_warning(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(500)))
+        assert any(issubclass(w.category, UserWarning) for w in caught)
+
+    def test_500_warning_mentions_status_code(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(500)))
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert "500" in msgs
+
+    def test_503_warning_mentions_status_code(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(503)))
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert "503" in msgs
+
+    def test_5xx_warning_mentions_project(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(_session(_err(500)))
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert _PROJECT in msgs
+
+    def test_network_error_returns_empty_list(self):
+        session = MagicMock()
+        session.get.side_effect = ConnectionError("timeout")
+        assert _invoke_with_session(session) == []
+
+    def test_network_error_emits_user_warning(self):
+        session = MagicMock()
+        session.get.side_effect = ConnectionError("timeout")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(session)
+        assert any(issubclass(w.category, UserWarning) for w in caught)
+
+    def test_network_error_warning_mentions_project(self):
+        session = MagicMock()
+        session.get.side_effect = OSError("no route to host")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(session)
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert _PROJECT in msgs
+
+    def test_network_error_warning_mentions_exception_type(self):
+        session = MagicMock()
+        session.get.side_effect = ConnectionError("dropped")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _invoke_with_session(session)
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert "ConnectionError" in msgs
+
+
+# ---------------------------------------------------------------------------
+# _list_instances — direct unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestListInstancesBasic:
+    def test_empty_response(self):
+        instances, unreachable, failed = _list_instances(_session(_ok()), _PROJECT)
+        assert instances == []
+        assert unreachable == []
+        assert failed is False
+
+    def test_instances_returned(self):
+        inst = {"name": "projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
+        instances, _, _ = _list_instances(_session(_ok({"instances": [inst]})), _PROJECT)
+        assert instances == [inst]
+
+    def test_multiple_instances_in_single_page(self):
+        inst_list = [
+            {"name": f"projects/p/locations/us-central1/instances/i{i}", "state": "ACTIVE"}
+            for i in range(3)
+        ]
+        instances, _, _ = _list_instances(_session(_ok({"instances": inst_list})), _PROJECT)
+        assert instances == inst_list
+
+    def test_page_size_100_in_initial_request(self):
+        session = _session(_ok())
+        _list_instances(session, _PROJECT)
+        params = session.get.call_args.kwargs["params"]
+        assert params["pageSize"] == 100
+
+    def test_url_contains_project_id(self):
+        session = _session(_ok())
+        _list_instances(session, "target-project-xyz")
+        url = session.get.call_args.args[0]
+        assert "target-project-xyz" in url
+
+    def test_url_uses_wildcard_location(self):
+        session = _session(_ok())
+        _list_instances(session, _PROJECT)
+        url = session.get.call_args.args[0]
+        assert "locations/-" in url
+
+    def test_url_uses_v2_api(self):
+        session = _session(_ok())
+        _list_instances(session, _PROJECT)
+        url = session.get.call_args.args[0]
+        assert "/v2/" in url
+
+
+class TestListInstancesPagination:
+    def test_two_pages_accumulates_instances(self):
+        inst1 = {"name": "projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
+        inst2 = {"name": "projects/p/locations/us-central1/instances/i2", "state": "ACTIVE"}
+        session = _session(
+            _ok({"instances": [inst1], "nextPageToken": "tok1"}),
+            _ok({"instances": [inst2]}),
+        )
+        instances, _, _ = _list_instances(session, _PROJECT)
+        assert instances == [inst1, inst2]
+
+    def test_three_pages_all_accumulated(self):
+        def _inst(i):
+            return {"name": f"projects/p/locations/us-central1/instances/i{i}", "state": "ACTIVE"}
+        session = _session(
+            _ok({"instances": [_inst(1)], "nextPageToken": "t1"}),
+            _ok({"instances": [_inst(2)], "nextPageToken": "t2"}),
+            _ok({"instances": [_inst(3)]}),
+        )
+        instances, _, _ = _list_instances(session, _PROJECT)
+        assert len(instances) == 3
+
+    def test_page_token_forwarded_on_second_request(self):
+        session = _session(
+            _ok({"nextPageToken": "tok-abc"}),
+            _ok({}),
+        )
+        _list_instances(session, _PROJECT)
+        second_params = session.get.call_args_list[1].kwargs["params"]
+        assert second_params.get("pageToken") == "tok-abc"
+
+    def test_page_token_forwarded_on_third_request(self):
+        session = _session(
+            _ok({"nextPageToken": "t1"}),
+            _ok({"nextPageToken": "t2"}),
+            _ok({}),
+        )
+        _list_instances(session, _PROJECT)
+        third_params = session.get.call_args_list[2].kwargs["params"]
+        assert third_params.get("pageToken") == "t2"
+
+    def test_stops_when_no_next_token(self):
+        session = _session(_ok({}))
+        _list_instances(session, _PROJECT)
+        assert session.get.call_count == 1
+
+    def test_exactly_two_calls_for_two_pages(self):
+        session = _session(
+            _ok({"nextPageToken": "t1"}),
+            _ok({}),
+        )
+        _list_instances(session, _PROJECT)
+        assert session.get.call_count == 2
+
+
+class TestListInstancesUnreachable:
+    def test_single_unreachable_location_collected(self):
+        session = _session(_ok({"unreachable": ["asia-east1"]}))
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert "asia-east1" in unreachable
+
+    def test_multiple_unreachable_locations(self):
+        session = _session(_ok({"unreachable": ["asia-east1", "europe-west3"]}))
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert "asia-east1" in unreachable
+        assert "europe-west3" in unreachable
+
+    def test_unreachable_deduplicated_across_pages(self):
+        session = _session(
+            _ok({"unreachable": ["asia-east1"], "nextPageToken": "t1"}),
+            _ok({"unreachable": ["asia-east1"]}),
+        )
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert unreachable.count("asia-east1") == 1
+
+    def test_empty_string_in_unreachable_skipped(self):
+        session = _session(_ok({"unreachable": ["", "us-east1"]}))
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert "" not in unreachable
+        assert "us-east1" in unreachable
+
+    def test_no_unreachable_when_field_absent(self):
+        session = _session(_ok({}))
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert unreachable == []
+
+    def test_unreachable_from_multiple_pages_merged(self):
+        session = _session(
+            _ok({"unreachable": ["asia-east1"], "nextPageToken": "t1"}),
+            _ok({"unreachable": ["europe-west3"]}),
+        )
+        _, unreachable, _ = _list_instances(session, _PROJECT)
+        assert "asia-east1" in unreachable
+        assert "europe-west3" in unreachable
+
+
+class TestListInstancesErrors:
+    def test_403_raises_permission_error(self):
+        with pytest.raises(PermissionError, match="notebooks.instances.list"):
+            _list_instances(_session(_err(403)), _PROJECT)
+
+    def test_404_returns_empty_clean(self):
+        instances, unreachable, failed = _list_instances(_session(_err(404)), _PROJECT)
+        assert instances == []
+        assert unreachable == []
+        assert failed is False
+
+    def test_400_returns_empty_with_discovery_failed(self):
+        instances, unreachable, failed = _list_instances(_session(_err(400)), _PROJECT)
+        assert instances == []
+        assert unreachable == []
+        assert failed is True
+
+    def test_500_sets_discovery_failed(self):
+        _, _, failed = _list_instances(_session(_err(500)), _PROJECT)
+        assert failed is True
+
+    def test_503_sets_discovery_failed(self):
+        _, _, failed = _list_instances(_session(_err(503)), _PROJECT)
+        assert failed is True
+
+    def test_5xx_preserves_instances_from_earlier_pages(self):
+        """Instances already fetched before a 5xx error must be returned."""
+        inst = {"name": "projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
+        session = _session(
+            _ok({"instances": [inst], "nextPageToken": "t1"}),
+            _err(503),
+        )
+        instances, _, failed = _list_instances(session, _PROJECT)
+        assert instances == [inst]
+        assert failed is True
+
+    def test_network_error_sets_discovery_failed(self):
+        session = MagicMock()
+        session.get.side_effect = ConnectionError("timeout")
+        _, _, failed = _list_instances(session, _PROJECT)
+        assert failed is True
+
+    def test_network_error_preserves_earlier_instances(self):
+        inst = {"name": "projects/p/locations/us-central1/instances/i1", "state": "ACTIVE"}
+        session = _session(
+            _ok({"instances": [inst], "nextPageToken": "t1"}),
+        )
+        session.get.side_effect = [
+            _ok({"instances": [inst], "nextPageToken": "t1"}),
+            ConnectionError("dropped"),
+        ]
+        instances, _, failed = _list_instances(session, _PROJECT)
+        assert instances == [inst]
+        assert failed is True
+
+    def test_400_emits_warning_with_project(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _list_instances(_session(_err(400)), _PROJECT)
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert _PROJECT in msgs
+
+    def test_500_emits_warning_with_status_code(self):
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _list_instances(_session(_err(500)), _PROJECT)
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert "500" in msgs
+
+    def test_network_error_emits_warning_with_project(self):
+        session = MagicMock()
+        session.get.side_effect = OSError("no route to host")
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            _list_instances(session, _PROJECT)
+        msgs = " ".join(str(w.message) for w in caught if issubclass(w.category, UserWarning))
+        assert _PROJECT in msgs
+
+
+# ---------------------------------------------------------------------------
+# Rule metadata
+# ---------------------------------------------------------------------------
+
+
+class TestRuleMetadata:
+    def test_rule_id(self):
+        assert RULE_METADATA["id"] == "gcp.vertex.workbench.idle"
+
+    def test_category(self):
+        assert RULE_METADATA["category"] == "ai"
+
+    def test_service(self):
+        assert RULE_METADATA["service"] == "notebooks"
+
+    def test_cost_impact(self):
+        assert RULE_METADATA["cost_impact"] == "high"
+
+    def test_rule_id_attribute_on_function(self):
+        assert find_idle_workbench_instances.RULE_ID == "gcp.vertex.workbench.idle"

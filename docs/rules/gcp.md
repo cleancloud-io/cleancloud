@@ -12,7 +12,7 @@
 | `gcp.compute.ip.unused` | Network | Reserved static IPs in RESERVED state |
 | `gcp.sql.instance.idle` | Platform | Cloud SQL instances with zero connections 14+ days |
 | `gcp.vertex.endpoint.idle` | AI/ML | Vertex AI endpoints with an always-deployed serving floor and zero observed request activity 14+ days |
-| `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances with no activity 14+ days |
+| `gcp.vertex.workbench.idle` | AI/ML | Vertex AI Workbench instances — currently dormant (EMITTING_DISABLED); no qualifying canonical kernel-activity signal exists |
 | `gcp.vertex.training_job.long_running` | AI/ML | Vertex AI jobs running beyond threshold |
 | `gcp.tpu.idle` | AI/ML | Standalone Cloud TPU nodes in READY state with monitoring-based idle detection; currently no findings emit until worker-to-node join is documented |
 | `gcp.vertex.featurestore.idle` | AI/ML | Vertex AI Feature Stores (legacy) and Bigtable-backed Feature Online Stores with zero serving requests 30+ days (Monitoring-confirmed only) |
@@ -181,17 +181,35 @@
 **Spec:** [docs/specs/gcp/ai/vertex_endpoint_idle.md](../specs/gcp/ai/vertex_endpoint_idle.md)
 
 #### `gcp.vertex.workbench.idle`
-**Detects:** Vertex AI Workbench instances `ACTIVE` with no control-plane activity (`updateTime`) for `idle_days`
+**Current status: EMITTING_DISABLED.** No findings are emitted. No qualifying canonical kernel-activity signal exists that can prove per-instance notebook or kernel inactivity. `updateTime`, `createTime`, instance age, and CPU utilization are explicitly non-canonical idle signals for this rule (spec 3.3, 8.3). When a documented first-party per-instance Workbench activity surface becomes available (e.g. Cloud Logging kernel/session activity logs or a Cloud Monitoring metric with kernel-idle semantics), the rule can be activated without changing its candidate-selection logic.
 
-**Confidence / Risk:** HIGH (`updateTime` ≥ `idle_days` + age ≥ `idle_days`); MEDIUM (`updateTime` ≥ 75% of threshold or unavailable) / CRITICAL (GPU + `idle_ratio ≥ 2.0`); HIGH (GPU-backed); MEDIUM (CPU-only)
+**Detects (future):** Vertex AI Workbench instances in `ACTIVE` state with documented per-instance kernel inactivity over the `idle_days` window, confirmed by a qualifying first-party canonical signal
+
+**Returns:** `RuleResult` with structured runtime state (spec 12.1)
+- `rule_capability_state = EMITTING_DISABLED`
+- `scan_scope_state = PARTIAL` when `unreachable[]` locations are reported or a discovery failure occurs (400 / 5xx / network error); `FULL` otherwise
+- `resource_evaluation_state = NOT_EVALUABLE` (reason_code `NO_SIGNAL`) when valid `ACTIVE` instances exist; `EVALUABLE` when no candidates are found (including the 404/API-not-enabled case)
+- `not_evaluable_resources[]` — all `ACTIVE` candidate instances, each with `reason_code = NO_SIGNAL`
+- `not_evaluable_scopes[]` — unreachable locations from `ListInstancesResponse.unreachable[]`, each with `reason_code = COVERAGE`
+
+**Cost:** `estimated_monthly_cost_usd = None` — rule does not emit findings; no estimate is computed
 
 **Permissions:** `notebooks.instances.list` (roles/notebooks.viewer)
 
-**Params:** `idle_days` (default: 14)
+**Params:** `idle_days` (default: 14; must be ≥ 1 — fails fast on invalid input)
 
-**Exclusions:** instances not in `ACTIVE` state
+**Exclusions:**
+- `INVALID` (counted in `excluded_invalid_resources_count`): resource name absent or not matching exact pattern `projects/{p}/locations/{l}/instances/{id}`; `state` absent or empty
+- `OUT_OF_SCOPE` (silent, not counted): valid resources in any non-`ACTIVE` state (`STOPPED`, `SUSPENDED`, etc.)
+- Region filter: exact string equality; no case folding or aliasing
 
-**Spec:** —
+**Discovery failure taxonomy:**
+- `404` — Notebooks API not enabled; `scan_scope_state = FULL`, `resource_evaluation_state = EVALUABLE` (provably no instances)
+- `400` — bad request or wildcard unsupported; `scan_scope_state = PARTIAL` (discovery incomplete)
+- `5xx` / network error — transient failure; `scan_scope_state = PARTIAL` (discovery incomplete)
+- `unreachable[]` — API-reported location gaps; `scan_scope_state = PARTIAL`; locations added to `not_evaluable_scopes[]` with `reason_code = COVERAGE`
+
+**Spec:** [docs/specs/gcp/ai/workbench_idle.md](../specs/gcp/ai/workbench_idle.md)
 
 #### `gcp.vertex.training_job.long_running`
 **Detects:** Vertex AI CustomJobs and TrainingPipelines whose state is exactly the expected running state (`JOB_STATE_RUNNING` / `PIPELINE_STATE_RUNNING`) and whose elapsed wall-clock time since `startTime` meets or exceeds `long_running_hours_threshold`
