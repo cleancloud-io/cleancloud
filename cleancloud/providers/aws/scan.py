@@ -12,6 +12,9 @@ from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
     find_idle_bedrock_provisioned_throughputs,
 )
 from cleancloud.providers.aws.rules.ai.ec2_gpu_idle import find_idle_gpu_instances
+from cleancloud.providers.aws.rules.ai.sagemaker_domain_idle import (
+    find_idle_sagemaker_domains,
+)
 from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
@@ -68,6 +71,7 @@ AWS_RULE_MAP: Dict[str, Callable] = {
 AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.sagemaker.endpoint.idle": find_idle_sagemaker_endpoints,
     "aws.sagemaker.notebook.idle": find_idle_sagemaker_notebooks,
+    "aws.sagemaker.domain.idle": find_idle_sagemaker_domains,
     "aws.ec2.gpu.idle": find_idle_gpu_instances,
     "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
     "aws.sagemaker.studio_app.idle": find_idle_sagemaker_studio_apps,

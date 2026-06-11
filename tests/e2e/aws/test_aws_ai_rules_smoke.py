@@ -8,6 +8,9 @@ from cleancloud.providers.aws.rules.ai.bedrock_provisioned_idle import (
     find_idle_bedrock_provisioned_throughputs,
 )
 from cleancloud.providers.aws.rules.ai.ec2_gpu_idle import find_idle_gpu_instances
+from cleancloud.providers.aws.rules.ai.sagemaker_domain_idle import (
+    find_idle_sagemaker_domains,
+)
 from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
     find_idle_sagemaker_endpoints,
 )
@@ -24,6 +27,7 @@ from cleancloud.providers.aws.rules.ai.sagemaker_training_job_long_running impor
 _AWS_AI_RULE_IDS = {
     "aws.sagemaker.endpoint.idle",
     "aws.sagemaker.notebook.idle",
+    "aws.sagemaker.domain.idle",
     "aws.ec2.gpu.idle",
     "aws.bedrock.provisioned_throughput.idle",
     "aws.sagemaker.studio_app.idle",
@@ -40,6 +44,7 @@ def test_aws_ai_rules_run_without_error():
     rules = [
         find_idle_sagemaker_endpoints,
         find_idle_sagemaker_notebooks,
+        find_idle_sagemaker_domains,
         find_idle_gpu_instances,
         find_idle_bedrock_provisioned_throughputs,
         find_idle_sagemaker_studio_apps,

@@ -63,7 +63,10 @@ AI_REQUIRED_ACTIONS = {
     # aws.sagemaker.notebook.idle
     "sagemaker:ListNotebookInstances",
     "sagemaker:DescribeNotebookInstance",
-    # aws.sagemaker.studio_app.idle
+    # aws.sagemaker.domain.idle
+    "sagemaker:ListDomains",
+    "sagemaker:DescribeDomain",
+    # aws.sagemaker.studio_app.idle (ListApps shared with domain.idle)
     "sagemaker:ListApps",
     "sagemaker:DescribeApp",
     # aws.sagemaker.training_job.long_running
