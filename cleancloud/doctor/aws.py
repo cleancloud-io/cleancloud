@@ -751,7 +751,30 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("sagemaker:DescribeNotebookInstance", str(e)))
         warn(f"sagemaker:DescribeNotebookInstance - {e}")
 
-    # --- sagemaker:ListApps (aws.sagemaker.studio_app.idle) ---
+    # --- sagemaker:ListDomains + sagemaker:DescribeDomain (aws.sagemaker.domain.idle) ---
+    try:
+        sagemaker.list_domains(MaxResults=1)
+        permissions_tested.append("sagemaker:ListDomains")
+        success("sagemaker:ListDomains")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListDomains", str(e)))
+        warn(f"sagemaker:ListDomains - {e}")
+
+    try:
+        # DescribeDomain — attempt only if a domain exists to avoid a spurious miss
+        _domains = sagemaker.list_domains(MaxResults=1)
+        _domain_list = _domains.get("Domains", [])
+        if _domain_list:
+            sagemaker.describe_domain(DomainId=_domain_list[0]["DomainId"])
+            permissions_tested.append("sagemaker:DescribeDomain")
+            success("sagemaker:DescribeDomain")
+        else:
+            info("sagemaker:DescribeDomain - not tested (no SageMaker domain found to probe)")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeDomain", str(e)))
+        warn(f"sagemaker:DescribeDomain - {e}")
+
+    # --- sagemaker:ListApps (aws.sagemaker.studio_app.idle + aws.sagemaker.domain.idle) ---
     try:
         sagemaker.list_apps(MaxResults=1)
         permissions_tested.append("sagemaker:ListApps")

@@ -1,6 +1,6 @@
 # AWS Rules
 
-19 rules (13 hygiene + 6 AI/ML). AI/ML rules require `--category ai`.
+20 rules (13 hygiene + 7 AI/ML). AI/ML rules require `--category ai`.
 
 ← [Back to index](../rules.md)
 
@@ -23,6 +23,7 @@
 | `aws.sagemaker.notebook.idle` | AI/ML | SageMaker Notebook Instances with stale activity 14+ days |
 | `aws.ec2.gpu.idle` | AI/ML | EC2 GPU/accelerator instances with <5% GPU or <10% CPU over 7 days |
 | `aws.bedrock.provisioned_throughput.idle` | AI/ML | Bedrock Provisioned Throughput with zero invocations 7+ days |
+| `aws.sagemaker.domain.idle` | AI/ML | SageMaker Domains with no running apps 30+ days (continuous EFS cost) |
 | `aws.sagemaker.studio_app.idle` | AI/ML | SageMaker Studio apps with no usable activity 7+ days |
 | `aws.sagemaker.training_job.long_running` | AI/ML | SageMaker training jobs still running beyond threshold |
 
@@ -274,6 +275,19 @@
 **Exclusions:** none
 
 **Spec:** [specs/aws/ai/bedrock_provisioned_idle.md](../specs/aws/ai/bedrock_provisioned_idle.md)
+
+#### `aws.sagemaker.domain.idle`
+**Detects:** SageMaker Domains `InService` with no apps in `InService` or `Pending` state across all user profiles and spaces for `idle_days_threshold` of domain age (continuous EFS storage cost)
+
+**Confidence / Risk:** HIGH (fully paginated ListApps control-plane state) / HIGH (`HomeEfsFileSystemId` present); MEDIUM (no EFS)
+
+**Permissions:** `sagemaker:ListDomains`, `sagemaker:DescribeDomain`, `sagemaker:ListApps`
+
+**Params:** `idle_days_threshold` (default: 30)
+
+**Exclusions:** non-`InService` domains; domains younger than threshold; any app in `InService` or `Pending` state; unclassifiable app status entries
+
+**Spec:** [specs/aws/ai/sagemaker_domain_idle.md](../specs/aws/ai/sagemaker_domain_idle.md)
 
 #### `aws.sagemaker.studio_app.idle`
 **Detects:** SageMaker Studio `KernelGateway`/`JupyterLab`/`CodeEditor` apps `InService` with no usable recent activity for `idle_days_threshold`

@@ -10,14 +10,18 @@ from cleancloud.config.accounts import (
 
 def test_load_basic_accounts(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         role_name: CleanCloudReadOnlyRole
         accounts:
           - id: "111111111111"
             name: prod
           - id: "222222222222"
             name: dev
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -31,13 +35,17 @@ def test_load_basic_accounts(tmp_path):
 
 def test_load_external_id(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         role_name: CleanCloudReadOnlyRole
         external_id: cleancloud-secret
         accounts:
           - id: "111111111111"
             name: prod
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -46,12 +54,16 @@ def test_load_external_id(tmp_path):
 
 def test_load_scan_timeout(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         scan_timeout: 7200
         accounts:
           - id: "111111111111"
             name: prod
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -60,11 +72,15 @@ def test_load_scan_timeout(tmp_path):
 
 def test_default_role_name_when_omitted(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         accounts:
           - id: "111111111111"
             name: prod
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -75,10 +91,14 @@ def test_default_role_name_when_omitted(tmp_path):
 
 def test_account_name_defaults_to_id_when_omitted(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         accounts:
           - id: "111111111111"
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -87,11 +107,15 @@ def test_account_name_defaults_to_id_when_omitted(tmp_path):
 
 def test_account_id_coerced_to_string(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         accounts:
           - id: 111111111111
             name: prod
-    """))
+    """
+        )
+    )
 
     config = load_accounts_config(str(config_file))
 
@@ -101,10 +125,14 @@ def test_account_id_coerced_to_string(tmp_path):
 
 def test_empty_accounts_raises(tmp_path):
     config_file = tmp_path / "accounts.yaml"
-    config_file.write_text(textwrap.dedent("""\
+    config_file.write_text(
+        textwrap.dedent(
+            """\
         role_name: CleanCloudReadOnlyRole
         accounts: []
-    """))
+    """
+        )
+    )
 
     with pytest.raises(ValueError, match="No accounts found"):
         load_accounts_config(str(config_file))

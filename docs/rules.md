@@ -1,10 +1,10 @@
 # CleanCloud Rules
 
-46 rules across three providers (30 hygiene + 16 AI/ML).
+47 rules across three providers (30 hygiene + 17 AI/ML).
 
 | Provider | Hygiene | AI/ML | Total | Catalog |
 |---|---|---|---|---|
-| AWS | 13 | 6 | 19 | [rules/aws.md](rules/aws.md) |
+| AWS | 13 | 7 | 20 | [rules/aws.md](rules/aws.md) |
 | Azure | 12 | 5 | 17 | [rules/azure.md](rules/azure.md) |
 | GCP | 5 | 5 | 10 | [rules/gcp.md](rules/gcp.md) |
 

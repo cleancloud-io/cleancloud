@@ -137,6 +137,8 @@ Resources:
               - sagemaker:DescribeEndpointConfig
               - sagemaker:ListNotebookInstances
               - sagemaker:DescribeNotebookInstance
+              - sagemaker:ListDomains
+              - sagemaker:DescribeDomain
               - sagemaker:ListApps
               - sagemaker:DescribeApp
               - sagemaker:ListTrainingJobs

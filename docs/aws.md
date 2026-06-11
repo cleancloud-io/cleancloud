@@ -309,7 +309,7 @@ For the complete production workflow with enforcement flags, scheduling, and art
 > |------|----------|---------------|
 > | `base-readonly.json` | `sts:GetCallerIdentity`, `cloudwatch:GetMetricStatistics` | **Always — every scan, every category** |
 > | `hygiene-readonly.json` | EC2, RDS, ELB, S3, logs | `--category hygiene` (default) |
-> | `ai-readonly.json` | Bedrock Provisioned Throughput, SageMaker endpoints/notebooks/Studio apps/training jobs, EC2 GPU instances, CloudWatch metrics | `--category ai` |
+> | `ai-readonly.json` | Bedrock Provisioned Throughput, SageMaker endpoints/notebooks/domains/Studio apps/training jobs, EC2 GPU instances, CloudWatch metrics | `--category ai` |
 >
 > `base-readonly.json` must be attached alongside any category file. It provides `sts:GetCallerIdentity` (used at startup and by `doctor` to verify credentials) and shared CloudWatch metric access. Attach `hygiene-readonly.json` for the default scan path, and `ai-readonly.json` for `--category ai`.
 
@@ -409,7 +409,7 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
 - Safe for production accounts
 - Compatible with security-reviewed pipelines
 
-For AI/ML scans, also attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json). It adds permissions for Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Studio apps (`sagemaker:ListApps`, `sagemaker:DescribeApp`), SageMaker training jobs (`sagemaker:ListTrainingJobs`, `sagemaker:DescribeTrainingJob`), EC2 GPU instances, and `cloudwatch:ListMetrics` for GPU metric discovery.
+For AI/ML scans, also attach [`security/aws/ai-readonly.json`](../security/aws/ai-readonly.json). It adds permissions for Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Domains (`sagemaker:ListDomains`, `sagemaker:DescribeDomain`), SageMaker Studio apps (`sagemaker:ListApps`, `sagemaker:DescribeApp`), SageMaker training jobs (`sagemaker:ListTrainingJobs`, `sagemaker:DescribeTrainingJob`), EC2 GPU instances, and `cloudwatch:ListMetrics` for GPU metric discovery.
 
 ---
 
@@ -923,7 +923,7 @@ Permissions Tested: 17/17 passed
 ======================================================================
 ```
 
-**What the AI doctor adds:** Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Studio apps, SageMaker training jobs, EC2 GPU inventory, and the CloudWatch permissions those AI rules need. Run it before `cleancloud scan --provider aws --category ai`.
+**What the AI doctor adds:** Bedrock Provisioned Throughput, SageMaker endpoints, notebook instances, SageMaker Domains, SageMaker Studio apps, SageMaker training jobs, EC2 GPU inventory, and the CloudWatch permissions those AI rules need. Run it before `cleancloud scan --provider aws --category ai`.
 
 ---
 
