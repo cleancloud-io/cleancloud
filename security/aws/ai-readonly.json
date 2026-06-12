@@ -42,6 +42,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "ProcessingJobReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "sagemaker:ListProcessingJobs",
+        "sagemaker:DescribeProcessingJob"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "EC2GPUReadOnly",
       "Effect": "Allow",
       "Action": [

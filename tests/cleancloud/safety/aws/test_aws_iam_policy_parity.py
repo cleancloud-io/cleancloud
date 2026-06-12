@@ -72,6 +72,9 @@ AI_REQUIRED_ACTIONS = {
     # aws.sagemaker.training_job.long_running
     "sagemaker:ListTrainingJobs",
     "sagemaker:DescribeTrainingJob",
+    # aws.sagemaker.processing_job.long_running
+    "sagemaker:ListProcessingJobs",
+    "sagemaker:DescribeProcessingJob",
     # aws.bedrock.provisioned_throughput.idle
     "bedrock:ListProvisionedModelThroughputs",
     # aws.ec2.gpu.idle
