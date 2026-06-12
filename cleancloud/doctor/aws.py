@@ -856,6 +856,35 @@ def run_aws_ai_doctor(profile: Optional[str], region: Optional[str] = None) -> N
         permissions_failed.append(("sagemaker:DescribeTrainingJob", str(e)))
         warn(f"sagemaker:DescribeTrainingJob - {e}")
 
+    # --- sagemaker:ListProcessingJobs + sagemaker:DescribeProcessingJob (aws.sagemaker.processing_job.long_running) ---
+    try:
+        sagemaker.list_processing_jobs(MaxResults=1)
+        permissions_tested.append("sagemaker:ListProcessingJobs")
+        success("sagemaker:ListProcessingJobs")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:ListProcessingJobs", str(e)))
+        warn(f"sagemaker:ListProcessingJobs - {e}")
+
+    try:
+        _pj_paginator = sagemaker.get_paginator("list_processing_jobs")
+        _target_job = None
+        for _pj_page in _pj_paginator.paginate(PaginationConfig={"PageSize": 20}):
+            for _pj in _pj_page.get("ProcessingJobSummaries", []):
+                _target_job = _pj
+                break
+            if _target_job:
+                break
+
+        if _target_job:
+            sagemaker.describe_processing_job(ProcessingJobName=_target_job["ProcessingJobName"])
+            permissions_tested.append("sagemaker:DescribeProcessingJob")
+            success("sagemaker:DescribeProcessingJob")
+        else:
+            info("sagemaker:DescribeProcessingJob - not tested (no processing job found to probe)")
+    except Exception as e:
+        permissions_failed.append(("sagemaker:DescribeProcessingJob", str(e)))
+        warn(f"sagemaker:DescribeProcessingJob - {e}")
+
     try:
         cloudwatch = session.client("cloudwatch", region_name=region)
         now = datetime.now(timezone.utc)

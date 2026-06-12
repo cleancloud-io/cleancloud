@@ -17,6 +17,9 @@ from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
 from cleancloud.providers.aws.rules.ai.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
+from cleancloud.providers.aws.rules.ai.sagemaker_processing_job_long_running import (
+    find_long_running_sagemaker_processing_jobs,
+)
 from cleancloud.providers.aws.rules.ai.sagemaker_studio_app_idle import (
     find_idle_sagemaker_studio_apps,
 )
@@ -32,6 +35,7 @@ _AWS_AI_RULE_IDS = {
     "aws.bedrock.provisioned_throughput.idle",
     "aws.sagemaker.studio_app.idle",
     "aws.sagemaker.training_job.long_running",
+    "aws.sagemaker.processing_job.long_running",
 }
 
 
@@ -49,6 +53,7 @@ def test_aws_ai_rules_run_without_error():
         find_idle_bedrock_provisioned_throughputs,
         find_idle_sagemaker_studio_apps,
         find_long_running_sagemaker_training_jobs,
+        find_long_running_sagemaker_processing_jobs,
     ]
 
     all_results = []
@@ -191,10 +196,39 @@ def test_sagemaker_training_job_long_running_returns_list_of_findings():
         assert f.region == "us-east-1"
         assert f.detected_at and isinstance(f.detected_at, datetime)
         assert f.confidence.value in ("high", "medium")
-        assert f.risk.value in ("critical", "high", "medium")
-        assert "job_name" in f.details
+        assert f.risk.value in ("high", "medium")
+        assert "training_job_name" in f.details
         assert "instance_type" in f.details
         assert "instance_count" in f.details
-        assert "duration_hours" in f.details
-        assert "accrued_cost_usd" in f.details
-        assert "cost_basis" in f.details
+        assert "elapsed_runtime_hours" in f.details
+        assert "applicable_runtime_limit_seconds" in f.details
+        assert "exceeded_applicable_runtime_limit" in f.details
+
+
+@pytest.mark.e2e
+@pytest.mark.aws
+def test_sagemaker_processing_job_long_running_returns_list_of_findings():
+    """Smoke test: rule runs without error and returns typed findings."""
+    session = boto3.Session()
+    try:
+        findings = find_long_running_sagemaker_processing_jobs(session, "us-east-1")
+    except PermissionError as e:
+        pytest.fail(f"Missing IAM permissions: {e}")
+
+    assert isinstance(findings, list)
+    for f in findings:
+        assert isinstance(f, Finding)
+        assert f.rule_id == "aws.sagemaker.processing_job.long_running"
+        assert f.resource_type == "aws.sagemaker.processing_job"
+        assert f.provider == "aws"
+        assert f.resource_id
+        assert f.region == "us-east-1"
+        assert f.detected_at and isinstance(f.detected_at, datetime)
+        assert f.confidence.value in ("high", "medium")
+        assert f.risk.value in ("high", "medium")
+        assert "processing_job_name" in f.details
+        assert "instance_type" in f.details
+        assert "instance_count" in f.details
+        assert "elapsed_runtime_hours" in f.details
+        assert "applicable_runtime_limit_seconds" in f.details
+        assert "exceeded_applicable_runtime_limit" in f.details

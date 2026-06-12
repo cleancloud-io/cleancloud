@@ -21,6 +21,9 @@ from cleancloud.providers.aws.rules.ai.sagemaker_endpoint_idle import (
 from cleancloud.providers.aws.rules.ai.sagemaker_notebook_idle import (
     find_idle_sagemaker_notebooks,
 )
+from cleancloud.providers.aws.rules.ai.sagemaker_processing_job_long_running import (
+    find_long_running_sagemaker_processing_jobs,
+)
 from cleancloud.providers.aws.rules.ai.sagemaker_studio_app_idle import (
     find_idle_sagemaker_studio_apps,
 )
@@ -76,6 +79,7 @@ AWS_RULE_MAP_AI: Dict[str, Callable] = {
     "aws.bedrock.provisioned_throughput.idle": find_idle_bedrock_provisioned_throughputs,
     "aws.sagemaker.studio_app.idle": find_idle_sagemaker_studio_apps,
     "aws.sagemaker.training_job.long_running": find_long_running_sagemaker_training_jobs,
+    "aws.sagemaker.processing_job.long_running": find_long_running_sagemaker_processing_jobs,
 }
 
 AWS_RULES: List[Callable] = list(dict.fromkeys(AWS_RULE_MAP.values()))
@@ -144,7 +148,7 @@ def scan_aws_with_region_selection(
             if include_ai:
                 click.echo(
                     "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, "
-                    "NAT Gateways, ELBs, SageMaker endpoints/notebooks, or Bedrock provisioned throughputs)"
+                    "NAT Gateways, ELBs, SageMaker AI resources, or Bedrock provisioned throughputs)"
                 )
             else:
                 click.echo(
@@ -286,20 +290,29 @@ def _region_has_cleancloud_resources(
         # Wrapped individually so a missing permission for one service doesn't
         # prevent the other from being checked.
         if include_ai:
-            # 9. Check SageMaker endpoints
             try:
                 sagemaker = session.client("sagemaker", region_name=region, config=BOTO_CONFIG)
-                endpoints = sagemaker.list_endpoints(MaxResults=1)
-                if endpoints.get("Endpoints"):
-                    return True, None
-                notebooks = sagemaker.list_notebook_instances(MaxResults=1)
-                if notebooks.get("NotebookInstances"):
-                    return True, None
-                apps = sagemaker.list_apps(MaxResults=1)
-                if apps.get("Apps"):
-                    return True, None
             except Exception:
-                pass  # no SageMaker perms or service not available in region — skip
+                sagemaker = None
+
+            if sagemaker is not None:
+                sagemaker_probes = (
+                    lambda: sagemaker.list_endpoints(MaxResults=1).get("Endpoints"),
+                    lambda: sagemaker.list_notebook_instances(MaxResults=1).get(
+                        "NotebookInstances"
+                    ),
+                    lambda: sagemaker.list_apps(MaxResults=1).get("Apps"),
+                    lambda: sagemaker.list_training_jobs(MaxResults=1).get("TrainingJobSummaries"),
+                    lambda: sagemaker.list_processing_jobs(MaxResults=1).get(
+                        "ProcessingJobSummaries"
+                    ),
+                )
+                for probe in sagemaker_probes:
+                    try:
+                        if probe():
+                            return True, None
+                    except Exception:
+                        pass  # missing per-call permission or service issue — continue probing
 
             # 10. Check Bedrock provisioned throughputs
             try:

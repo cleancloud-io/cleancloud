@@ -100,7 +100,7 @@ Gaspillage minimum estimé : ~$25 944/mois
 - Détecte le gaspillage IA/ML coûteux : SageMaker, AML, Vertex AI — ressources GPU signalées comme candidats à risque plus élevé (500–23 000 $/mois)
 - Fonctionne sur AWS, Azure et GCP en un seul outil
 - S'exécute entièrement dans votre environnement — aucun agent, pas de SaaS, aucun credential stocké
-- 47 règles de détection sélectives et haut signal, conçues pour éviter les faux positifs en environnements IaC
+- 48 règles de détection sélectives et haut signal, conçues pour éviter les faux positifs en environnements IaC
 - Prêt pour CI/CD — codes de sortie d'application + sorties JSON/CSV/markdown
 
 ### Ce que CleanCloud ne fait PAS
@@ -153,6 +153,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 | Studio Apps SageMaker (KernelGateway/JupyterLab/CodeEditor) | 42 – 1 600+ $ / mois |
 | Domaine SageMaker (stockage EFS inactif) | Charges EFS continues |
 | Training Job SageMaker (job GPU runaway/bloqué) | 670 – 2 360+ $ / jour |
+| Processing Job SageMaker (bloqué/stuck) | 670 – 2 360+ $ / jour |
 | Cluster AML Compute Azure (GPU) | 600 – 15 000 $ / mois |
 | Instance de calcul Azure ML (GPU) | 600 – 15 000+ $ / mois |
 | Endpoint en ligne Azure ML (GPU) | 200 – 2 600+ $ / mois |
@@ -166,7 +167,7 @@ L'infrastructure IA/ML inactive est la source de gaspillage cloud invisible à l
 CleanCloud détecte les endpoints à zéro invocation / zéro prédiction, l'activité de contrôle inactive sur les notebooks et apps managés, ainsi que les training jobs managés anormalement longs sur les 3 clouds. Les outils natifs montrent la facture — ils ne nomment pas la ressource concrète à examiner.
 
 ```bash
-cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks + domaines + Studio apps SageMaker + training jobs SageMaker + EC2 GPU
+cleancloud scan --provider aws --category ai          # PTUs Bedrock + endpoints + notebooks + domaines + Studio apps SageMaker + training jobs + processing jobs SageMaker + EC2 GPU
 cleancloud scan --provider azure --category ai        # clusters AML + instances ML + endpoints en ligne + AI Search + PTUs OpenAI
 cleancloud scan --provider gcp --category ai          # endpoints Vertex AI + Workbench + training jobs + Cloud TPU + Feature Stores
 cleancloud scan --provider aws --category all         # hygiène + IA/ML ensemble
@@ -433,7 +434,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 
 ## Ce que CleanCloud détecte
 
-47 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
+48 règles pour AWS, Azure et GCP — conservatrices, haut signal, conçues pour éviter les faux positifs en environnements IaC.
 
 **AWS :**
 - Compute : instances arrêtées 30+ jours (charges EBS continuent)
@@ -442,7 +443,7 @@ Oui. CleanCloud n'a besoin d'accès réseau qu'aux endpoints API de votre cloud 
 - Plateforme : instances RDS inactives (HIGH)
 - Observabilité : logs CloudWatch à rétention infinie
 - Gouvernance : ressources sans tags, security groups inutilisés
-- IA/ML *(opt-in : `--category ai`)* : Bedrock Provisioned Throughput (Model Units) inactifs avec zéro invocation depuis 7+ jours ; endpoints SageMaker sans trafic `InvokeEndpoint` observé depuis 14+ jours ; instances Notebook SageMaker avec timestamps de contrôle inactifs depuis 14+ jours ; Domaines SageMaker sans apps en cours d'exécution sur tous les profils et espaces depuis 30+ jours (coût de stockage EFS continu) ; Studio Apps SageMaker (`KernelGateway`/`JupyterLab`/`CodeEditor`) sans signal d'activité récent exploitable depuis 7+ jours ; training jobs SageMaker toujours `InProgress` au-delà du seuil de 24h
+- IA/ML *(opt-in : `--category ai`)* : Bedrock Provisioned Throughput (Model Units) inactifs avec zéro invocation depuis 7+ jours ; endpoints SageMaker sans trafic `InvokeEndpoint` observé depuis 14+ jours ; instances Notebook SageMaker avec timestamps de contrôle inactifs depuis 14+ jours ; Domaines SageMaker sans apps en cours d'exécution sur tous les profils et espaces depuis 30+ jours (coût de stockage EFS continu) ; Studio Apps SageMaker (`KernelGateway`/`JupyterLab`/`CodeEditor`) sans signal d'activité récent exploitable depuis 7+ jours ; training jobs SageMaker toujours `InProgress` au-delà du seuil de 24h ; processing jobs SageMaker toujours `InProgress` au-delà du seuil de 24h
 
 **Azure :**
 - Compute : VMs arrêtées (non désallouées) (HIGH)

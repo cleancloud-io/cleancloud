@@ -314,3 +314,16 @@
 **Exclusions:** completed/stopped jobs; spot jobs use `MaxWaitTimeInSeconds`, not `MaxRuntimeInSeconds`
 
 **Spec:** [specs/aws/ai/sagemaker_training_job_long_running.md](../specs/aws/ai/sagemaker_training_job_long_running.md)
+
+#### `aws.sagemaker.processing_job.long_running`
+**Detects:** SageMaker processing jobs still `InProgress` beyond `long_running_hours_threshold`
+
+**Confidence / Risk:** HIGH (elapsed time exceeds `MaxRuntimeInSeconds` after processing has started); MEDIUM (threshold exceeded without an exceeded applicable runtime limit) / HIGH (accelerator-backed: `ml.g*`, `ml.p*`, `ml.inf*`, `ml.trn*`); MEDIUM (other)
+
+**Permissions:** `sagemaker:ListProcessingJobs`, `sagemaker:DescribeProcessingJob`
+
+**Params:** `long_running_hours_threshold` (default: 24)
+
+**Exclusions:** completed/stopped jobs; malformed required timestamps; `ProcessingStartTime` future beyond skew; `ProcessingStartTime < CreationTime` beyond skew tolerance
+
+**Spec:** [specs/aws/ai/sagemaker_processing_job_long_running.md](../specs/aws/ai/sagemaker_processing_job_long_running.md)

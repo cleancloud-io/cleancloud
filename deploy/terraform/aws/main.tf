@@ -65,6 +65,8 @@ resource "aws_iam_role_policy" "cleancloud_ai" {
           "sagemaker:DescribeApp",
           "sagemaker:ListTrainingJobs",
           "sagemaker:DescribeTrainingJob",
+          "sagemaker:ListProcessingJobs",
+          "sagemaker:DescribeProcessingJob",
         ]
         Resource = "*"
       },
