@@ -149,12 +149,12 @@ def scan_aws_with_region_selection(
             click.echo(f"   {', '.join(regions_to_scan)}")
             if include_ai:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, "
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, "
                     "NAT Gateways, ELBs, SageMaker AI resources, or Bedrock provisioned throughputs)"
                 )
             else:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, NAT Gateways, or ELBs)"
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, NAT Gateways, or ELBs)"
                 )
         else:
             click.echo("No active regions detected")

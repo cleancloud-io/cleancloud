@@ -36,6 +36,8 @@ HYGIENE_REQUIRED_ACTIONS = {
     # aws.ec2.instance.stopped, aws.ec2.security_group.unused
     "ec2:DescribeInstances",
     "ec2:DescribeSecurityGroups",
+    # aws.redshift.cluster.idle
+    "redshift:DescribeClusters",
     # aws.elbv2.alb.idle / aws.elbv2.nlb.idle / aws.elb.clb.idle
     "elasticloadbalancing:DescribeLoadBalancers",
     "elasticloadbalancing:DescribeTargetGroups",
