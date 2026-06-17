@@ -359,6 +359,14 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Resource": "*"
     },
     {
+      "Sid": "RedshiftReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "redshift:DescribeClusters"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [

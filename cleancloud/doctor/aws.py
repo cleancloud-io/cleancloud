@@ -242,6 +242,7 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  rds:DescribeDBSnapshots")
         info("  rds:DescribeDBSnapshotAttributes")
         info("  cloudtrail:LookupEvents")
+        info("  redshift:DescribeClusters")
         info("  elasticloadbalancing:DescribeLoadBalancers")
         info("  elasticloadbalancing:DescribeTargetGroups")
         info("  logs:DescribeLogGroups")
@@ -519,6 +520,16 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
             else:
                 permissions_tested.append("rds:DescribeDBSnapshotAttributes")
                 success("rds:DescribeDBSnapshotAttributes")
+
+        # Test Redshift permissions
+        try:
+            redshift = session.client("redshift", region_name=region)
+            redshift.describe_clusters(MaxRecords=20)
+            permissions_tested.append("redshift:DescribeClusters")
+            success("redshift:DescribeClusters")
+        except Exception as e:
+            permissions_failed.append(("redshift:DescribeClusters", str(e)))
+            warn(f"redshift:DescribeClusters - {e}")
 
         # Test ELB permissions
         try:

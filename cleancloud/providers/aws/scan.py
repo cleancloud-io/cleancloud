@@ -46,6 +46,7 @@ from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
+from cleancloud.providers.aws.rules.redshift_idle import find_idle_redshift_clusters
 from cleancloud.providers.aws.rules.untagged_resources import (
     find_untagged_resources as find_aws_untagged_resources,
 )
@@ -69,6 +70,7 @@ AWS_RULE_MAP: Dict[str, Callable] = {
     "aws.ec2.instance.stopped": find_stopped_ec2_instances,
     "aws.ec2.security_group.unused": find_unused_security_groups,
     "aws.rds.snapshot.old": find_old_rds_snapshots,
+    "aws.redshift.cluster.idle": find_idle_redshift_clusters,
 }
 
 AWS_RULE_MAP_AI: Dict[str, Callable] = {
@@ -147,12 +149,12 @@ def scan_aws_with_region_selection(
             click.echo(f"   {', '.join(regions_to_scan)}")
             if include_ai:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, "
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, "
                     "NAT Gateways, ELBs, SageMaker AI resources, or Bedrock provisioned throughputs)"
                 )
             else:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, NAT Gateways, or ELBs)"
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, NAT Gateways, or ELBs)"
                 )
         else:
             click.echo("No active regions detected")
@@ -285,6 +287,15 @@ def _region_has_cleancloud_resources(
         lbs = elbv2.describe_load_balancers(PageSize=1)
         if lbs.get("LoadBalancers"):
             return True, None
+
+        # 9. Check Redshift clusters
+        try:
+            redshift = session.client("redshift", region_name=region, config=BOTO_CONFIG)
+            clusters = redshift.describe_clusters(MaxRecords=20)
+            if clusters.get("Clusters"):
+                return True, None
+        except Exception:
+            pass  # no Redshift perms or service not available — continue
 
         # AI resource probes — only when running AI/ML rules.
         # Wrapped individually so a missing permission for one service doesn't

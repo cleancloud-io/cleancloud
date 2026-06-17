@@ -39,6 +39,14 @@
       "Resource": "*"
     },
     {
+      "Sid": "RedshiftReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "redshift:DescribeClusters"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CloudTrailReadOnly",
       "Effect": "Allow",
       "Action": [

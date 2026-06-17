@@ -136,6 +136,14 @@ resource "aws_iam_role_policy" "cleancloud" {
         Resource = "*"
       },
       {
+        Sid    = "RedshiftReadOnly"
+        Effect = "Allow"
+        Action = [
+          "redshift:DescribeClusters",
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "CloudTrailReadOnly"
         Effect = "Allow"
         Action = [

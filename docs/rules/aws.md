@@ -16,6 +16,7 @@
 | `aws.ec2.nat_gateway.idle` | Network | NAT Gateways with zero traffic 14+ days |
 | `aws.elbv2.alb.idle` / `aws.elbv2.nlb.idle` / `aws.elb.clb.idle` | Network | Load balancers with zero traffic 14+ days |
 | `aws.rds.instance.idle` | Platform | RDS instances with zero connections 14+ days |
+| `aws.redshift.cluster.idle` | Platform | Redshift clusters with zero connections 14+ days |
 | `aws.rds.snapshot.old` | Storage | Manual RDS snapshots older than 90 days |
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
@@ -202,6 +203,19 @@
 **Exclusions:** Aurora cluster members, read replicas, instances younger than threshold
 
 **Spec:** [specs/aws/rds_idle.md](../specs/aws/rds_idle.md)
+
+#### `aws.redshift.cluster.idle`
+**Detects:** Provisioned Redshift clusters with zero `DatabaseConnections` for `idle_days_threshold`
+
+**Confidence / Risk:** HIGH (zero connections + zero IOPS); MEDIUM (zero connections only) / HIGH (4+ nodes); MEDIUM otherwise
+
+**Permissions:** `redshift:DescribeClusters`, `cloudwatch:GetMetricStatistics`
+
+**Params:** `idle_days_threshold` (default: 14)
+
+**Exclusions:** paused clusters, non-`available` status, `ClusterAvailabilityStatus` of Unavailable/Maintenance/Failed, clusters younger than threshold, Redshift Serverless workgroups
+
+**Spec:** [specs/aws/redshift_cluster_idle.md](../specs/aws/redshift_cluster_idle.md)
 
 ---
 
