@@ -38,6 +38,9 @@ HYGIENE_REQUIRED_ACTIONS = {
     "ec2:DescribeSecurityGroups",
     # aws.redshift.cluster.idle
     "redshift:DescribeClusters",
+    # aws.opensearch.domain.idle
+    "es:ListDomainNames",
+    "es:DescribeDomain",
     # aws.elbv2.alb.idle / aws.elbv2.nlb.idle / aws.elb.clb.idle
     "elasticloadbalancing:DescribeLoadBalancers",
     "elasticloadbalancing:DescribeTargetGroups",

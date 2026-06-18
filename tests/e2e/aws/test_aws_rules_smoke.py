@@ -18,6 +18,7 @@ from cleancloud.providers.aws.rules.elastic_ip_unattached import (
 from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
+from cleancloud.providers.aws.rules.opensearch_idle import find_idle_opensearch_domains
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
 from cleancloud.providers.aws.rules.redshift_idle import find_idle_redshift_clusters
@@ -45,6 +46,7 @@ def test_aws_rules_run_without_error():
         find_unused_security_groups,
         find_old_rds_snapshots,
         find_idle_redshift_clusters,
+        find_idle_opensearch_domains,
     ]
 
     all_results = []

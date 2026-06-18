@@ -44,6 +44,7 @@ from cleancloud.providers.aws.rules.elastic_ip_unattached import (
 from cleancloud.providers.aws.rules.elb_idle import find_idle_load_balancers
 from cleancloud.providers.aws.rules.eni_detached import find_detached_enis
 from cleancloud.providers.aws.rules.nat_gateway_idle import find_idle_nat_gateways
+from cleancloud.providers.aws.rules.opensearch_idle import find_idle_opensearch_domains
 from cleancloud.providers.aws.rules.rds_idle import find_idle_rds_instances
 from cleancloud.providers.aws.rules.rds_snapshot_old import find_old_rds_snapshots
 from cleancloud.providers.aws.rules.redshift_idle import find_idle_redshift_clusters
@@ -71,6 +72,7 @@ AWS_RULE_MAP: Dict[str, Callable] = {
     "aws.ec2.security_group.unused": find_unused_security_groups,
     "aws.rds.snapshot.old": find_old_rds_snapshots,
     "aws.redshift.cluster.idle": find_idle_redshift_clusters,
+    "aws.opensearch.domain.idle": find_idle_opensearch_domains,
 }
 
 AWS_RULE_MAP_AI: Dict[str, Callable] = {
@@ -149,12 +151,12 @@ def scan_aws_with_region_selection(
             click.echo(f"   {', '.join(regions_to_scan)}")
             if include_ai:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, "
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, OpenSearch, "
                     "NAT Gateways, ELBs, SageMaker AI resources, or Bedrock provisioned throughputs)"
                 )
             else:
                 click.echo(
-                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, NAT Gateways, or ELBs)"
+                    "   (Regions with EBS volumes, snapshots, logs, Elastic IPs, ENIs, RDS, Redshift, OpenSearch, NAT Gateways, or ELBs)"
                 )
         else:
             click.echo("No active regions detected")
@@ -296,6 +298,15 @@ def _region_has_cleancloud_resources(
                 return True, None
         except Exception:
             pass  # no Redshift perms or service not available — continue
+
+        # 10. Check OpenSearch domains
+        try:
+            opensearch = session.client("opensearch", region_name=region, config=BOTO_CONFIG)
+            domains = opensearch.list_domain_names()
+            if domains.get("DomainNames"):
+                return True, None
+        except Exception:
+            pass  # no OpenSearch perms or service not available — continue
 
         # AI resource probes — only when running AI/ML rules.
         # Wrapped individually so a missing permission for one service doesn't

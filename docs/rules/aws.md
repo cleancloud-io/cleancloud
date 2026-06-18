@@ -17,6 +17,7 @@
 | `aws.elbv2.alb.idle` / `aws.elbv2.nlb.idle` / `aws.elb.clb.idle` | Network | Load balancers with zero traffic 14+ days |
 | `aws.rds.instance.idle` | Platform | RDS instances with zero connections 14+ days |
 | `aws.redshift.cluster.idle` | Platform | Redshift clusters with zero connections 14+ days |
+| `aws.opensearch.domain.idle` | Platform | OpenSearch domains with zero requests 14+ days |
 | `aws.rds.snapshot.old` | Storage | Manual RDS snapshots older than 90 days |
 | `aws.cloudwatch.logs.infinite_retention` | Observability | Log groups with no retention policy |
 | `aws.resource.untagged` | Governance | EC2/S3/CloudWatch resources with zero tags |
@@ -216,6 +217,19 @@
 **Exclusions:** paused clusters, non-`available` status, `ClusterAvailabilityStatus` of Unavailable/Maintenance/Failed, clusters younger than threshold, Redshift Serverless workgroups
 
 **Spec:** [specs/aws/redshift_cluster_idle.md](../specs/aws/redshift_cluster_idle.md)
+
+#### `aws.opensearch.domain.idle`
+**Detects:** Provisioned OpenSearch domains with zero `OpenSearchRequests` for `idle_days_threshold`
+
+**Confidence / Risk:** HIGH (zero requests + zero search/indexing rates); MEDIUM (zero requests only) / HIGH (3+ nodes, warm, or dedicated masters); MEDIUM otherwise
+
+**Permissions:** `es:ListDomainNames`, `es:DescribeDomain`, `cloudwatch:GetMetricStatistics`
+
+**Params:** `idle_days_threshold` (default: 14)
+
+**Exclusions:** non-`Active` processing status, `Created != true`, `Deleted == true`, insufficient hourly coverage (<95%), OpenSearch Serverless collections
+
+**Spec:** [specs/aws/opensearch_domain_idle.md](../specs/aws/opensearch_domain_idle.md)
 
 ---
 
