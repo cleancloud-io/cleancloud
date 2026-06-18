@@ -144,6 +144,15 @@ resource "aws_iam_role_policy" "cleancloud" {
         Resource = "*"
       },
       {
+        Sid    = "OpenSearchReadOnly"
+        Effect = "Allow"
+        Action = [
+          "es:ListDomainNames",
+          "es:DescribeDomain",
+        ]
+        Resource = "*"
+      },
+      {
         Sid    = "CloudTrailReadOnly"
         Effect = "Allow"
         Action = [

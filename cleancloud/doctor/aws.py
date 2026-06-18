@@ -243,6 +243,8 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         info("  rds:DescribeDBSnapshotAttributes")
         info("  cloudtrail:LookupEvents")
         info("  redshift:DescribeClusters")
+        info("  es:ListDomainNames")
+        info("  es:DescribeDomain")
         info("  elasticloadbalancing:DescribeLoadBalancers")
         info("  elasticloadbalancing:DescribeTargetGroups")
         info("  logs:DescribeLogGroups")
@@ -530,6 +532,32 @@ def run_aws_doctor(profile: Optional[str], region: Optional[str] = None) -> None
         except Exception as e:
             permissions_failed.append(("redshift:DescribeClusters", str(e)))
             warn(f"redshift:DescribeClusters - {e}")
+
+        # Test OpenSearch permissions
+        try:
+            opensearch = session.client("opensearch", region_name=region)
+            opensearch.list_domain_names()
+            permissions_tested.append("es:ListDomainNames")
+            success("es:ListDomainNames")
+        except Exception as e:
+            permissions_failed.append(("es:ListDomainNames", str(e)))
+            warn(f"es:ListDomainNames - {e}")
+
+        try:
+            # Use a non-existent domain to test permission
+            opensearch.describe_domain(DomainName="cleancloud-perm-test-nonexistent")
+            permissions_tested.append("es:DescribeDomain")
+            success("es:DescribeDomain")
+        except Exception as e:
+            if "ResourceNotFoundException" in str(e) or "not found" in str(e).lower():
+                permissions_tested.append("es:DescribeDomain")
+                success("es:DescribeDomain")
+            elif "AccessDenied" in str(e) or "not authorized" in str(e).lower():
+                permissions_failed.append(("es:DescribeDomain", str(e)))
+                warn(f"es:DescribeDomain - {e}")
+            else:
+                permissions_tested.append("es:DescribeDomain")
+                success("es:DescribeDomain")
 
         # Test ELB permissions
         try:

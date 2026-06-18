@@ -100,7 +100,7 @@ Minimum estimated waste: ~$25,944/month
 - Catches expensive idle AI/ML waste: SageMaker, AML, Vertex AI — GPU-backed resources flagged as higher-risk review candidates ($500–$23K/month)
 - Works across AWS, Azure, and GCP in one tool
 - Runs entirely in your environment — no agents, no SaaS, no credentials stored
-- 49 curated, high-signal detection rules designed to avoid false positives in IaC environments
+- 50 curated, high-signal detection rules designed to avoid false positives in IaC environments
 - CI/CD-ready — enforcement exit codes + JSON/CSV/markdown output
 
 ### What CleanCloud does NOT do
@@ -434,13 +434,13 @@ Yes. CleanCloud only needs network access to your cloud provider's API endpoints
 
 ## What CleanCloud Detects
 
-49 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
+50 rules across AWS, Azure, and GCP — conservative, high-signal, designed to avoid false positives in IaC environments.
 
 **AWS:**
 - Compute: stopped instances 30+ days (EBS charges continue)
 - Storage: unattached EBS volumes (HIGH), old EBS snapshots, old AMIs, old RDS snapshots 90+ days
 - Network: unattached Elastic IPs (HIGH), detached ENIs, idle NAT Gateways, idle load balancers (HIGH)
-- Platform: idle RDS instances (HIGH), idle Redshift clusters (zero connections 14+ days)
+- Platform: idle RDS instances (HIGH), idle Redshift clusters (zero connections 14+ days), idle OpenSearch domains (zero requests 14+ days)
 - Observability: infinite retention CloudWatch Logs
 - Governance: untagged resources, unused security groups
 - AI/ML *(opt-in: `--category ai`)*: idle Bedrock Provisioned Throughput (Model Units) with zero invocations 7+ days; idle SageMaker endpoints with no observed `InvokeEndpoint` traffic 14+ days; SageMaker Notebook Instances with stale control-plane timestamps 14+ days; SageMaker Domains with no running apps across all user profiles and spaces 30+ days (continuous EFS storage cost); SageMaker Studio apps (`KernelGateway`/`JupyterLab`/`CodeEditor`) with no usable recent activity signal 7+ days; SageMaker training jobs still `InProgress` beyond the 24h threshold; SageMaker processing jobs still `InProgress` beyond the 24h threshold

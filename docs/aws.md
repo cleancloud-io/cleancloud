@@ -367,6 +367,15 @@ Attach this policy to your IAM role or user for the default hygiene scan path (c
       "Resource": "*"
     },
     {
+      "Sid": "OpenSearchReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "es:ListDomainNames",
+        "es:DescribeDomain"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CloudWatchReadOnly",
       "Effect": "Allow",
       "Action": [
