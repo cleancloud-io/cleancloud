@@ -24,15 +24,21 @@ _GPU_FAMILIES = (
     "p4d.",
     "p4de.",
     "p5.",
-    "p5en.",  # H100 + higher network bandwidth than p5
-    "p6.",  # NVIDIA B200 (Blackwell)
+    "p5e.",  # NVIDIA H200
+    "p5en.",  # H200 + higher network bandwidth than p5e
+    # Blackwell families use hyphenated names (e.g. p6-b200.48xlarge), not "p6."
+    "p6-b200.",  # NVIDIA B200
+    "p6-b300.",  # NVIDIA B300
+    "p6e-gb200.",  # NVIDIA GB200 (UltraServer nodes)
     "g4dn.",
     "g4ad.",
     "g5.",
     "g5g.",
     "g6.",
     "g6e.",
+    "g6f.",  # NVIDIA L4 (fractional GPU)
     "gr6.",
+    "gr6f.",  # NVIDIA L4 (fractional GPU, high memory)
     "trn1.",
     "trn1n.",
     "trn2.",

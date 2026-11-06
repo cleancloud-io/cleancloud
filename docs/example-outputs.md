@@ -691,7 +691,7 @@ Found 7 hygiene issues:
    Confidence : Medium
    Resource   : azure.compute.disk → data-disk-legacy-api
    Region     : eastus
-   Rule       : azure.unattached_disk
+   Rule       : azure.compute.disk.unattached
    Reason     : Managed disk not attached to any VM (age: 34 days)
    Detected   : 2026-02-08T14:45:12+00:00
    Details:
@@ -1121,7 +1121,7 @@ Scanned at: 2026-02-08T14:45:19+00:00
   "findings": [
     {
       "provider": "azure",
-      "rule_id": "azure.unattached_disk",
+      "rule_id": "azure.compute.disk.unattached",
       "resource_type": "azure.compute.disk",
       "resource_id": "/subscriptions/a1b2c3d4-e5f6-7890-abcd-ef1234567890/resourceGroups/rg-legacy/providers/Microsoft.Compute/disks/data-disk-legacy-api",
       "region": "eastus",
