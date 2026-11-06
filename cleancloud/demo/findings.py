@@ -244,7 +244,7 @@ AWS_FINDINGS: List[Finding] = [
 AZURE_FINDINGS: List[Finding] = [
     Finding(
         provider="azure",
-        rule_id="azure.unattached_disk",
+        rule_id="azure.compute.disk.unattached",
         resource_type="azure.compute.disk",
         resource_id="data-disk-legacy-api",
         region="eastus",
@@ -291,7 +291,7 @@ AZURE_FINDINGS: List[Finding] = [
     ),
     Finding(
         provider="azure",
-        rule_id="azure.vm_stopped_not_deallocated",
+        rule_id="azure.vm.stopped_not_deallocated",
         resource_type="azure.compute.vm",
         resource_id="vm-old-jumpbox",
         region="eastus",

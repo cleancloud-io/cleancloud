@@ -163,6 +163,27 @@ class TestIsGpuInstance:
     def test_inf2_is_gpu(self):
         assert _is_gpu_instance("inf2.xlarge")
 
+    def test_p5e_is_gpu(self):
+        assert _is_gpu_instance("p5e.48xlarge")
+
+    def test_p5en_is_gpu(self):
+        assert _is_gpu_instance("p5en.48xlarge")
+
+    def test_p6_b200_is_gpu(self):
+        assert _is_gpu_instance("p6-b200.48xlarge")
+
+    def test_p6_b300_is_gpu(self):
+        assert _is_gpu_instance("p6-b300.48xlarge")
+
+    def test_p6e_gb200_is_gpu(self):
+        assert _is_gpu_instance("p6e-gb200.36xlarge")
+
+    def test_g6f_is_gpu(self):
+        assert _is_gpu_instance("g6f.xlarge")
+
+    def test_gr6f_is_gpu(self):
+        assert _is_gpu_instance("gr6f.4xlarge")
+
     def test_t3_is_not_gpu(self):
         assert not _is_gpu_instance("t3.large")
 

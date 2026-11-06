@@ -53,7 +53,7 @@ from typing import List, Optional, Tuple
 from azure.core.exceptions import HttpResponseError, ServiceRequestError, ServiceResponseError
 from azure.mgmt.monitor import MonitorManagementClient
 from azure.mgmt.network import NetworkManagementClient
-from azure.mgmt.resource import ResourceManagementClient
+from azure.mgmt.resource.resources import ResourceManagementClient
 
 from cleancloud.core.confidence import ConfidenceLevel
 from cleancloud.core.evidence import Evidence

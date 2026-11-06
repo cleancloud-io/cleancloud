@@ -118,8 +118,9 @@ Out of scope:
 
 The current rule targets these instance-type prefixes:
 
-- `p2.`, `p3.`, `p3dn.`, `p4d.`, `p4de.`, `p5.`, `p5en.`, `p6.`
-- `g4dn.`, `g4ad.`, `g5.`, `g5g.`, `g6.`, `g6e.`, `gr6.`
+- `p2.`, `p3.`, `p3dn.`, `p4d.`, `p4de.`, `p5.`, `p5e.`, `p5en.`
+- `p6-b200.`, `p6-b300.`, `p6e-gb200.`
+- `g4dn.`, `g4ad.`, `g5.`, `g5g.`, `g6.`, `g6e.`, `g6f.`, `gr6.`, `gr6f.`
 - `trn1.`, `trn1n.`, `trn2.`
 - `inf1.`, `inf2.`
 - `dl1.`, `dl2q.`
@@ -131,6 +132,8 @@ Notes:
 - Non-AI accelerated families such as `f1`, `f2`, and `vt1` are intentionally out of scope.
 - Future AWS family-name additions may require allowlist updates even when they are documented in
   the latest accelerated-computing pages.
+- Blackwell families use hyphenated instance-type names (for example `p6-b200.48xlarge`), so each
+  must be listed with its full family prefix; a bare `p6.` prefix matches no AWS instance type.
 
 ---
 

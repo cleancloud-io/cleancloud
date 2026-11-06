@@ -17,7 +17,7 @@ from cleancloud.providers.azure.scan import _scan_azure_subscription
 def _make_finding(resource_id="disk-1"):
     return Finding(
         provider="azure",
-        rule_id="azure.unattached_disk",
+        rule_id="azure.compute.disk.unattached",
         resource_type="azure.compute.disk",
         resource_id=resource_id,
         region="eastus",
